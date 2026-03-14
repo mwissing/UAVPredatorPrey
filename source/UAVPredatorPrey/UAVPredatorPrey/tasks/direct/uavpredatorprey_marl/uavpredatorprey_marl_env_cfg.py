@@ -21,9 +21,13 @@ class UavpredatorpreyMarlEnvCfg(DirectMARLEnvCfg):
 
     # multi-agent specification
     possible_agents = ["predator", "prey"]
+    # Observations per agent (18D):
+    #   lin_vel_b(3), ang_vel_b(3), projected_gravity_b(3),
+    #   pos_relative_to_origin(3),  <-- NEW: gives height + arena-position awareness
+    #   rel_pos_to_opponent_b(3), rel_vel_to_opponent_w(3)
     action_spaces = {"predator": 4, "prey": 4}
-    observation_spaces = {"predator": 15, "prey": 15}
-    state_space = 30  # concatenation of both agents' observations for MAPPO value function
+    observation_spaces = {"predator": 18, "prey": 18}
+    state_space = 36  # concatenation of both agents' observations for MAPPO
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
@@ -75,27 +79,39 @@ class UavpredatorpreyMarlEnvCfg(DirectMARLEnvCfg):
     thrust_to_weight = 1.9
     moment_scale = 0.01
 
-    # reward scales
-    # predator: rewarded for getting close, bonus for catching
-    predator_distance_reward_scale = 10.0   # reward for proximity
-    predator_catch_bonus = 50.0             # one-time bonus on catch
-    predator_lin_vel_penalty = -0.02        # small penalty for erratic flight
-    predator_ang_vel_penalty = -0.005
+    # === REWARD HIERARCHY ===
+    # Priority 1: Learn to fly (dominant - without this, everything else is noise)
+    upright_reward_scale = 2.0              # reward for staying level
+    target_height = 1.0                     # desired hover altitude [m]
+    height_penalty_scale = -3.0             # penalty for deviating from target_height
 
-    # prey: rewarded for staying far, penalty for being caught
-    prey_distance_reward_scale = 5.0        # reward for distance
-    prey_caught_penalty = -50.0             # one-time penalty on caught
-    prey_lin_vel_penalty = -0.02
-    prey_ang_vel_penalty = -0.005
-    prey_alive_bonus = 0.5                  # bonus per step for surviving
+    # Priority 2: Stay in arena
+    boundary_warn_fraction = 0.6            # soft penalty starts at 60% of arena radius
+    boundary_penalty_scale = 50.0           # per meter outside warn zone
+
+    # Priority 3: Predator-prey task
+    # Predator: bounded proximity reward (same as working single-agent env, NOT delta_dist)
+    predator_proximity_reward_scale = 8.0   # reward for being close to prey
+    predator_catch_bonus = 200.0            # one-time bonus on actual collision
+    # Prey: NO retreat reward (this caused fly-to-boundary). Only alive bonus + caught penalty.
+    prey_alive_bonus = 2.0                  # per second - prey wants to survive, not flee
+    prey_caught_penalty = -200.0            # one-time penalty on caught
+
+    # Shared velocity penalties (dampen wild movements)
+    lin_vel_penalty = -0.05
+    ang_vel_penalty = -0.01
+
+    # OOB penalty: applied on termination step when drone crashes/leaves arena.
+    # Must be >= caught_penalty so prey can't exploit crashing to avoid being caught.
+    oob_penalty = -200.0
 
     # catch/termination parameters
-    catch_distance = 0.2                    # distance threshold for "catch" [m]
+    catch_distance = 0.3                    # slightly larger for easier early learning
     arena_radius = 5.0                      # max horizontal distance from origin [m]
     min_height = 0.1                        # crash threshold [m]
     max_height = 3.0                        # ceiling threshold [m]
 
     # initial spawn parameters
-    predator_spawn_pos = [0.0, -1.5, 1.0]  # predator starts at one side
-    prey_spawn_pos = [0.0, 1.5, 1.0]       # prey starts at other side
-    spawn_pos_noise = 0.5                   # random noise on spawn position [m]
+    predator_spawn_pos = [0.0, -1.0, 1.0]  # closer together for faster learning
+    prey_spawn_pos = [0.0, 1.0, 1.0]
+    spawn_pos_noise = 0.3                   # less noise for more consistent starts
