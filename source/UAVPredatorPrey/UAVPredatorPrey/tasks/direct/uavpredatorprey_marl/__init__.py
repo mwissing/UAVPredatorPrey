@@ -13,7 +13,7 @@ from . import agents
 
 
 gym.register(
-    id="Template-Uavpredatorprey-Marl-Direct-v0",
+    id="1v1-empty-v0",
     entry_point=f"{__name__}.uavpredatorprey_marl_env:UavpredatorpreyMarlEnv",
     disable_env_checker=True,
     kwargs={

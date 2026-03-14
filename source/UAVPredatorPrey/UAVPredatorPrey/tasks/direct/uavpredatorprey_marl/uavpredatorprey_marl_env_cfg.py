@@ -1,14 +1,15 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
-#
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab_assets.robots.cart_double_pendulum import CART_DOUBLE_PENDULUM_CFG
+from isaaclab_assets import CRAZYFLIE_CFG
 
+import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg
 from isaaclab.envs import DirectMARLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
+from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
 
@@ -16,40 +17,75 @@ from isaaclab.utils import configclass
 class UavpredatorpreyMarlEnvCfg(DirectMARLEnvCfg):
     # env
     decimation = 2
-    episode_length_s = 5.0
-    # multi-agent specification and spaces definition
-    possible_agents = ["cart", "pendulum"]
-    action_spaces = {"cart": 1, "pendulum": 1}
-    observation_spaces = {"cart": 4, "pendulum": 3}
-    state_space = -1
+    episode_length_s = 10.0
+
+    # multi-agent specification
+    possible_agents = ["predator", "prey"]
+    action_spaces = {"predator": 4, "prey": 4}
+    observation_spaces = {"predator": 15, "prey": 15}
+    state_space = 30  # concatenation of both agents' observations for MAPPO value function
 
     # simulation
-    sim: SimulationCfg = SimulationCfg(dt=1 / 120, render_interval=decimation)
+    sim: SimulationCfg = SimulationCfg(
+        dt=1 / 100,
+        render_interval=decimation,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+            restitution=0.0,
+        ),
+    )
 
-    # robot(s)
-    robot_cfg: ArticulationCfg = CART_DOUBLE_PENDULUM_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=4.0, replicate_physics=True)
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(
+        num_envs=4096, env_spacing=5.0, replicate_physics=True, clone_in_fabric=True
+    )
 
-    # custom parameters/scales
-    # - controllable joint
-    cart_dof_name = "slider_to_cart"
-    pole_dof_name = "cart_to_pole"
-    pendulum_dof_name = "pole_to_pendulum"
-    # - action scale
-    cart_action_scale = 100.0  # [N]
-    pendulum_action_scale = 50.0  # [Nm]
-    # - reward scales
-    rew_scale_alive = 1.0
-    rew_scale_terminated = -2.0
-    rew_scale_cart_pos = 0
-    rew_scale_cart_vel = -0.01
-    rew_scale_pole_pos = -1.0
-    rew_scale_pole_vel = -0.01
-    rew_scale_pendulum_pos = -1.0
-    rew_scale_pendulum_vel = -0.01
-    # - reset states/conditions
-    initial_pendulum_angle_range = [-0.25, 0.25]  # pendulum angle sample range on reset [rad]
-    initial_pole_angle_range = [-0.25, 0.25]  # pole angle sample range on reset [rad]
-    max_cart_pos = 3.0  # reset if cart exceeds this position [m]
+    # robots - two separate Crazyflie quadcopters
+    predator_cfg: ArticulationCfg = CRAZYFLIE_CFG.replace(prim_path="/World/envs/env_.*/Predator")
+    prey_cfg: ArticulationCfg = CRAZYFLIE_CFG.replace(prim_path="/World/envs/env_.*/Prey")
+
+    # physics parameters
+    thrust_to_weight = 1.9
+    moment_scale = 0.01
+
+    # reward scales
+    # predator: rewarded for getting close, bonus for catching
+    predator_distance_reward_scale = 10.0   # reward for proximity
+    predator_catch_bonus = 50.0             # one-time bonus on catch
+    predator_lin_vel_penalty = -0.02        # small penalty for erratic flight
+    predator_ang_vel_penalty = -0.005
+
+    # prey: rewarded for staying far, penalty for being caught
+    prey_distance_reward_scale = 5.0        # reward for distance
+    prey_caught_penalty = -50.0             # one-time penalty on caught
+    prey_lin_vel_penalty = -0.02
+    prey_ang_vel_penalty = -0.005
+    prey_alive_bonus = 0.5                  # bonus per step for surviving
+
+    # catch/termination parameters
+    catch_distance = 0.2                    # distance threshold for "catch" [m]
+    arena_radius = 5.0                      # max horizontal distance from origin [m]
+    min_height = 0.1                        # crash threshold [m]
+    max_height = 3.0                        # ceiling threshold [m]
+
+    # initial spawn parameters
+    predator_spawn_pos = [0.0, -1.5, 1.0]  # predator starts at one side
+    prey_spawn_pos = [0.0, 1.5, 1.0]       # prey starts at other side
+    spawn_pos_noise = 0.5                   # random noise on spawn position [m]
