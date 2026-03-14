@@ -57,9 +57,19 @@ class UavpredatorpreyMarlEnvCfg(DirectMARLEnvCfg):
         num_envs=4096, env_spacing=5.0, replicate_physics=True, clone_in_fabric=True
     )
 
-    # robots - two separate Crazyflie quadcopters
-    predator_cfg: ArticulationCfg = CRAZYFLIE_CFG.replace(prim_path="/World/envs/env_.*/Predator")
-    prey_cfg: ArticulationCfg = CRAZYFLIE_CFG.replace(prim_path="/World/envs/env_.*/Prey")
+    # robots - predator is red, prey is blue
+    predator_cfg: ArticulationCfg = CRAZYFLIE_CFG.replace(
+        prim_path="/World/envs/env_.*/Predator",
+        spawn=CRAZYFLIE_CFG.spawn.replace(
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.1, 0.1))
+        ),
+    )
+    prey_cfg: ArticulationCfg = CRAZYFLIE_CFG.replace(
+        prim_path="/World/envs/env_.*/Prey",
+        spawn=CRAZYFLIE_CFG.spawn.replace(
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.4, 1.0))
+        ),
+    )
 
     # physics parameters
     thrust_to_weight = 1.9
