@@ -5,15 +5,11 @@
 from __future__ import annotations
 
 import torch
-import gymnasium as gym
 from collections.abc import Sequence
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectMARLEnv
-from isaaclab.markers import VisualizationMarkers
-from isaaclab.markers import CUBOID_MARKER_CFG  # isort: skip
-from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils.math import subtract_frame_transforms
 
 from .uavpredatorprey_marl_env_cfg import UavpredatorpreyMarlEnvCfg
