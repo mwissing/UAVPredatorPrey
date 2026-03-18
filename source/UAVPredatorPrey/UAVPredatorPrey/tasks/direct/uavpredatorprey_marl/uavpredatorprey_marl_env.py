@@ -30,8 +30,18 @@ class UavpredatorpreyMarlEnv(DirectMARLEnv):
         self._prey_thrust = torch.zeros(self.num_envs, 1, 3, device=self.device)
         self._prey_moment = torch.zeros(self.num_envs, 1, 3, device=self.device)
 
-        # Catch counter for logging
+        # Episode-level tracking for logging
         self._episode_catches = torch.zeros(self.num_envs, device=self.device)
+        self._episode_predator_oob = torch.zeros(self.num_envs, device=self.device)
+        self._episode_prey_oob = torch.zeros(self.num_envs, device=self.device)
+        self._episode_reward_sums = {
+            "predator_proximity": torch.zeros(self.num_envs, device=self.device),
+            "predator_upright": torch.zeros(self.num_envs, device=self.device),
+            "predator_height": torch.zeros(self.num_envs, device=self.device),
+            "prey_alive": torch.zeros(self.num_envs, device=self.device),
+            "prey_upright": torch.zeros(self.num_envs, device=self.device),
+            "prey_height": torch.zeros(self.num_envs, device=self.device),
+        }
 
         # Get body indices for force application
         self._predator_body_id = self._predator.find_bodies("body")[0]
@@ -144,7 +154,7 @@ class UavpredatorpreyMarlEnv(DirectMARLEnv):
             self._predator.data.root_pos_w - self._prey.data.root_pos_w, dim=1
         )
 
-        rewards = compute_rewards(
+        rewards, components = compute_rewards(
             distance=distance,
             predator_height=predator_pos_rel[:, 2],
             prey_height=prey_pos_rel[:, 2],
@@ -177,7 +187,6 @@ class UavpredatorpreyMarlEnv(DirectMARLEnv):
         rewards["prey"] = rewards["prey"] - prey_boundary
 
         # --- OOB crash penalty (one-time, on termination step) ---
-        # Makes crashing equally bad as being caught → prey can't exploit "crash to avoid catch"
         predator_oob = (
             (predator_pos_rel[:, 2] < self.cfg.min_height)
             | (predator_pos_rel[:, 2] > self.cfg.max_height)
@@ -191,9 +200,18 @@ class UavpredatorpreyMarlEnv(DirectMARLEnv):
         rewards["predator"] = rewards["predator"] + predator_oob.float() * self.cfg.oob_penalty
         rewards["prey"] = rewards["prey"] + prey_oob.float() * self.cfg.oob_penalty
 
-        # Track catches
+        # --- Episode-level tracking ---
         caught = distance < self.cfg.catch_distance
         self._episode_catches += caught.float()
+        self._episode_predator_oob += predator_oob.float()
+        self._episode_prey_oob += prey_oob.float()
+        # Accumulate reward components for logging
+        self._episode_reward_sums["predator_proximity"] += components["predator_proximity"]
+        self._episode_reward_sums["predator_upright"] += components["predator_upright"]
+        self._episode_reward_sums["predator_height"] += components["predator_height"]
+        self._episode_reward_sums["prey_alive"] += components["prey_alive"]
+        self._episode_reward_sums["prey_upright"] += components["prey_upright"]
+        self._episode_reward_sums["prey_height"] += components["prey_height"]
 
         return rewards
 
@@ -224,12 +242,29 @@ class UavpredatorpreyMarlEnv(DirectMARLEnv):
             env_ids = self._predator._ALL_INDICES
         super()._reset_idx(env_ids)
 
-        # Log metrics
+        # Log metrics — SKRL requires torch.Tensor with numel()==1 for TensorBoard logging
         if len(env_ids) > 0:
             if "log" not in self.extras:
                 self.extras["log"] = {}
-            self.extras["log"]["Metrics/catch_rate"] = self._episode_catches[env_ids].mean().item()
+
+            ep_len = self.episode_length_buf[env_ids].float().mean()
+            final_dist = torch.linalg.norm(
+                self._predator.data.root_pos_w[env_ids] - self._prey.data.root_pos_w[env_ids], dim=1
+            ).mean()
+
+            self.extras["log"]["Metrics/catch_rate"] = self._episode_catches[env_ids].mean()
+            self.extras["log"]["Metrics/predator_oob_rate"] = self._episode_predator_oob[env_ids].mean()
+            self.extras["log"]["Metrics/prey_oob_rate"] = self._episode_prey_oob[env_ids].mean()
+            self.extras["log"]["Metrics/episode_length"] = ep_len
+            self.extras["log"]["Metrics/final_distance"] = final_dist
+
+            for key, buf in self._episode_reward_sums.items():
+                self.extras["log"][f"Reward/{key}"] = buf[env_ids].mean()
+                buf[env_ids] = 0.0
+
             self._episode_catches[env_ids] = 0.0
+            self._episode_predator_oob[env_ids] = 0.0
+            self._episode_prey_oob[env_ids] = 0.0
 
         # Reset actions
         self._predator_actions[env_ids] = 0.0
@@ -292,47 +327,34 @@ def compute_rewards(
     lin_vel_penalty: float,
     ang_vel_penalty: float,
     step_dt: float,
-) -> dict[str, torch.Tensor]:
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
     caught = (distance < catch_distance).float()
 
-    # =====================================================
-    # PRIORITY 1: Flight stability (both agents, dominant)
-    # =====================================================
-    # Upright reward: projected_gravity_b[:, 2] ≈ -1 when level, +1 when flipped
-    # So (-gravity_b_z) ≈ +1 when upright → positive reward
+    # === PRIORITY 1: Flight stability (both agents, dominant) ===
+    # Upright: projected_gravity_b[:,2] ≈ -1 when level → (-gz) ≈ +1 → positive reward
     predator_upright = (-predator_gravity_b_z) * upright_scale * step_dt
     prey_upright = (-prey_gravity_b_z) * upright_scale * step_dt
 
-    # Height penalty: penalize deviation from target hover altitude
+    # Height: penalize deviation from target hover altitude
     predator_height_pen = torch.square(predator_height - target_height) * height_penalty_scale * step_dt
     prey_height_pen = torch.square(prey_height - target_height) * height_penalty_scale * step_dt
 
-    # Velocity penalties: dampen wild movements, encourage smooth flight
+    # Velocity: dampen wild movements
     predator_lin_vel = torch.sum(torch.square(predator_lin_vel_b), dim=1) * lin_vel_penalty * step_dt
     predator_ang_vel = torch.sum(torch.square(predator_ang_vel_b), dim=1) * ang_vel_penalty * step_dt
     prey_lin_vel = torch.sum(torch.square(prey_lin_vel_b), dim=1) * lin_vel_penalty * step_dt
     prey_ang_vel = torch.sum(torch.square(prey_ang_vel_b), dim=1) * ang_vel_penalty * step_dt
 
-    # =====================================================
-    # PRIORITY 3: Predator-prey task
-    # =====================================================
-    # Predator: bounded proximity reward (same shape as working single-agent env)
-    # tanh(d/2) maps distance to [0,1]: close=0, far=1
-    # (1 - tanh(d/2)) is high when close → drives predator toward prey
+    # === PRIORITY 3: Predator-prey task ===
+    # Predator: bounded proximity (same as working single-agent env)
     predator_proximity = (1.0 - torch.tanh(distance / 2.0)) * predator_proximity_scale * step_dt
-    # Big one-time catch bonus — 200 >> max accumulated proximity (~16 per episode)
-    # → catching is ALWAYS better than hovering nearby
     predator_catch = caught * predator_catch_bonus
 
-    # Prey: NO retreat reward (caused fly-to-boundary).
-    # Prey only cares about: staying alive (bonus) and not getting caught (penalty).
-    # This teaches dodging, not fleeing.
+    # Prey: survive (bonus) + don't get caught (penalty). No retreat reward.
     prey_alive = prey_alive_bonus * step_dt
     prey_catch_pen = caught * prey_caught_penalty
 
-    # =====================================================
-    # Combine
-    # =====================================================
+    # === Combine ===
     predator_reward = (
         predator_upright + predator_height_pen + predator_lin_vel + predator_ang_vel
         + predator_proximity + predator_catch
@@ -342,4 +364,16 @@ def compute_rewards(
         + prey_alive + prey_catch_pen
     )
 
-    return {"predator": predator_reward, "prey": prey_reward}
+    rewards = {"predator": predator_reward, "prey": prey_reward}
+
+    # Individual components for TensorBoard logging
+    components = {
+        "predator_proximity": predator_proximity,
+        "predator_upright": predator_upright,
+        "predator_height": predator_height_pen,
+        "prey_alive": torch.full_like(prey_reward, prey_alive_bonus * step_dt),
+        "prey_upright": prey_upright,
+        "prey_height": prey_height_pen,
+    }
+
+    return rewards, components
