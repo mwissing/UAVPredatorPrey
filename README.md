@@ -65,4 +65,5 @@ It allows you to develop in an isolated environment, outside of the core Isaac L
 
 ```bash
 python scripts/skrl/train.py --task=1v1-empty-v0 --algorithm=MAPPO --headless 
+python scripts/skrl/train.py --task=3v1-empty-v0 --algorithm=MAPPO --headless 
 ```
