@@ -331,9 +331,14 @@ class Uav3v1Env(DirectMARLEnv):
         prey_boundary = torch.clamp(self._prey_horiz - warn_radius, min=0.0) * self.cfg.boundary_penalty_scale * dt
         prey_oob_pen = self._prey_oob.float() * self.cfg.oob_penalty
 
+        # Evasion reward: prey gets rewarded for distance from nearest predator
+        # Mirrors predator proximity but inverted: tanh(dist/2) → 0 when close, 1 when far
+        min_pred_dist = self._current_distances.min(dim=1).values  # (N,)
+        prey_evasion = prey_flying * torch.tanh(min_pred_dist / 2.0) * self.cfg.prey_evasion_reward_scale * dt
+
         prey_reward = (
             prey_upright + prey_height + prey_lin_vel + prey_ang_vel + prey_action_pen
-            + prey_alive_gated + prey_caught - prey_boundary + prey_oob_pen
+            + prey_alive_gated + prey_evasion + prey_caught - prey_boundary + prey_oob_pen
         )
 
         # === Per-agent reward logging ===
@@ -345,6 +350,7 @@ class Uav3v1Env(DirectMARLEnv):
         self.extras["log"]["Reward/predator_catch"] = catch_bonus.mean()
         self.extras["log"]["Reward/predator_upright"] = upright.mean()
         self.extras["log"]["Reward/prey_alive"] = prey_alive_gated.mean()
+        self.extras["log"]["Reward/prey_evasion"] = prey_evasion.mean()
         self.extras["log"]["Reward/prey_caught"] = prey_caught.mean()
 
         # Episode tracking

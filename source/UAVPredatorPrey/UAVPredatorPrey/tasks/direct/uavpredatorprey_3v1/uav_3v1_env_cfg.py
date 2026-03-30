@@ -107,6 +107,7 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     predator_assist_bonus = 50.0           # teammates within assist_distance also rewarded
     assist_distance = 1.5                  # [m] must be this close to get assist reward
     prey_alive_bonus = 2.0
+    prey_evasion_reward_scale = 5.0       # reward for distance from nearest predator (mirrors predator proximity)
     prey_caught_penalty = -200.0
 
     # Action/velocity penalties (prevent wild oscillations)
