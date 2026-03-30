@@ -57,7 +57,7 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
 
     # scene — 4096 envs × 4 drones = 16384 articulations (same total as working 1v1)
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
-        num_envs=4096, env_spacing=6.0, replicate_physics=True, clone_in_fabric=True
+        num_envs=4096, env_spacing=10.0, replicate_physics=True, clone_in_fabric=True
     )
 
     # robots — keep CRAZYFLIE_CFG defaults (retain_accelerations=True is required for thrust!)
