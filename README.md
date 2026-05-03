@@ -67,3 +67,8 @@ It allows you to develop in an isolated environment, outside of the core Isaac L
 python scripts/skrl/train.py --task=1v1-empty-v0 --algorithm=MAPPO --headless 
 python scripts/skrl/train.py --task=3v1-empty-v0 --algorithm=MAPPO --headless 
 ```
+
+## 3v1 Obstacles Training
+
+The obstacle curriculum and checkpoint workflow for `3v1-obstacles-v0` is documented in
+[`docs/training_3v1_obstacles.md`](docs/training_3v1_obstacles.md).

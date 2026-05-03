@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation, RigidObject
+from isaaclab.utils.math import subtract_frame_transforms
 
 from ..uavpredatorprey_3v1.uav_3v1_env import Uav3v1Env
 from .uav_3v1_obstacles_env_cfg import Uav3v1ObstaclesEnvCfg
@@ -91,6 +92,7 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
         # Compute obstacle positions relative to env origins
         for i, obs_obj in enumerate(self._obstacles):
             self._obstacle_pos_rel[:, i] = obs_obj.data.root_pos_w - env_origins
+        obs_positions_w = self._obstacle_pos_rel + env_origins.unsqueeze(1)
 
         obs_positions = self._obstacle_pos_rel[:, :, :2]  # (N, K, 2) — only XY for distance
 
@@ -107,17 +109,17 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
             nearest_idx = dists_xy.argmin(dim=1)  # (N,)
 
             # Gather nearest obstacle info
-            nearest_diff_xy = diffs_xy[torch.arange(N, device=self.device), nearest_idx]  # (N, 2)
             nearest_dist = dists_xy[torch.arange(N, device=self.device), nearest_idx]  # (N,)
-
-            # 3D vector to nearest obstacle (XY diff + Z diff)
-            nearest_obs_z = self._obstacle_pos_rel[torch.arange(N, device=self.device), nearest_idx, 2]
-            drone_z = self._pred_pos_rel[:, i, 2]
-            nearest_vec = torch.cat([nearest_diff_xy, (nearest_obs_z - drone_z).unsqueeze(1)], dim=1)  # (N, 3)
+            nearest_obs_w = obs_positions_w[torch.arange(N, device=self.device), nearest_idx]
+            nearest_vec_b, _ = subtract_frame_transforms(
+                self._predators[i].data.root_pos_w,
+                self._predators[i].data.root_quat_w,
+                nearest_obs_w,
+            )
 
             # Normalize by arena radius for consistent input scale
             pred_obstacle_obs.append(torch.cat([
-                nearest_vec * inv_arena,
+                nearest_vec_b * inv_arena,
                 nearest_dist.unsqueeze(1) * inv_arena,
             ], dim=1))  # (N, 4)
 
@@ -131,17 +133,17 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
         prey_dists_xy = torch.linalg.norm(prey_diffs_xy, dim=2)  # (N, K)
         prey_nearest_idx = prey_dists_xy.argmin(dim=1)  # (N,)
 
-        prey_nearest_diff_xy = prey_diffs_xy[torch.arange(N, device=self.device), prey_nearest_idx]
         prey_nearest_dist = prey_dists_xy[torch.arange(N, device=self.device), prey_nearest_idx]
-        prey_nearest_obs_z = self._obstacle_pos_rel[torch.arange(N, device=self.device), prey_nearest_idx, 2]
-        prey_nearest_vec = torch.cat([
-            prey_nearest_diff_xy,
-            (prey_nearest_obs_z - self._prey_pos_rel[:, 2]).unsqueeze(1),
-        ], dim=1)
+        prey_nearest_obs_w = obs_positions_w[torch.arange(N, device=self.device), prey_nearest_idx]
+        prey_nearest_vec_b, _ = subtract_frame_transforms(
+            self._prey.data.root_pos_w,
+            self._prey.data.root_quat_w,
+            prey_nearest_obs_w,
+        )
 
         # Normalize by arena radius
         prey_obs_extra = torch.cat([
-            prey_nearest_vec * inv_arena,
+            prey_nearest_vec_b * inv_arena,
             prey_nearest_dist.unsqueeze(1) * inv_arena,
         ], dim=1)  # (N, 4)
         prey_obs = torch.cat([parent_obs["prey"], prey_obs_extra], dim=-1)  # (N, 34)
@@ -237,10 +239,15 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
             super()._reset_idx(env_ids)
             return
 
-        # Log obstacle collision rate before parent resets episode counters
+        episode_lengths = self.episode_length_buf[env_ids].float().clamp_min(1.0).clone()
+
+        # Log obstacle collision rate before parent resets episode counters.
         if "log" not in self.extras:
             self.extras["log"] = {}
-        self.extras["log"]["Metrics/obstacle_collision_rate"] = self._episode_obstacle_collisions[env_ids].mean()
+        self.extras["log"]["Metrics/obstacle_collision_rate"] = (
+            self._episode_obstacle_collisions[env_ids] / episode_lengths
+        ).mean()
+        self.extras["log"]["Metrics/obstacle_collision_steps"] = self._episode_obstacle_collisions[env_ids].mean()
 
         # Parent handles drone reset + episode counter reset
         super()._reset_idx(env_ids)

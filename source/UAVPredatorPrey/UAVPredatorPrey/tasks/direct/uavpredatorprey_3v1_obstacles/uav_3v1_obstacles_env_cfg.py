@@ -23,7 +23,7 @@ class Uav3v1ObstaclesEnvCfg(Uav3v1EnvCfg):
     observation_spaces = {"predator": 84, "prey": 34}
     state_space = 118  # 84 + 34
 
-    catch_distance = 0.5                     # curriculum: start easy with new prey evasion reward
+    catch_distance = 0.3                     # curriculum stage 3: final tighter catch radius after stable 0.4 training
 
     # Boundary: stronger + earlier warning to reduce OOB rate
     boundary_warn_fraction = 0.5          # warning starts at 2.5m instead of 3.0m (parent: 0.6)

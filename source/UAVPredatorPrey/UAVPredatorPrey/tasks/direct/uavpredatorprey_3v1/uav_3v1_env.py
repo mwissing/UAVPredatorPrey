@@ -381,6 +381,7 @@ class Uav3v1Env(DirectMARLEnv):
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = self._predators[0]._ALL_INDICES
+        episode_lengths = self.episode_length_buf[env_ids].float().clone()
         super()._reset_idx(env_ids)
 
         n = len(env_ids)
@@ -393,7 +394,7 @@ class Uav3v1Env(DirectMARLEnv):
         self.extras["log"]["Metrics/catch_rate"] = self._episode_catches[env_ids].mean()
         self.extras["log"]["Metrics/predator_oob_rate"] = self._episode_pred_oob[env_ids].mean()
         self.extras["log"]["Metrics/prey_oob_rate"] = self._episode_prey_oob[env_ids].mean()
-        self.extras["log"]["Metrics/episode_length"] = self.episode_length_buf[env_ids].float().mean()
+        self.extras["log"]["Metrics/episode_length"] = episode_lengths.mean()
         self.extras["log"]["Metrics/episode_closest_approach"] = self._episode_min_distance[env_ids].mean()
 
         self._episode_catches[env_ids] = 0.0
