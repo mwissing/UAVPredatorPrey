@@ -22,22 +22,39 @@ class Uav3v1ObstaclesEnvCfg(Uav3v1EnvCfg):
     # Predator: 28D per drone × 3 = 84D, Prey: 34D
     observation_spaces = {"predator": 84, "prey": 34}
     state_space = 118  # 84 + 34
+    obstacle_observation_mode = "nearest"
+    obstacle_features_per_obstacle = 7  # body vec(3), distance, risk, path fraction, path block score
 
     catch_distance = 0.3                     # curriculum stage 3: final tighter catch radius after stable 0.4 training
 
     # Boundary: stronger + earlier warning to reduce OOB rate
-    boundary_warn_fraction = 0.5          # warning starts at 2.5m instead of 3.0m (parent: 0.6)
-    boundary_penalty_scale = 100.0        # doubled from parent (50.0) — stronger brake against chase overshoot
+    boundary_warn_fraction = 0.45         # warning starts at 2.25m instead of 3.0m (parent: 0.6)
+    boundary_penalty_scale = 130.0        # stronger brake against cover-induced chase overshoot
 
     # --- Obstacle configuration ---
     num_obstacles = 4                     # full obstacle count
     obstacle_radius = 0.3                 # [m] cylinder radius
     obstacle_height = 3.0                 # [m] cylinder height (floor to max_height)
 
-    # Obstacles spawn randomly in an annular region
-    obstacle_min_spawn_radius = 2.8       # [m] inner boundary (> predator_spawn_radius + noise + margin)
-    obstacle_max_spawn_radius = 4.0       # [m] outer boundary (keep inside arena)
+    # Predator spawn: override parent (2.0m) to give the prey a headstart to reach cover
+    predator_spawn_radius = 3.2           # [m] predators start further away (parent: 2.0m)
+
+    # Obstacles spawn randomly in an annular region.
+    # Keep them reachable from center so the prey can actually use them as cover before being caught.
+    obstacle_min_spawn_radius = 1.0       # [m] move cover opportunities closer to prey start (was 1.6m)
+    obstacle_max_spawn_radius = 3.1       # [m] keep cover between prey center and predator approach paths
     obstacle_min_separation = 1.0         # [m] min distance between obstacle centers (tighter for 4)
+    obstacle_agent_min_spawn_distance = 0.7  # [m] avoid spawning obstacles directly on initial drones (was 1.0m)
+    obstacle_spawn_correction_passes = 8  # fixed reset-time relaxation passes for spawn clearances
+    obstacle_cover_spawn_count = 2        # place reachable cover opportunities without gifting full cover
+    obstacle_cover_spawn_fraction = 0.62  # fraction along prey->predator segment for cover candidates
+    obstacle_cover_spawn_fraction_noise = 0.08
+    obstacle_cover_spawn_angle_noise = 0.25  # [rad] keeps cover useful without making every reset identical
+    obstacle_cover_spawn_radius_min = 0.9  # [m] align with closer spawn boundaries (was 1.45m)
+    obstacle_cover_spawn_radius_max = 1.5  # [m] (was 1.95m)
+    obstacle_cover_lateral_offset_min = 1.1  # [m] keep initial obstacles off the direct line of sight
+    obstacle_cover_lateral_offset_max = 1.55 # [m] prey must move behind/around the obstacle to earn cover
+
 
     # Obstacle rigid body configs — NO collision_props! Drones fly through them.
     # Avoidance is learned through RL rewards, not physics.
@@ -63,7 +80,7 @@ class Uav3v1ObstaclesEnvCfg(Uav3v1EnvCfg):
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(-3.0, 0.0, 1.5)),
     )
-    # Extra configs kept for future use (not instantiated when num_obstacles=2)
+    # All four configs are instantiated when num_obstacles = 4.
     obstacle_2_cfg: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Obstacle_2",
         spawn=sim_utils.CylinderCfg(
@@ -87,8 +104,185 @@ class Uav3v1ObstaclesEnvCfg(Uav3v1EnvCfg):
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -3.0, 1.5)),
     )
 
-    # Reward: obstacle penalties (minimal — let agents learn prey evasion dynamics first)
-    obstacle_proximity_penalty = -1.0     # minimal gradient
-    obstacle_warn_distance = 0.7          # tight warning zone
-    obstacle_collision_penalty = -5.0     # almost negligible
+    # Reward: obstacle penalties.
+    # Proximity uses a normalized quadratic risk in [0, 1], so this is the max per-step penalty.
+    obstacle_proximity_penalty = -2.0     # stronger gradient to route around cover instead of through it
+    obstacle_warn_distance = 0.85         # wider warning zone for cover-biased obstacle layouts
+    obstacle_collision_penalty = -150.0   # strong penalty to prevent drones from cheating by flying through visual cylinders
     obstacle_collision_distance = 0.5     # [m] ~obstacle_radius + drone_radius + margin
+    obstacle_path_block_radius = 0.85     # [m] scores obstacles blocking the agent-target line
+
+    # Reward: predator pursuit progress.
+    # Dense signal for closing the closest predator-prey distance. This counters the failure mode
+    # where predators learn obstacle avoidance by disengaging from the chase.
+    predator_progress_reward_scale = 12.0
+    predator_progress_reward_clip = 0.08  # [m/step] clip distance delta before scaling
+
+    # Reward: prey cover usage.
+    # A cover event means an obstacle lies between the prey and the closest predator in XY.
+    prey_cover_reward_scale = 24.0        # shaping for active line-of-sight cover use
+    prey_cover_seek_reward_scale = 2.0    # light proximity hint; shadow target below provides direction
+    prey_cover_pressure_floor = 0.35      # keep cover shaping alive before predators are already too close
+    prey_shadow_reward_scale = 40.0       # reward moving to the obstacle side hidden from the closest predator
+    prey_shadow_target_offset = 0.9       # [m] target distance behind obstacle, away from closest predator
+    prey_shadow_target_radius = 2.75      # [m] broad enough that the prey gets a gradient from spawn
+    prey_shadow_arena_margin = 0.4        # [m] ignore shadow targets too close to arena boundary
+    prey_shadow_reward_delay_s = 0.1      # shadow target is off-line, so it can be rewarded almost immediately
+    prey_shadow_reward_ramp_s = 0.3
+    prey_cover_reward_delay_s = 0.05      # start rewarding cover almost immediately (2-3 steps after reset)
+    prey_cover_reward_ramp_s = 0.2        # quickly ramp up to full scaling
+    prey_cover_radius = 0.75              # [m] obstacle blocks LOS if predator-prey segment passes this close
+    prey_cover_seek_distance = 1.6        # [m] distance where prey starts getting guidance toward cover
+    prey_cover_seek_target_distance = 1.0 # [m] prefer a safe ring around obstacles, not scraping them
+    prey_cover_seek_width = 0.6           # [m] triangular width around the safe cover-seeking ring
+    prey_cover_threat_distance = 3.0      # [m] cover reward fades out when predators are far away
+    prey_cover_min_los_fraction = 0.12    # ignore obstacles too close to prey end of LOS segment
+    prey_cover_max_los_fraction = 0.95    # ignore obstacles behind/at predator endpoint
+    predator_cover_penalty_scale = 0.0    # re-enable only after predator catch/avoidance is stable
+
+
+@configclass
+class Uav3v1ObstaclesEasyEnvCfg(Uav3v1ObstaclesEnvCfg):
+    """Stage A: learn stable pursuit with static obstacles, before cover tactics."""
+
+    catch_distance = 0.5
+    predator_spawn_radius = 2.0
+
+    boundary_warn_fraction = 0.6
+    boundary_penalty_scale = 80.0
+
+    obstacle_min_spawn_radius = 2.8
+    obstacle_max_spawn_radius = 4.0
+    obstacle_min_separation = 1.2
+    obstacle_agent_min_spawn_distance = 1.0
+    obstacle_cover_spawn_count = 0
+
+    obstacle_proximity_penalty = -1.0
+    obstacle_warn_distance = 0.75
+    obstacle_collision_penalty = -50.0
+
+    prey_cover_reward_scale = 0.0
+    prey_cover_seek_reward_scale = 0.0
+    prey_cover_pressure_floor = 0.0
+    prey_shadow_reward_scale = 0.0
+    predator_cover_penalty_scale = 0.0
+
+    predator_progress_reward_scale = 10.0
+
+
+@configclass
+class Uav3v1ObstaclesMidEnvCfg(Uav3v1ObstaclesEnvCfg):
+    """Stage B: tighten pursuit and move obstacles into the interaction region."""
+
+    catch_distance = 0.4
+    predator_spawn_radius = 2.5
+
+    boundary_warn_fraction = 0.55
+    boundary_penalty_scale = 100.0
+
+    obstacle_min_spawn_radius = 1.6
+    obstacle_max_spawn_radius = 3.6
+    obstacle_min_separation = 1.1
+    obstacle_agent_min_spawn_distance = 0.9
+    obstacle_cover_spawn_count = 0
+
+    obstacle_proximity_penalty = -1.5
+    obstacle_warn_distance = 0.8
+    obstacle_collision_penalty = -85.0
+
+    prey_cover_reward_scale = 0.0
+    prey_cover_seek_reward_scale = 0.0
+    prey_cover_pressure_floor = 0.0
+    prey_shadow_reward_scale = 0.0
+    predator_cover_penalty_scale = 0.0
+
+    predator_progress_reward_scale = 12.0
+
+
+@configclass
+class Uav3v1CoverEnvCfg(Uav3v1ObstaclesEnvCfg):
+    """Stage C: enable prey cover/shadow shaping after pursuit is stable."""
+
+    # Inherits the cover-biased obstacle spawn and prey cover/shadow rewards.
+    # Predator cover penalty stays off for now; otherwise the predator can be punished
+    # for the prey's initial/accidental cover before learning reliable routing.
+    predator_cover_penalty_scale = 0.0
+
+
+@configclass
+class Uav3v1ObstaclesFullObsEnvCfg(Uav3v1ObstaclesEnvCfg):
+    """Obstacle task with all-obstacle geometry for each controlled drone.
+
+    Per obstacle feature layout:
+    body-frame vector xyz, XY distance, clearance risk, path fraction, path block score.
+    The predator agent controls three drones, so it receives one sorted obstacle block per drone.
+    """
+
+    obstacle_observation_mode = "full"
+    observation_spaces = {"predator": 156, "prey": 58}
+    state_space = 214
+
+
+@configclass
+class Uav3v1ObstaclesFullObsEasyEnvCfg(Uav3v1ObstaclesFullObsEnvCfg):
+    """Stage A with full obstacle observations."""
+
+    catch_distance = 0.5
+    predator_spawn_radius = 2.0
+
+    boundary_warn_fraction = 0.6
+    boundary_penalty_scale = 80.0
+
+    obstacle_min_spawn_radius = 2.8
+    obstacle_max_spawn_radius = 4.0
+    obstacle_min_separation = 1.2
+    obstacle_agent_min_spawn_distance = 1.0
+    obstacle_cover_spawn_count = 0
+
+    obstacle_proximity_penalty = -1.0
+    obstacle_warn_distance = 0.75
+    obstacle_collision_penalty = -50.0
+
+    prey_cover_reward_scale = 0.0
+    prey_cover_seek_reward_scale = 0.0
+    prey_cover_pressure_floor = 0.0
+    prey_shadow_reward_scale = 0.0
+    predator_cover_penalty_scale = 0.0
+
+    predator_progress_reward_scale = 10.0
+
+
+@configclass
+class Uav3v1ObstaclesFullObsMidEnvCfg(Uav3v1ObstaclesFullObsEnvCfg):
+    """Stage B with full obstacle observations."""
+
+    catch_distance = 0.4
+    predator_spawn_radius = 2.5
+
+    boundary_warn_fraction = 0.55
+    boundary_penalty_scale = 100.0
+
+    obstacle_min_spawn_radius = 1.6
+    obstacle_max_spawn_radius = 3.6
+    obstacle_min_separation = 1.1
+    obstacle_agent_min_spawn_distance = 0.9
+    obstacle_cover_spawn_count = 0
+
+    obstacle_proximity_penalty = -1.5
+    obstacle_warn_distance = 0.8
+    obstacle_collision_penalty = -85.0
+
+    prey_cover_reward_scale = 0.0
+    prey_cover_seek_reward_scale = 0.0
+    prey_cover_pressure_floor = 0.0
+    prey_shadow_reward_scale = 0.0
+    predator_cover_penalty_scale = 0.0
+
+    predator_progress_reward_scale = 12.0
+
+
+@configclass
+class Uav3v1CoverFullObsEnvCfg(Uav3v1ObstaclesFullObsEnvCfg):
+    """Stage C with full obstacle observations and prey cover/shadow shaping."""
+
+    predator_cover_penalty_scale = 0.0

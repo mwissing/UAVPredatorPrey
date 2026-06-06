@@ -1,0 +1,346 @@
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers.
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+"""Smoke-test tensor shapes and diagnostic logs for the 3v1 obstacle MARL task."""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import math
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+
+EXPECTED_ACTIONS = {"predator": 12, "prey": 4}
+EXPECTED_OBSERVATIONS = {"predator": 84, "prey": 34}
+EXPECTED_STATE = 118
+EXPECTED_FULL_OBSERVATIONS = {"predator": 156, "prey": 58}
+EXPECTED_FULL_STATE = 214
+EXPECTED_LOG_KEYS = (
+    "Reward/prey_cover",
+    "Reward/prey_cover_seek",
+    "Reward/prey_shadow",
+    "Reward/obstacle_proximity_pred",
+    "Reward/obstacle_proximity_prey",
+    "Metrics/prey_cover_score",
+    "Metrics/prey_shadow_target_score",
+    "Metrics/prey_spawn_cover_score",
+    "Metrics/obstacle_spawn_min_agent_distance",
+    "Metrics/obstacle_spawn_mean_agent_distance",
+    "Metrics/obstacle_spawn_min_separation",
+    "Metrics/obstacle_spawn_mean_separation",
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+BASE_CFG_PATH = (
+    REPO_ROOT
+    / "source"
+    / "UAVPredatorPrey"
+    / "UAVPredatorPrey"
+    / "tasks"
+    / "direct"
+    / "uavpredatorprey_3v1"
+    / "uav_3v1_env_cfg.py"
+)
+OBSTACLE_CFG_PATH = (
+    REPO_ROOT
+    / "source"
+    / "UAVPredatorPrey"
+    / "UAVPredatorPrey"
+    / "tasks"
+    / "direct"
+    / "uavpredatorprey_3v1_obstacles"
+    / "uav_3v1_obstacles_env_cfg.py"
+)
+OBSTACLE_ENV_PATH = OBSTACLE_CFG_PATH.with_name("uav_3v1_obstacles_env.py")
+OBSTACLE_INIT_PATH = OBSTACLE_CFG_PATH.with_name("__init__.py")
+FULL_OBS_MAPPO_CFG_PATH = OBSTACLE_CFG_PATH.with_name("agents") / "skrl_mappo_full_obs_cfg.yaml"
+SKRL_TRAIN_PATH = REPO_ROOT / "scripts" / "skrl" / "train.py"
+
+
+def _parse_args() -> argparse.Namespace:
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--contract-only", action="store_true")
+    known_args, _ = pre_parser.parse_known_args()
+
+    parser = argparse.ArgumentParser(description="Check 3v1 obstacle MARL observation/action/state tensor shapes.")
+    parser.add_argument(
+        "--contract-only",
+        action="store_true",
+        help="Run a plain-Python static contract check without launching Isaac Sim.",
+    )
+
+    if known_args.contract_only:
+        return parser.parse_args()
+
+    try:
+        from isaaclab.app import AppLauncher
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            "Isaac Lab runtime imports are unavailable. Activate the Isaac Lab Python environment for the full "
+            "runtime tensor check, or run `py scripts\\check_3v1_obstacles_shapes.py --contract-only` for the "
+            "plain-Python static contract check."
+        ) from None
+
+    parser.add_argument(
+        "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
+    )
+    parser.add_argument("--num_envs", type=int, default=8, help="Number of environments to simulate.")
+    parser.add_argument("--task", type=str, default="3v1-obstacles-v0", help="Name of the task.")
+    parser.add_argument("--steps", type=int, default=2, help="Number of zero-action steps to verify.")
+    AppLauncher.add_app_launcher_args(parser)
+    args_cli = parser.parse_args()
+    args_cli.app_launcher_class = AppLauncher
+    return args_cli
+
+
+def _class_literal_assignments(path: Path, class_name: str) -> dict[str, Any]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            assignments = {}
+            for item in node.body:
+                targets = []
+                value = None
+                if isinstance(item, ast.Assign):
+                    targets = item.targets
+                    value = item.value
+                elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                    targets = [item.target]
+                    value = item.value
+                if value is None:
+                    continue
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        try:
+                            assignments[target.id] = ast.literal_eval(value)
+                        except (ValueError, SyntaxError):
+                            pass
+            return assignments
+    raise AssertionError(f"Class {class_name} not found in {path}")
+
+
+def _check_equal(label: str, actual, expected) -> None:
+    if actual != expected:
+        raise AssertionError(f"{label}: expected {expected}, got {actual}")
+    print(f"[OK] {label}: {actual}", flush=True)
+
+
+def _expected_contract(task: str | None = None) -> tuple[dict[str, int], int]:
+    if task and "full" in task:
+        return EXPECTED_FULL_OBSERVATIONS, EXPECTED_FULL_STATE
+    return EXPECTED_OBSERVATIONS, EXPECTED_STATE
+
+
+def _check_contract_only() -> None:
+    base_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav3v1EnvCfg")
+    obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesEnvCfg")
+    full_obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesFullObsEnvCfg")
+    env_source = OBSTACLE_ENV_PATH.read_text(encoding="utf-8")
+    init_source = OBSTACLE_INIT_PATH.read_text(encoding="utf-8")
+    full_obs_mappo_source = FULL_OBS_MAPPO_CFG_PATH.read_text(encoding="utf-8")
+
+    _check_equal("base cfg.action_spaces", base_cfg["action_spaces"], EXPECTED_ACTIONS)
+    _check_equal("obstacle cfg.num_obstacles", obstacle_cfg["num_obstacles"], 4)
+    _check_equal("obstacle cfg.catch_distance", obstacle_cfg["catch_distance"], 0.3)
+    _check_equal("obstacle cfg.observation_spaces", obstacle_cfg["observation_spaces"], EXPECTED_OBSERVATIONS)
+    _check_equal("obstacle cfg.state_space", obstacle_cfg["state_space"], EXPECTED_STATE)
+    _check_equal("obstacle cfg.obstacle_observation_mode", obstacle_cfg["obstacle_observation_mode"], "nearest")
+    _check_equal(
+        "full obstacle cfg.observation_spaces",
+        full_obstacle_cfg["observation_spaces"],
+        EXPECTED_FULL_OBSERVATIONS,
+    )
+    _check_equal("full obstacle cfg.state_space", full_obstacle_cfg["state_space"], EXPECTED_FULL_STATE)
+    _check_equal("full obstacle cfg.obstacle_observation_mode", full_obstacle_cfg["obstacle_observation_mode"], "full")
+
+    for key in EXPECTED_LOG_KEYS:
+        if key not in env_source:
+            raise AssertionError(f"Missing diagnostic log key in obstacle env source: {key}")
+    print(f"[OK] obstacle env diagnostic log keys: {', '.join(EXPECTED_LOG_KEYS)}", flush=True)
+
+    for expected in ("def _compute_full_obstacle_obs", "path_block_score", "obstacle_observation_mode == \"full\""):
+        if expected not in env_source:
+            raise AssertionError(f"Missing full-obstacle observation contract in obstacle env source: {expected}")
+    print("[OK] full-obstacle observation contract", flush=True)
+
+    if "skrl_mappo_full_obs_cfg.yaml" not in init_source:
+        raise AssertionError("Full-observation tasks should use the larger MAPPO config")
+    if "layers: [512, 256, 128]" not in full_obs_mappo_source:
+        raise AssertionError("Full-observation MAPPO config should use [512, 256, 128] layers")
+    print("[OK] full-observation MAPPO config", flush=True)
+
+    if "-cover_threat * closest_cover_score * self.cfg.predator_cover_penalty_scale * dt" not in env_source:
+        raise AssertionError("Predator cover penalty should subtract from predator reward when enabled")
+    print("[OK] predator cover penalty sign", flush=True)
+
+    if "use the current physics state instead of the previous observation" not in env_source:
+        raise AssertionError("Obstacle dones should refresh cached agent state before catch/OOB checks")
+    if "def _refresh_agent_step_state" not in env_source or "self._refresh_agent_step_state()" not in env_source:
+        raise AssertionError("Obstacle dones should use a lightweight current-step state refresh")
+    dones_source = env_source.split("def _get_dones", maxsplit=1)[1].split("def _reset_idx", maxsplit=1)[0]
+    if "super()._get_observations()" in dones_source:
+        raise AssertionError("Obstacle dones should not rebuild full observations just to refresh termination state")
+    print("[OK] current-step termination refresh", flush=True)
+
+    if "return super()._get_dones()" not in dones_source:
+        raise AssertionError("Obstacle collision should remain penalty-based and delegate termination to parent")
+    print("[OK] obstacle collision remains penalty-based", flush=True)
+
+    train_source = SKRL_TRAIN_PATH.read_text(encoding="utf-8")
+    for expected in ('parser.add_argument("--checkpoint"', 'Runner(env, agent_cfg)', "runner.agent.load(resume_path)"):
+        if expected not in train_source:
+            raise AssertionError(f"SKRL training script contract changed or missing expected entry point: {expected}")
+    print("[OK] SKRL training entry point preserved", flush=True)
+
+
+def _flatdim(space: Any) -> int:
+    if not hasattr(space, "shape") or space.shape is None:
+        raise AssertionError(f"Unsupported non-flat space for diagnostic: {space}")
+    return math.prod(space.shape)
+
+
+def _check_tensor(label: str, value: Any, expected_shape: tuple[int, ...]) -> None:
+    if tuple(value.shape) != expected_shape:
+        raise AssertionError(f"{label}: expected shape {expected_shape}, got {tuple(value.shape)}")
+    if value.is_floating_point() and not value.isfinite().all():
+        raise AssertionError(f"{label}: contains NaN or Inf")
+    print(f"[OK] {label}: shape={tuple(value.shape)}", flush=True)
+
+
+def _scalar_float(label: str, value: Any) -> float:
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "mean"):
+        value = value.mean()
+    if hasattr(value, "item"):
+        value = value.item()
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise AssertionError(f"{label}: expected scalar-like value, got {value!r}") from exc
+
+
+def _check_log_min(label: str, log: Mapping[str, Any], minimum: float, tolerance: float = 1.0e-2) -> None:
+    if label not in log:
+        raise AssertionError(f"Missing diagnostic log key: {label}")
+    value = _scalar_float(label, log[label])
+    if value + tolerance < minimum:
+        raise AssertionError(f"{label}: expected at least {minimum}, got {value}")
+    print(f"[OK] {label}: {value:.4f} >= {minimum:.4f}", flush=True)
+
+
+def _check_obs(obs: Mapping[str, Any], num_envs: int, prefix: str, expected_observations: Mapping[str, int]) -> None:
+    for agent, obs_dim in expected_observations.items():
+        if agent not in obs:
+            raise AssertionError(f"{prefix}: missing observation for agent '{agent}'")
+        _check_tensor(f"{prefix} obs[{agent}]", obs[agent], (num_envs, obs_dim))
+
+
+def _zero_actions(env, sample_space) -> dict[str, Any]:
+    return {
+        agent: sample_space(space, env.unwrapped.device, batch_size=env.unwrapped.num_envs, fill_value=0)
+        for agent, space in env.unwrapped.action_spaces.items()
+    }
+
+
+def _check_runtime(args_cli: argparse.Namespace) -> None:
+    app_launcher = args_cli.app_launcher_class(args_cli)
+    simulation_app = app_launcher.app
+    env = None
+    try:
+        import gymnasium as gym
+
+        import isaaclab_tasks  # noqa: F401
+        from isaaclab.envs.utils.spaces import sample_space
+        from isaaclab_tasks.utils import parse_env_cfg
+
+        import UAVPredatorPrey.tasks  # noqa: F401
+        expected_observations, expected_state = _expected_contract(args_cli.task)
+
+        env_cfg = parse_env_cfg(
+            args_cli.task,
+            device=args_cli.device,
+            num_envs=args_cli.num_envs,
+            use_fabric=not args_cli.disable_fabric,
+        )
+
+        _check_equal("cfg.action_spaces", env_cfg.action_spaces, EXPECTED_ACTIONS)
+        _check_equal("cfg.observation_spaces", env_cfg.observation_spaces, expected_observations)
+        _check_equal("cfg.state_space", env_cfg.state_space, expected_state)
+
+        env = gym.make(args_cli.task, cfg=env_cfg)
+        num_envs = env.unwrapped.num_envs
+
+        for agent, action_dim in EXPECTED_ACTIONS.items():
+            _check_equal(f"gym action_space[{agent}]", _flatdim(env.unwrapped.action_spaces[agent]), action_dim)
+        for agent, obs_dim in expected_observations.items():
+            _check_equal(f"gym observation_space[{agent}]", _flatdim(env.unwrapped.observation_spaces[agent]), obs_dim)
+        _check_equal("gym state_space", _flatdim(env.unwrapped.state_space), expected_state)
+
+        obs, _ = env.reset()
+        _check_obs(obs, num_envs, "reset", expected_observations)
+        _check_tensor("reset state", env.unwrapped.state(), (num_envs, expected_state))
+        latest_log = dict(env.unwrapped.extras.get("log", {}))
+        _check_log_min(
+            "Metrics/obstacle_spawn_min_agent_distance",
+            latest_log,
+            env_cfg.obstacle_agent_min_spawn_distance,
+        )
+        _check_log_min(
+            "Metrics/obstacle_spawn_min_separation",
+            latest_log,
+            env_cfg.obstacle_min_separation,
+        )
+
+        if args_cli.steps > 0:
+            actions = _zero_actions(env, sample_space)
+            for step in range(args_cli.steps):
+                obs, rewards, terminated, truncated, extras = env.step(actions)
+                latest_log = dict(extras.get("log", {}))
+                _check_obs(obs, num_envs, f"step {step + 1}", expected_observations)
+                _check_tensor(f"step {step + 1} state", env.unwrapped.state(), (num_envs, expected_state))
+                for agent in EXPECTED_ACTIONS:
+                    _check_tensor(f"step {step + 1} reward[{agent}]", rewards[agent], (num_envs,))
+                    _check_tensor(f"step {step + 1} terminated[{agent}]", terminated[agent], (num_envs,))
+                    _check_tensor(f"step {step + 1} truncated[{agent}]", truncated[agent], (num_envs,))
+
+        missing_logs = [key for key in EXPECTED_LOG_KEYS if key not in latest_log]
+        if missing_logs:
+            raise AssertionError(f"Missing diagnostic log keys: {missing_logs}")
+        print(f"[OK] diagnostic log keys present: {', '.join(EXPECTED_LOG_KEYS)}", flush=True)
+        _check_log_min(
+            "Metrics/obstacle_spawn_min_agent_distance",
+            latest_log,
+            env_cfg.obstacle_agent_min_spawn_distance,
+        )
+        _check_log_min(
+            "Metrics/obstacle_spawn_min_separation",
+            latest_log,
+            env_cfg.obstacle_min_separation,
+        )
+        print("[OK] runtime tensor smoke test completed", flush=True)
+    except BaseException:
+        if env is not None:
+            env.close()
+        raise
+    else:
+        if env is not None:
+            env.close()
+        simulation_app.close()
+
+
+def main():
+    args_cli = _parse_args()
+    if args_cli.contract_only:
+        _check_contract_only()
+    else:
+        _check_runtime(args_cli)
+
+
+if __name__ == "__main__":
+    main()

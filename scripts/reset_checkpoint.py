@@ -1,7 +1,7 @@
 """Reset optimizer state (and optionally preprocessors) in a SKRL checkpoint.
 
 Usage:
-    python scripts/reset_checkpoint_lr.py <checkpoint_path> [--output <output_path>] [--reset-preprocessors]
+    python scripts/reset_checkpoint.py <checkpoint_path> [--output <output_path>] [--reset-preprocessors]
 
 This keeps all learned model weights but removes optimizer state (including LR,
 momentum, etc.). When SKRL loads this checkpoint, it will initialize a fresh

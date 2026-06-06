@@ -346,12 +346,28 @@ class Uav3v1Env(DirectMARLEnv):
             self.extras["log"] = {}
         self.extras["log"]["Reward/predator_mean"] = pred_team_reward.mean()
         self.extras["log"]["Reward/prey_mean"] = prey_reward.mean()
+        self.extras["log"]["Reward/predator_height"] = height.mean()
+        self.extras["log"]["Reward/predator_lin_vel"] = lin_vel.mean()
+        self.extras["log"]["Reward/predator_ang_vel"] = ang_vel.mean()
+        self.extras["log"]["Reward/predator_action"] = action_pen.mean()
         self.extras["log"]["Reward/predator_proximity"] = proximity.mean()
         self.extras["log"]["Reward/predator_catch"] = catch_bonus.mean()
+        self.extras["log"]["Reward/predator_assist"] = assist_bonus.mean()
         self.extras["log"]["Reward/predator_upright"] = upright.mean()
+        self.extras["log"]["Reward/predator_boundary"] = -boundary.mean()
+        self.extras["log"]["Reward/predator_oob"] = oob_pen.mean()
+        self.extras["log"]["Reward/prey_height"] = prey_height.mean()
+        self.extras["log"]["Reward/prey_lin_vel"] = prey_lin_vel.mean()
+        self.extras["log"]["Reward/prey_ang_vel"] = prey_ang_vel.mean()
+        self.extras["log"]["Reward/prey_action"] = prey_action_pen.mean()
         self.extras["log"]["Reward/prey_alive"] = prey_alive_gated.mean()
         self.extras["log"]["Reward/prey_evasion"] = prey_evasion.mean()
         self.extras["log"]["Reward/prey_caught"] = prey_caught.mean()
+        self.extras["log"]["Reward/prey_boundary"] = -prey_boundary.mean()
+        self.extras["log"]["Reward/prey_oob"] = prey_oob_pen.mean()
+        self.extras["log"]["Metrics/predator_oob_step_fraction"] = self._pred_oob.any(dim=1).float().mean()
+        self.extras["log"]["Metrics/prey_oob_step_fraction"] = self._prey_oob.float().mean()
+        self.extras["log"]["Metrics/step_closest_approach"] = min_pred_dist.mean()
 
         # Episode tracking
         self._episode_catches += caught_f

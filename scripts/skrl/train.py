@@ -57,6 +57,19 @@ parser.add_argument(
 parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
+parser.add_argument(
+    "--freeze-agents",
+    nargs="+",
+    default=[],
+    metavar="AGENT",
+    help="Freeze one or more MARL agents during training, e.g. --freeze-agents predator prey.",
+)
+parser.add_argument(
+    "--freeze-predator",
+    action="store_true",
+    default=False,
+    help="Deprecated shortcut for --freeze-agents predator.",
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -126,6 +139,32 @@ if args_cli.agent is None:
 else:
     agent_cfg_entry_point = args_cli.agent
     algorithm = agent_cfg_entry_point.split("_cfg")[0].split("skrl_")[-1].lower()
+
+
+def _freeze_agent_training(agent, agent_names: set[str]) -> None:
+    """Freeze selected SKRL multi-agent policies without breaking the shared backward pass."""
+    if not agent_names:
+        return
+
+    optimizers = getattr(agent, "optimizers", {})
+    schedulers = getattr(agent, "schedulers", {})
+    available_agents = set(optimizers.keys()) if isinstance(optimizers, dict) else set()
+
+    for agent_name in sorted(agent_names):
+        if agent_name not in available_agents:
+            print(
+                f"[WARNING] Cannot freeze agent '{agent_name}': optimizer not found. "
+                f"Available optimizer keys: {sorted(available_agents)}"
+            )
+            continue
+
+        for param_group in optimizers[agent_name].param_groups:
+            param_group["lr"] = 0.0
+        print(f"[INFO] Agent '{agent_name}' optimizer learning rate set to 0.0.")
+
+        if isinstance(schedulers, dict) and agent_name in schedulers:
+            del schedulers[agent_name]
+            print(f"[INFO] Agent '{agent_name}' learning rate scheduler deactivated.")
 
 
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
@@ -229,6 +268,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if resume_path:
         print(f"[INFO] Loading model checkpoint from: {resume_path}")
         runner.agent.load(resume_path)
+
+    freeze_agents = set(args_cli.freeze_agents)
+    if args_cli.freeze_predator:
+        print("[WARNING] --freeze-predator is deprecated. Use --freeze-agents predator instead.")
+        freeze_agents.add("predator")
+    if freeze_agents:
+        print(f"[INFO] Freezing agents during training: {', '.join(sorted(freeze_agents))}")
+        _freeze_agent_training(runner.agent, freeze_agents)
 
     # run training
     runner.run()
