@@ -48,6 +48,9 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
         self._episode_initial_cover_score = torch.zeros(N, device=self.device)
         self._episode_prey_shadow_score = torch.zeros(N, device=self.device)
         self._prev_min_pred_prey_distance = torch.full((N,), cfg.predator_spawn_radius, device=self.device)
+        self._prev_prey_horiz = torch.zeros(N, device=self.device)
+        self._prev_prey_cover_score = torch.zeros(N, device=self.device)
+        self._prev_prey_shadow_score = torch.zeros(N, device=self.device)
 
     def _setup_scene(self):
         # Must create ALL prims BEFORE clone_environments(), so we override completely
@@ -401,8 +404,9 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
         # Team obstacle penalty (mean across drones)
         pred_obstacle_team = pred_obstacle_pen.mean(dim=0)  # (N,)
         pred_obstacle_team_risk = pred_obstacle_risk.max(dim=0).values
+        pred_collision_fraction = pred_collision.float().mean(dim=0)
         pred_collision_any = pred_collision.any(dim=0)
-        pred_collision_pen = pred_collision_any.float() * self.cfg.obstacle_collision_penalty
+        pred_collision_pen = pred_collision_fraction * self.cfg.obstacle_collision_penalty
 
         rewards["predator"] = rewards["predator"] + pred_obstacle_team + pred_collision_pen
 
@@ -436,17 +440,51 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
             min=-self.cfg.predator_progress_reward_clip,
             max=self.cfg.predator_progress_reward_clip,
         )
-        progress_valid = (
+        progress_state_valid = (
             (~self._caught)
             & (~self._pred_oob.any(dim=1))
             & (~self._prey_oob)
-        ).float() * (1.0 - pred_obstacle_team_risk)
+        ).float()
+        progress_risk_gate = (
+            self.cfg.predator_progress_min_gate
+            + (1.0 - self.cfg.predator_progress_min_gate) * (1.0 - pred_obstacle_team_risk)
+        )
+        progress_valid = progress_state_valid * progress_risk_gate
         predator_progress_reward = (
             distance_progress
             * self.cfg.predator_progress_reward_scale
             * progress_valid
         )
+        prey_distance_progress = torch.clamp(
+            -raw_progress,
+            min=-self.cfg.prey_distance_progress_reward_clip,
+            max=self.cfg.prey_distance_progress_reward_clip,
+        )
+        prey_distance_progress_reward = (
+            prey_distance_progress
+            * self.cfg.prey_distance_progress_reward_scale
+            * progress_state_valid
+        )
+        prey_boundary_progress = torch.clamp(
+            self._prev_prey_horiz - self._prey_horiz,
+            min=-self.cfg.prey_boundary_progress_reward_clip,
+            max=self.cfg.prey_boundary_progress_reward_clip,
+        )
+        boundary_progress_start = self.cfg.arena_radius * self.cfg.prey_boundary_progress_start_fraction
+        boundary_progress_width = max(self.cfg.arena_radius - boundary_progress_start, 1.0e-6)
+        prey_boundary_pressure = torch.clamp(
+            (self._prey_horiz - boundary_progress_start) / boundary_progress_width,
+            min=0.0,
+            max=1.0,
+        )
+        prey_boundary_progress_reward = (
+            prey_boundary_progress
+            * self.cfg.prey_boundary_progress_reward_scale
+            * prey_boundary_pressure
+            * progress_state_valid
+        )
         self._prev_min_pred_prey_distance[:] = min_pred_dist.detach()
+        self._prev_prey_horiz[:] = self._prey_horiz.detach()
 
         cover_threat = torch.clamp(
             (self.cfg.prey_cover_threat_distance - min_pred_dist) / self.cfg.prey_cover_threat_distance,
@@ -477,6 +515,24 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
             closest_pred_xy,
             obs_xy,
         )
+        cover_score_delta = torch.clamp(
+            closest_cover_score - self._prev_prey_cover_score,
+            min=-self.cfg.prey_cover_progress_clip,
+            max=self.cfg.prey_cover_progress_clip,
+        )
+        shadow_score_delta = torch.clamp(
+            shadow_score - self._prev_prey_shadow_score,
+            min=-self.cfg.prey_cover_progress_clip,
+            max=self.cfg.prey_cover_progress_clip,
+        )
+        prey_cover_progress_reward = (
+            prey_flying
+            * cover_pressure
+            * cover_reward_gate
+            * prey_safe_from_obstacle
+            * cover_score_delta
+            * self.cfg.prey_cover_progress_reward_scale
+        )
         prey_shadow_reward = (
             prey_flying
             * cover_pressure
@@ -486,6 +542,16 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
             * self.cfg.prey_shadow_reward_scale
             * dt
         )
+        prey_shadow_progress_reward = (
+            prey_flying
+            * cover_pressure
+            * shadow_reward_gate
+            * prey_safe_from_obstacle
+            * shadow_score_delta
+            * self.cfg.prey_shadow_progress_reward_scale
+        )
+        self._prev_prey_cover_score[:] = closest_cover_score.detach()
+        self._prev_prey_shadow_score[:] = shadow_score.detach()
 
         cover_seek_width = max(self.cfg.prey_cover_seek_width, 1.0e-6)
         cover_seek_score = torch.clamp(
@@ -513,9 +579,13 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
             rewards["prey"]
             + prey_obstacle_pen
             + prey_collision_pen
+            + prey_distance_progress_reward
+            + prey_boundary_progress_reward
             + prey_cover_reward
+            + prey_cover_progress_reward
             + prey_cover_seek_reward
             + prey_shadow_reward
+            + prey_shadow_progress_reward
         )
 
         # Logging
@@ -524,27 +594,41 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
         self.extras["log"]["Reward/obstacle_proximity_prey"] = prey_obstacle_pen.mean()
         self.extras["log"]["Reward/obstacle_collision_prey"] = prey_collision_pen.mean()
         self.extras["log"]["Reward/predator_progress"] = predator_progress_reward.mean()
+        self.extras["log"]["Reward/prey_distance_progress"] = prey_distance_progress_reward.mean()
+        self.extras["log"]["Reward/prey_boundary_progress"] = prey_boundary_progress_reward.mean()
         self.extras["log"]["Reward/predator_base"] = predator_base_reward.mean()
         self.extras["log"]["Reward/prey_base"] = prey_base_reward.mean()
         self.extras["log"]["Reward/predator_mean"] = rewards["predator"].mean()
         self.extras["log"]["Reward/prey_mean"] = rewards["prey"].mean()
         self.extras["log"]["Reward/prey_cover"] = prey_cover_reward.mean()
+        self.extras["log"]["Reward/prey_cover_progress"] = prey_cover_progress_reward.mean()
         self.extras["log"]["Reward/prey_cover_seek"] = prey_cover_seek_reward.mean()
         self.extras["log"]["Reward/prey_shadow"] = prey_shadow_reward.mean()
+        self.extras["log"]["Reward/prey_shadow_progress"] = prey_shadow_progress_reward.mean()
         self.extras["log"]["Reward/predator_cover_penalty"] = predator_cover_penalty.mean()
         self.extras["log"]["Metrics/predator_distance_progress"] = distance_progress.mean()
         self.extras["log"]["Metrics/predator_distance_progress_raw"] = raw_progress.mean()
+        self.extras["log"]["Metrics/prey_distance_progress"] = prey_distance_progress.mean()
+        self.extras["log"]["Metrics/prey_distance_progress_raw"] = (-raw_progress).mean()
+        self.extras["log"]["Metrics/prey_boundary_progress"] = prey_boundary_progress.mean()
+        self.extras["log"]["Metrics/prey_boundary_pressure"] = prey_boundary_pressure.mean()
+        self.extras["log"]["Metrics/predator_progress_gate"] = progress_risk_gate.mean()
         self.extras["log"]["Metrics/predator_obstacle_risk"] = pred_obstacle_team_risk.mean()
         self.extras["log"]["Metrics/prey_obstacle_risk"] = prey_obstacle_risk.mean()
         self.extras["log"]["Metrics/predator_obstacle_collision_step_fraction"] = pred_collision_any.float().mean()
+        self.extras["log"]["Metrics/predator_obstacle_collision_agent_fraction"] = (
+            pred_collision.float().mean()
+        )
         self.extras["log"]["Metrics/prey_obstacle_collision_step_fraction"] = prey_collision.mean()
         self.extras["log"]["Metrics/prey_cover_step_fraction"] = (closest_cover_score > 0.5).float().mean()
         self.extras["log"]["Metrics/prey_cover_score"] = closest_cover_score.mean()
+        self.extras["log"]["Metrics/prey_cover_score_delta"] = cover_score_delta.mean()
         self.extras["log"]["Metrics/prey_cover_threat"] = cover_threat.mean()
         self.extras["log"]["Metrics/prey_cover_pressure"] = cover_pressure.mean()
         self.extras["log"]["Metrics/prey_cover_reward_gate"] = cover_reward_gate.mean()
         self.extras["log"]["Metrics/prey_shadow_reward_gate"] = shadow_reward_gate.mean()
         self.extras["log"]["Metrics/prey_shadow_target_score"] = shadow_score.mean()
+        self.extras["log"]["Metrics/prey_shadow_score_delta"] = shadow_score_delta.mean()
         self.extras["log"]["Metrics/prey_shadow_target_distance"] = shadow_target_dist.mean()
 
         # Episode tracking
@@ -685,6 +769,8 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
         self._episode_prey_active_cover_score[env_ids] = 0.0
         self._episode_prey_active_cover_den[env_ids] = 0.0
         self._episode_prey_shadow_score[env_ids] = 0.0
+        self._prev_prey_cover_score[env_ids] = 0.0
+        self._prev_prey_shadow_score[env_ids] = 0.0
 
         prey_pos_w = self._prey.data.root_pos_w[env_ids]
         pred_pos_w = torch.stack([pred.data.root_pos_w[env_ids] for pred in self._predators], dim=1)
@@ -692,6 +778,8 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
             pred_pos_w - prey_pos_w.unsqueeze(1),
             dim=2,
         ).min(dim=1).values
+        prey_pos_rel = prey_pos_w - self._terrain.env_origins[env_ids]
+        self._prev_prey_horiz[env_ids] = torch.linalg.norm(prey_pos_rel[:, :2], dim=1)
 
         # Randomize obstacle positions for reset envs
         self._randomize_obstacles(env_ids, n)
@@ -825,6 +913,11 @@ class Uav3v1ObstaclesEnv(Uav3v1Env):
         self._obstacle_pos_rel[env_ids, :, 2] = self.cfg.obstacle_height / 2.0
         initial_cover_score = self._compute_closest_cover_score(prey_spawn_xy, pred_spawn_xy, positions)
         self._episode_initial_cover_score[env_ids] = initial_cover_score
+        closest_pred_idx = torch.linalg.norm(pred_spawn_xy - prey_spawn_xy.unsqueeze(1), dim=2).argmin(dim=1)
+        closest_pred_xy = pred_spawn_xy[torch.arange(n, device=self.device), closest_pred_idx]
+        initial_shadow_score, _, _ = self._compute_shadow_target(prey_spawn_xy, closest_pred_xy, positions)
+        self._prev_prey_cover_score[env_ids] = initial_cover_score
+        self._prev_prey_shadow_score[env_ids] = initial_shadow_score
         agent_spawn_dist = torch.linalg.norm(positions.unsqueeze(2) - agent_spawn_xy.unsqueeze(1), dim=3)
         obstacle_pair_dist = torch.linalg.norm(positions.unsqueeze(2) - positions.unsqueeze(1), dim=3)
         obstacle_pair_dist = obstacle_pair_dist + torch.eye(K, device=self.device).unsqueeze(0) * 1.0e6

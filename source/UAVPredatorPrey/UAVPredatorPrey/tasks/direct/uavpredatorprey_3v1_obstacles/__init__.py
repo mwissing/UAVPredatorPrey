@@ -25,11 +25,20 @@ def _register_task(task_id: str, env_cfg_name: str, mappo_cfg_name: str = "skrl_
 
 _register_task("3v1-obstacles-v0", "Uav3v1ObstaclesEnvCfg")
 _register_task("3v1-obstacles-easy-v0", "Uav3v1ObstaclesEasyEnvCfg")
+_register_task("3v1-obstacles-bridge-v0", "Uav3v1ObstaclesBridgeEnvCfg")
 _register_task("3v1-obstacles-mid-v0", "Uav3v1ObstaclesMidEnvCfg")
+_register_task("3v1-cover-bridge-v0", "Uav3v1CoverBridgeEnvCfg")
 _register_task("3v1-cover-v0", "Uav3v1CoverEnvCfg")
+_register_task("3v1-survival-easy-v0", "Uav3v1SurvivalEasyEnvCfg")
+_register_task("3v1-survival-v0", "Uav3v1SurvivalEnvCfg")
 _register_task(
     "3v1-obstacles-full-easy-v0",
     "Uav3v1ObstaclesFullObsEasyEnvCfg",
+    "skrl_mappo_full_obs_cfg.yaml",
+)
+_register_task(
+    "3v1-obstacles-full-bridge-v0",
+    "Uav3v1ObstaclesFullObsBridgeEnvCfg",
     "skrl_mappo_full_obs_cfg.yaml",
 )
 _register_task(
@@ -38,7 +47,22 @@ _register_task(
     "skrl_mappo_full_obs_cfg.yaml",
 )
 _register_task(
+    "3v1-cover-bridge-full-v0",
+    "Uav3v1CoverBridgeFullObsEnvCfg",
+    "skrl_mappo_full_obs_cfg.yaml",
+)
+_register_task(
     "3v1-cover-full-v0",
     "Uav3v1CoverFullObsEnvCfg",
+    "skrl_mappo_full_obs_cfg.yaml",
+)
+_register_task(
+    "3v1-survival-full-v0",
+    "Uav3v1SurvivalFullObsEnvCfg",
+    "skrl_mappo_full_obs_cfg.yaml",
+)
+_register_task(
+    "3v1-survival-full-easy-v0",
+    "Uav3v1SurvivalFullObsEasyEnvCfg",
     "skrl_mappo_full_obs_cfg.yaml",
 )

@@ -22,12 +22,23 @@ EXPECTED_FULL_OBSERVATIONS = {"predator": 156, "prey": 58}
 EXPECTED_FULL_STATE = 214
 EXPECTED_LOG_KEYS = (
     "Reward/prey_cover",
+    "Reward/prey_boundary_progress",
+    "Reward/prey_cover_progress",
     "Reward/prey_cover_seek",
+    "Reward/prey_distance_progress",
     "Reward/prey_shadow",
+    "Reward/prey_shadow_progress",
     "Reward/obstacle_proximity_pred",
     "Reward/obstacle_proximity_prey",
     "Metrics/prey_cover_score",
+    "Metrics/prey_cover_score_delta",
+    "Metrics/prey_boundary_progress",
+    "Metrics/prey_boundary_pressure",
+    "Metrics/prey_distance_progress",
     "Metrics/prey_shadow_target_score",
+    "Metrics/prey_shadow_score_delta",
+    "Metrics/predator_progress_gate",
+    "Metrics/predator_obstacle_collision_agent_fraction",
     "Metrics/prey_spawn_cover_score",
     "Metrics/obstacle_spawn_min_agent_distance",
     "Metrics/obstacle_spawn_mean_agent_distance",
@@ -140,6 +151,7 @@ def _check_contract_only() -> None:
     base_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav3v1EnvCfg")
     obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesEnvCfg")
     full_obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesFullObsEnvCfg")
+    obstacle_cfg_source = OBSTACLE_CFG_PATH.read_text(encoding="utf-8")
     env_source = OBSTACLE_ENV_PATH.read_text(encoding="utf-8")
     init_source = OBSTACLE_INIT_PATH.read_text(encoding="utf-8")
     full_obs_mappo_source = FULL_OBS_MAPPO_CFG_PATH.read_text(encoding="utf-8")
@@ -150,6 +162,9 @@ def _check_contract_only() -> None:
     _check_equal("obstacle cfg.observation_spaces", obstacle_cfg["observation_spaces"], EXPECTED_OBSERVATIONS)
     _check_equal("obstacle cfg.state_space", obstacle_cfg["state_space"], EXPECTED_STATE)
     _check_equal("obstacle cfg.obstacle_observation_mode", obstacle_cfg["obstacle_observation_mode"], "nearest")
+    _check_equal("obstacle cfg.predator_progress_min_gate", obstacle_cfg["predator_progress_min_gate"], 0.35)
+    _check_equal("obstacle cfg.prey_cover_progress_reward_scale", obstacle_cfg["prey_cover_progress_reward_scale"], 8.0)
+    _check_equal("obstacle cfg.prey_shadow_progress_reward_scale", obstacle_cfg["prey_shadow_progress_reward_scale"], 4.0)
     _check_equal(
         "full obstacle cfg.observation_spaces",
         full_obstacle_cfg["observation_spaces"],
@@ -173,6 +188,66 @@ def _check_contract_only() -> None:
     if "layers: [512, 256, 128]" not in full_obs_mappo_source:
         raise AssertionError("Full-observation MAPPO config should use [512, 256, 128] layers")
     print("[OK] full-observation MAPPO config", flush=True)
+
+    for expected in (
+        "3v1-obstacles-bridge-v0",
+        "Uav3v1ObstaclesBridgeEnvCfg",
+        "3v1-obstacles-full-bridge-v0",
+        "Uav3v1ObstaclesFullObsBridgeEnvCfg",
+        "3v1-cover-bridge-v0",
+        "Uav3v1CoverBridgeEnvCfg",
+        "3v1-cover-bridge-full-v0",
+        "Uav3v1CoverBridgeFullObsEnvCfg",
+    ):
+        if expected not in init_source + obstacle_cfg_source:
+            raise AssertionError(f"Missing bridge curriculum contract: {expected}")
+    print("[OK] bridge curriculum tasks", flush=True)
+
+    for expected in (
+        "3v1-survival-easy-v0",
+        "Uav3v1SurvivalEasyEnvCfg",
+        "3v1-survival-v0",
+        "Uav3v1SurvivalEnvCfg",
+        "3v1-survival-full-v0",
+        "Uav3v1SurvivalFullObsEnvCfg",
+        "3v1-survival-full-easy-v0",
+        "Uav3v1SurvivalFullObsEasyEnvCfg",
+        "predator_spawn_radius = 3.6",
+        "prey_alive_bonus = 3.0",
+        "prey_evasion_reward_scale = 8.0",
+        "prey_distance_progress_reward_scale = 10.0",
+        "prey_boundary_progress_reward_scale = 18.0",
+        "prey_cover_reward_scale = 0.0",
+        "prey_shadow_reward_scale = 0.0",
+    ):
+        if expected not in init_source + obstacle_cfg_source:
+            raise AssertionError(f"Missing survival curriculum contract: {expected}")
+    print("[OK] prey survival curriculum tasks", flush=True)
+
+    for expected in (
+        "pred_collision.float().mean(dim=0)",
+        "predator_progress_min_gate",
+        "Metrics/predator_progress_gate",
+    ):
+        if expected not in env_source:
+            raise AssertionError(f"Missing future-oriented reward contract: {expected}")
+    print("[OK] predator reward attribution/gating contract", flush=True)
+
+    for expected in (
+        "_prev_prey_cover_score",
+        "_prev_prey_shadow_score",
+        "prey_cover_progress_reward",
+        "prey_shadow_progress_reward",
+        "prey_distance_progress_reward",
+        "prey_boundary_progress_reward",
+        "Metrics/prey_cover_score_delta",
+        "Metrics/prey_shadow_score_delta",
+        "Metrics/prey_distance_progress",
+        "Metrics/prey_boundary_progress",
+    ):
+        if expected not in env_source:
+            raise AssertionError(f"Missing prey cover progress contract: {expected}")
+    print("[OK] prey cover progress shaping contract", flush=True)
 
     if "-cover_threat * closest_cover_score * self.cfg.predator_cover_penalty_scale * dt" not in env_source:
         raise AssertionError("Predator cover penalty should subtract from predator reward when enabled")

@@ -57,6 +57,34 @@ parser.add_argument(
     help="The RL algorithm used for training the skrl agent.",
 )
 parser.add_argument("--json", type=str, default=None, help="Optional path to write the evaluation summary as JSON.")
+parser.add_argument(
+    "--scripted-prey",
+    choices=["none", "escape", "arena_escape"],
+    default="none",
+    help="Override the learned prey policy with a simple evaluation-only escape controller.",
+)
+parser.add_argument("--scripted-prey-gain", type=float, default=1.0, help="Tilt command gain for scripted prey.")
+parser.add_argument("--scripted-prey-roll-sign", type=float, default=1.0, help="Roll sign for scripted prey.")
+parser.add_argument("--scripted-prey-pitch-sign", type=float, default=-1.0, help="Pitch sign for scripted prey.")
+parser.add_argument("--scripted-prey-height-gain", type=float, default=0.8, help="Height hold gain for scripted prey.")
+parser.add_argument(
+    "--scripted-prey-vz-gain",
+    type=float,
+    default=0.25,
+    help="Vertical velocity damping gain for scripted prey.",
+)
+parser.add_argument(
+    "--scripted-prey-boundary-fraction",
+    type=float,
+    default=0.60,
+    help="Arena radius fraction where scripted arena-escape starts blending toward the center.",
+)
+parser.add_argument(
+    "--scripted-prey-center-weight",
+    type=float,
+    default=0.75,
+    help="Center-seeking blend weight used near the arena boundary by scripted arena-escape.",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -99,6 +127,7 @@ elif args_cli.ml_framework.startswith("jax"):
     from skrl.utils.runner.jax import Runner
 
 from isaaclab.envs import DirectMARLEnv, DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg, multi_agent_to_single_agent
+from isaaclab.utils.math import subtract_frame_transforms
 
 from isaaclab_rl.skrl import SkrlVecEnvWrapper
 from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
@@ -185,6 +214,86 @@ def _deterministic_actions(env, outputs):
     return outputs[-1].get("mean_actions", outputs[0])
 
 
+def _scripted_prey_escape(obs: dict[str, torch.Tensor], actions: dict[str, torch.Tensor], env_cfg, raw_env) -> None:
+    """Replace prey actions with a simple body-frame escape controller."""
+    if "prey" not in obs or "prey" not in actions:
+        raise RuntimeError("--scripted-prey requires a multi-agent environment with a 'prey' agent.")
+
+    prey_obs = obs["prey"]
+    prey_actions = torch.zeros_like(actions["prey"])
+
+    # Base prey observation layout:
+    # [lin_vel_b(3), ang_vel_b(3), projected_gravity_b(3), pos_rel(3),
+    #  to_pred_0_b(3), to_pred_0_vel(3), ...]
+    to_pred = torch.stack(
+        (
+            prey_obs[:, 12:15],
+            prey_obs[:, 18:21],
+            prey_obs[:, 24:27],
+        ),
+        dim=1,
+    )
+    closest_idx = torch.linalg.norm(to_pred, dim=2).argmin(dim=1)
+    env_ids = torch.arange(prey_obs.shape[0], device=prey_obs.device)
+    closest_to_pred_b = to_pred[env_ids, closest_idx]
+
+    if args_cli.scripted_prey == "arena_escape":
+        prey_pos_rel = raw_env._prey_pos_rel
+        pred_pos_rel = raw_env._pred_pos_rel
+        closest_to_pred_w = pred_pos_rel[env_ids, closest_idx, :2] - prey_pos_rel[:, :2]
+        away_w = -closest_to_pred_w
+        away_w = away_w / torch.clamp(torch.linalg.norm(away_w, dim=1, keepdim=True), min=1.0e-6)
+
+        center_w = -prey_pos_rel[:, :2]
+        radius = torch.linalg.norm(center_w, dim=1, keepdim=True)
+        center_w = center_w / torch.clamp(radius, min=1.0e-6)
+
+        tangent_w = torch.stack((-away_w[:, 1], away_w[:, 0]), dim=1)
+        tangent_w = torch.where(
+            torch.sum(tangent_w * center_w, dim=1, keepdim=True) < 0.0,
+            -tangent_w,
+            tangent_w,
+        )
+
+        arena_radius = float(getattr(env_cfg, "arena_radius", 5.0))
+        boundary_start = arena_radius * args_cli.scripted_prey_boundary_fraction
+        boundary_width = max(arena_radius - boundary_start, 1.0e-6)
+        boundary_weight = torch.clamp((radius - boundary_start) / boundary_width, min=0.0, max=1.0)
+        guarded_w = (
+            args_cli.scripted_prey_center_weight * center_w
+            + (1.0 - args_cli.scripted_prey_center_weight) * tangent_w
+        )
+        desired_w = (1.0 - boundary_weight) * away_w + boundary_weight * guarded_w
+        desired_w = desired_w / torch.clamp(torch.linalg.norm(desired_w, dim=1, keepdim=True), min=1.0e-6)
+
+        prey_pos_w = raw_env._prey.data.root_pos_w
+        prey_quat_w = raw_env._prey.data.root_quat_w
+        desired_point_w = prey_pos_w.clone()
+        desired_point_w[:, :2] = desired_point_w[:, :2] + desired_w
+        desired_b, _ = subtract_frame_transforms(prey_pos_w, prey_quat_w, desired_point_w)
+        away_xy = desired_b[:, :2]
+    else:
+        away_xy = -closest_to_pred_b[:, :2]
+
+    away_xy = away_xy / torch.clamp(torch.linalg.norm(away_xy, dim=1, keepdim=True), min=1.0e-6)
+
+    target_height = float(getattr(env_cfg, "target_height", 1.0))
+    thrust_to_weight = max(float(getattr(env_cfg, "prey_thrust_to_weight", 2.2)), 1.0e-6)
+    hover_action = 2.0 / thrust_to_weight - 1.0
+    height_error = target_height - prey_obs[:, 11]
+    vertical_velocity = prey_obs[:, 2]
+
+    prey_actions[:, 0] = (
+        hover_action
+        + args_cli.scripted_prey_height_gain * height_error
+        - args_cli.scripted_prey_vz_gain * vertical_velocity
+    )
+    prey_actions[:, 1] = args_cli.scripted_prey_roll_sign * args_cli.scripted_prey_gain * away_xy[:, 1]
+    prey_actions[:, 2] = args_cli.scripted_prey_pitch_sign * args_cli.scripted_prey_gain * away_xy[:, 0]
+    prey_actions[:, 3] = 0.0
+    actions["prey"] = prey_actions.clamp(-1.0, 1.0)
+
+
 def _collect_logs(log: dict[str, Any], stats: WeightedMeans, *, weight: float, prefixes: tuple[str, ...]) -> None:
     for key, value in log.items():
         if not key.startswith(prefixes):
@@ -266,6 +375,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     env_cfg.log_dir = log_dir
 
     env = gym.make(args_cli.task, cfg=env_cfg)
+    raw_env = env.unwrapped
     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:
         env = multi_agent_to_single_agent(env)
 
@@ -297,6 +407,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             with torch.inference_mode():
                 outputs = runner.agent.act(obs, timestep=vector_steps, timesteps=max_steps)
                 actions = _deterministic_actions(env, outputs)
+                if args_cli.scripted_prey in {"escape", "arena_escape"}:
+                    _scripted_prey_escape(obs, actions, env_cfg, raw_env)
                 obs, _, terminated, truncated, extras = env.step(actions)
 
             vector_steps += 1
@@ -323,6 +435,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         "vector_steps": vector_steps,
         "num_envs": num_envs,
         "max_steps": max_steps,
+        "scripted_prey": args_cli.scripted_prey,
         "episode_metrics": episode_stats.as_dict(),
         "step_rewards": step_reward_stats.as_dict(),
     }
@@ -338,4 +451,3 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 if __name__ == "__main__":
     main()
     simulation_app.close()
-
