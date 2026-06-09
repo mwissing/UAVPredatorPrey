@@ -95,6 +95,7 @@ from datetime import datetime
 
 import gymnasium as gym
 import skrl
+import torch
 from packaging import version
 
 # check for minimum supported skrl version
@@ -141,6 +142,56 @@ else:
     algorithm = agent_cfg_entry_point.split("_cfg")[0].split("skrl_")[-1].lower()
 
 
+class _FrozenAgentOptimizer(torch.optim.Optimizer):
+    """No-op optimizer used to keep frozen SKRL agents out of Adam state updates."""
+
+    def __init__(self, params):
+        super().__init__(list(params), defaults={})
+
+    def step(self, closure=None):
+        if closure is not None:
+            with torch.enable_grad():
+                return closure()
+        return None
+
+    def zero_grad(self, set_to_none: bool = True):
+        for group in self.param_groups:
+            for param in group["params"]:
+                if set_to_none:
+                    param.grad = None
+                elif param.grad is not None:
+                    param.grad.detach_()
+                    param.grad.zero_()
+
+
+def _agent_parameters(agent, agent_name: str) -> list[torch.nn.Parameter]:
+    """Return unique policy/value parameters for one SKRL multi-agent uid."""
+    modules = []
+    for attr_name in ("policies", "values"):
+        mapping = getattr(agent, attr_name, {})
+        if isinstance(mapping, dict):
+            module = mapping.get(agent_name)
+            if module is not None and module not in modules:
+                modules.append(module)
+
+    if not modules:
+        models = getattr(agent, "models", {})
+        agent_models = models.get(agent_name, {}) if isinstance(models, dict) else {}
+        if isinstance(agent_models, dict):
+            for module in agent_models.values():
+                if module is not None and module not in modules:
+                    modules.append(module)
+
+    params = []
+    seen = set()
+    for module in modules:
+        for param in module.parameters():
+            if id(param) not in seen:
+                params.append(param)
+                seen.add(id(param))
+    return params
+
+
 def _freeze_agent_training(agent, agent_names: set[str]) -> None:
     """Freeze selected SKRL multi-agent policies without breaking the shared backward pass."""
     if not agent_names:
@@ -148,6 +199,7 @@ def _freeze_agent_training(agent, agent_names: set[str]) -> None:
 
     optimizers = getattr(agent, "optimizers", {})
     schedulers = getattr(agent, "schedulers", {})
+    lr_schedulers_enabled = getattr(agent, "_learning_rate_scheduler", {})
     available_agents = set(optimizers.keys()) if isinstance(optimizers, dict) else set()
 
     for agent_name in sorted(agent_names):
@@ -158,13 +210,30 @@ def _freeze_agent_training(agent, agent_names: set[str]) -> None:
             )
             continue
 
-        for param_group in optimizers[agent_name].param_groups:
-            param_group["lr"] = 0.0
-        print(f"[INFO] Agent '{agent_name}' optimizer learning rate set to 0.0.")
+        params = _agent_parameters(agent, agent_name)
+        if not params:
+            print(f"[WARNING] Cannot freeze agent '{agent_name}': no policy/value parameters found.")
+            continue
 
-        if isinstance(schedulers, dict) and agent_name in schedulers:
-            del schedulers[agent_name]
-            print(f"[INFO] Agent '{agent_name}' learning rate scheduler deactivated.")
+        for param in params:
+            param.grad = None
+
+        old_optimizer = optimizers[agent_name]
+        old_optimizer.state.clear()
+        optimizers[agent_name] = _FrozenAgentOptimizer(params)
+        checkpoint_modules = getattr(agent, "checkpoint_modules", {})
+        if isinstance(checkpoint_modules, dict) and agent_name in checkpoint_modules:
+            checkpoint_modules[agent_name].pop("optimizer", None)
+        print(
+            f"[INFO] Agent '{agent_name}' optimizer replaced by no-op freeze optimizer; "
+            "optimizer state will not be saved."
+        )
+
+        if isinstance(lr_schedulers_enabled, dict) and agent_name in lr_schedulers_enabled:
+            lr_schedulers_enabled[agent_name] = None
+            print(f"[INFO] Agent '{agent_name}' learning rate scheduler disabled.")
+        elif isinstance(schedulers, dict) and agent_name in schedulers:
+            print(f"[INFO] Agent '{agent_name}' scheduler left unused because learning rate is 0.0.")
 
 
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)

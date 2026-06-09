@@ -20,6 +20,8 @@ EXPECTED_OBSERVATIONS = {"predator": 84, "prey": 34}
 EXPECTED_STATE = 118
 EXPECTED_FULL_OBSERVATIONS = {"predator": 156, "prey": 58}
 EXPECTED_FULL_STATE = 214
+EXPECTED_1V1_SURVIVAL_OBSERVATIONS = {"predator": 18, "prey": 18}
+EXPECTED_1V1_SURVIVAL_STATE = 36
 EXPECTED_LOG_KEYS = (
     "Reward/prey_cover",
     "Reward/prey_boundary_progress",
@@ -57,6 +59,9 @@ BASE_CFG_PATH = (
     / "uavpredatorprey_3v1"
     / "uav_3v1_env_cfg.py"
 )
+BASE_ENV_PATH = BASE_CFG_PATH.with_name("uav_3v1_env.py")
+BASE_INIT_PATH = BASE_CFG_PATH.with_name("__init__.py")
+BASE_MAPPO_FINETUNE_CFG_PATH = BASE_CFG_PATH.with_name("agents") / "skrl_mappo_finetune_cfg.yaml"
 OBSTACLE_CFG_PATH = (
     REPO_ROOT
     / "source"
@@ -71,6 +76,7 @@ OBSTACLE_ENV_PATH = OBSTACLE_CFG_PATH.with_name("uav_3v1_obstacles_env.py")
 OBSTACLE_INIT_PATH = OBSTACLE_CFG_PATH.with_name("__init__.py")
 FULL_OBS_MAPPO_CFG_PATH = OBSTACLE_CFG_PATH.with_name("agents") / "skrl_mappo_full_obs_cfg.yaml"
 SKRL_TRAIN_PATH = REPO_ROOT / "scripts" / "skrl" / "train.py"
+RESET_CHECKPOINT_PATH = REPO_ROOT / "scripts" / "reset_checkpoint.py"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -149,14 +155,99 @@ def _expected_contract(task: str | None = None) -> tuple[dict[str, int], int]:
 
 def _check_contract_only() -> None:
     base_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav3v1EnvCfg")
+    survival_1v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalEasyEnvCfg")
+    soft_oob_1v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobEnvCfg")
+    soft_oob_pred22_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobPred22EnvCfg")
+    soft_oob_pred24_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobPred24EnvCfg")
     obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesEnvCfg")
     full_obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesFullObsEnvCfg")
+    base_env_source = BASE_ENV_PATH.read_text(encoding="utf-8")
+    base_init_source = BASE_INIT_PATH.read_text(encoding="utf-8")
+    base_mappo_finetune_source = BASE_MAPPO_FINETUNE_CFG_PATH.read_text(encoding="utf-8")
     obstacle_cfg_source = OBSTACLE_CFG_PATH.read_text(encoding="utf-8")
     env_source = OBSTACLE_ENV_PATH.read_text(encoding="utf-8")
     init_source = OBSTACLE_INIT_PATH.read_text(encoding="utf-8")
     full_obs_mappo_source = FULL_OBS_MAPPO_CFG_PATH.read_text(encoding="utf-8")
 
     _check_equal("base cfg.action_spaces", base_cfg["action_spaces"], EXPECTED_ACTIONS)
+    _check_equal("1v1 survival cfg.num_predators", survival_1v1_cfg["num_predators"], 1)
+    _check_equal("1v1 survival cfg.action_spaces", survival_1v1_cfg["action_spaces"], {"predator": 4, "prey": 4})
+    _check_equal(
+        "1v1 survival cfg.observation_spaces",
+        survival_1v1_cfg["observation_spaces"],
+        EXPECTED_1V1_SURVIVAL_OBSERVATIONS,
+    )
+    _check_equal("1v1 survival cfg.state_space", survival_1v1_cfg["state_space"], EXPECTED_1V1_SURVIVAL_STATE)
+    for expected in (
+        "1v1-survival-easy-v0",
+        "Uav1v1SurvivalEasyEnvCfg",
+        "1v1-survival-soft-oob-v0",
+        "Uav1v1SurvivalSoftOobEnvCfg",
+        "1v1-survival-soft-oob-pred22-v0",
+        "Uav1v1SurvivalSoftOobPred22EnvCfg",
+        "1v1-survival-soft-oob-pred24-v0",
+        "Uav1v1SurvivalSoftOobPred24EnvCfg",
+        "skrl_mappo_finetune_cfg_entry_point",
+    ):
+        if expected not in base_init_source + BASE_CFG_PATH.read_text(encoding="utf-8"):
+            raise AssertionError(f"Missing 1v1 survival curriculum contract: {expected}")
+    _check_equal("1v1 soft OOB cfg.soft_arena_boundary", soft_oob_1v1_cfg["soft_arena_boundary"], True)
+    _check_equal("1v1 soft OOB cfg.soft_arena_penalty_scale", soft_oob_1v1_cfg["soft_arena_penalty_scale"], 200.0)
+    _check_equal("1v1 soft OOB cfg.boundary_penalty_scale", soft_oob_1v1_cfg["boundary_penalty_scale"], 0.0)
+    _check_equal(
+        "1v1 soft OOB cfg.prey_low_altitude_penalty_scale",
+        soft_oob_1v1_cfg["prey_low_altitude_penalty_scale"],
+        80.0,
+    )
+    _check_equal(
+        "1v1 soft OOB cfg.prey_low_altitude_margin",
+        soft_oob_1v1_cfg["prey_low_altitude_margin"],
+        1.0,
+    )
+    _check_equal(
+        "1v1 soft OOB pred22 cfg.predator_thrust_to_weight",
+        soft_oob_pred22_cfg["predator_thrust_to_weight"],
+        2.2,
+    )
+    _check_equal(
+        "1v1 soft OOB pred24 cfg.predator_thrust_to_weight",
+        soft_oob_pred24_cfg["predator_thrust_to_weight"],
+        2.4,
+    )
+    for expected in (
+        "for _ in range(P - 1)",
+        "prey_obs_parts.extend",
+        "_prev_pred_prey_distances",
+        "predator_distance_progress_reward",
+        "Reward/predator_distance_progress",
+        "Metrics/predator_distance_progress",
+        "_prey_soft_arena_outside",
+        "soft_arena_boundary",
+        "Reward/prey_soft_arena",
+        "Metrics/prey_soft_arena_outside",
+        "prey_low_altitude",
+        "Reward/prey_low_altitude",
+        "_prev_min_pred_prey_distance",
+        "Reward/prey_boundary_progress",
+        "Metrics/prey_boundary_pressure",
+    ):
+        if expected not in base_env_source:
+            raise AssertionError(f"Missing generic base-env contract for 1v1 curriculum: {expected}")
+    print("[OK] 1v1 survival curriculum task", flush=True)
+
+    for expected in (
+        "learning_rate: 1.0e-04",
+        "learning_rate_scheduler: null",
+        "entropy_loss_scale: 0.005",
+        "initial_log_std: -0.5",
+        "max_log_std: 0.0",
+        "min_log_std: -2.0",
+        "learning_epochs: 3",
+    ):
+        if expected not in base_mappo_finetune_source:
+            raise AssertionError(f"Missing conservative self-play fine-tune config contract: {expected}")
+    print("[OK] self-play fine-tune MAPPO config", flush=True)
+
     _check_equal("obstacle cfg.num_obstacles", obstacle_cfg["num_obstacles"], 4)
     _check_equal("obstacle cfg.catch_distance", obstacle_cfg["catch_distance"], 0.3)
     _check_equal("obstacle cfg.observation_spaces", obstacle_cfg["observation_spaces"], EXPECTED_OBSERVATIONS)
@@ -271,6 +362,26 @@ def _check_contract_only() -> None:
         if expected not in train_source:
             raise AssertionError(f"SKRL training script contract changed or missing expected entry point: {expected}")
     print("[OK] SKRL training entry point preserved", flush=True)
+
+    for expected in (
+        "class _FrozenAgentOptimizer",
+        "optimizers[agent_name] = _FrozenAgentOptimizer(params)",
+        "checkpoint_modules[agent_name].pop(\"optimizer\", None)",
+        "optimizer state will not be saved",
+    ):
+        if expected not in train_source:
+            raise AssertionError(f"Missing clean freeze optimizer contract: {expected}")
+    print("[OK] clean freeze optimizer contract", flush=True)
+
+    reset_checkpoint_source = RESET_CHECKPOINT_PATH.read_text(encoding="utf-8")
+    for expected in (
+        "--policy-log-std",
+        "log_std_parameter",
+        "policy[\"log_std_parameter\"].fill_",
+    ):
+        if expected not in reset_checkpoint_source:
+            raise AssertionError(f"Missing checkpoint log-std reset contract: {expected}")
+    print("[OK] checkpoint log-std reset contract", flush=True)
 
 
 def _flatdim(space: Any) -> int:

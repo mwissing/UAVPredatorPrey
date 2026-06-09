@@ -1,0 +1,42 @@
+{
+  "predator": [
+    {
+      "name": "repaired_intercept_predator",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-07_22-41-19_mappo_finetune_torch_finetune\\checkpoints\\best_agent.pt",
+      "weight": 1.0,
+      "notes": "Repaired chase/intercept predator; deterministic catch-rate about 0.97 on baseline prey."
+    },
+    {
+      "name": "strong_intercept_predator",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-08_19-01-14_mappo_finetune_torch_finetune\\checkpoints\\agent_48000.pt",
+      "weight": 1.0,
+      "notes": "Strong visual intercept behavior; predator waits, cuts into prey trajectory."
+    }
+  ],
+  "prey": [
+    {
+      "name": "balanced_prey_agent1200",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-08_17-36-59_mappo_finetune_torch_finetune\\checkpoints\\agent_1200.pt",
+      "weight": 1.0,
+      "notes": "Moderate evasive prey; deterministic catch-rate about 0.66, low OOB."
+    },
+    {
+      "name": "balanced_prey_agent1800",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-08_17-36-59_mappo_finetune_torch_finetune\\checkpoints\\agent_1800.pt",
+      "weight": 1.0,
+      "notes": "Balanced evasive prey; deterministic catch-rate about 0.39, low OOB."
+    },
+    {
+      "name": "strong_irregular_evasion_prey",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-08_23-25-12_mappo_finetune_torch_finetune\\checkpoints\\agent_12000.pt",
+      "weight": 1.0,
+      "notes": "Strong irregular/random-looking evasive prey from the first hysteresis run."
+    },
+    {
+      "name": "strong_orbit_direction_change_prey",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-09_02-16-19_mappo_finetune_torch_finetune\\checkpoints\\agent_12000.pt",
+      "weight": 1.0,
+      "notes": "Strong safe prey from the pooled hysteresis run: orbit escape, speed use, occasional direction changes, and brief jitter."
+    }
+  ]
+}

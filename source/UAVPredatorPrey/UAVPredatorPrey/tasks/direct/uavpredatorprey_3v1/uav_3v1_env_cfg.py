@@ -103,12 +103,21 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
 
     # Priority 3: Predator-prey task (gated on being airborne)
     predator_proximity_reward_scale = 5.0  # was 8.0 — reduced so flight dominates early
+    predator_distance_progress_reward_scale = 0.0
+    predator_distance_progress_reward_clip = 0.08
     predator_catch_bonus = 200.0           # only the catcher gets this
     predator_assist_bonus = 50.0           # teammates within assist_distance also rewarded
     assist_distance = 1.5                  # [m] must be this close to get assist reward
     prey_alive_bonus = 2.0
     prey_evasion_reward_scale = 5.0       # reward for distance from nearest predator (mirrors predator proximity)
     prey_caught_penalty = -200.0
+    prey_low_altitude_penalty_scale = 0.0
+    prey_low_altitude_margin = 1.0
+    prey_distance_progress_reward_scale = 0.0
+    prey_distance_progress_reward_clip = 0.08
+    prey_boundary_progress_reward_scale = 0.0
+    prey_boundary_progress_reward_clip = 0.08
+    prey_boundary_progress_start_fraction = 0.55
 
     # Action/velocity penalties (prevent wild oscillations)
     lin_vel_penalty = -0.05
@@ -117,6 +126,9 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
 
     # OOB penalty
     oob_penalty = -200.0
+    soft_arena_boundary = False
+    soft_arena_radius = 5.0
+    soft_arena_penalty_scale = 0.0
 
     # catch/termination parameters
     catch_distance = 0.3
@@ -128,3 +140,57 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     predator_spawn_radius = 2.0  # predators spawn on a circle around center
     prey_spawn_pos = [0.0, 0.0, 1.0]  # prey spawns at center
     spawn_pos_noise = 0.3
+
+
+@configclass
+class Uav1v1SurvivalEasyEnvCfg(Uav3v1EnvCfg):
+    """Phase-2 curriculum: learn bounded prey evasion before 3v1 pressure or obstacles."""
+
+    num_predators = 1
+
+    action_spaces = {"predator": 4, "prey": 4}
+    observation_spaces = {"predator": 18, "prey": 18}
+    state_space = 36
+
+    catch_distance = 0.3
+    predator_spawn_radius = 3.2
+
+    boundary_warn_fraction = 0.55
+    boundary_penalty_scale = 80.0
+
+    predator_proximity_reward_scale = 1.0
+    predator_distance_progress_reward_scale = 10.0
+    prey_alive_bonus = 3.0
+    prey_evasion_reward_scale = 8.0
+    prey_distance_progress_reward_scale = 10.0
+    prey_boundary_progress_reward_scale = 18.0
+    prey_boundary_progress_start_fraction = 0.40
+
+
+@configclass
+class Uav1v1SurvivalSoftOobEnvCfg(Uav1v1SurvivalEasyEnvCfg):
+    """1v1 survival variant with soft 3D arena recovery instead of horizontal OOB termination."""
+
+    boundary_warn_fraction = 1.0
+    boundary_penalty_scale = 0.0
+    prey_boundary_progress_reward_scale = 0.0
+
+    soft_arena_boundary = True
+    soft_arena_radius = 5.0
+    soft_arena_penalty_scale = 200.0
+    prey_low_altitude_penalty_scale = 80.0
+    prey_low_altitude_margin = 1.0
+
+
+@configclass
+class Uav1v1SurvivalSoftOobPred22EnvCfg(Uav1v1SurvivalSoftOobEnvCfg):
+    """Soft-OOB 1v1 ablation with predator thrust matched to the prey."""
+
+    predator_thrust_to_weight = 2.2
+
+
+@configclass
+class Uav1v1SurvivalSoftOobPred24EnvCfg(Uav1v1SurvivalSoftOobEnvCfg):
+    """Soft-OOB 1v1 ablation with a modest predator thrust advantage."""
+
+    predator_thrust_to_weight = 2.4

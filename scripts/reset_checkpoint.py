@@ -2,6 +2,7 @@
 
 Usage:
     python scripts/reset_checkpoint.py <checkpoint_path> [--output <output_path>] [--reset-preprocessors]
+                                       [--policy-log-std <value>]
 
 This keeps all learned model weights but removes optimizer state (including LR,
 momentum, etc.). When SKRL loads this checkpoint, it will initialize a fresh
@@ -10,6 +11,9 @@ optimizer with the LR from the YAML config (e.g. 3e-4).
 With --reset-preprocessors, also removes RunningStandardScaler state so the
 preprocessors recalibrate to new observation/reward distributions (useful when
 changing environment configuration like number of obstacles).
+
+With --policy-log-std, reset Gaussian policy log standard deviation parameters
+while keeping the learned mean network weights.
 """
 
 import argparse
@@ -22,6 +26,12 @@ def main():
     parser.add_argument("--output", type=str, default=None, help="Output path (default: overwrites input)")
     parser.add_argument("--reset-preprocessors", action="store_true",
                         help="Also reset RunningStandardScaler preprocessors")
+    parser.add_argument(
+        "--policy-log-std",
+        type=float,
+        default=None,
+        help="Reset policy log_std_parameter tensors to this value.",
+    )
     args = parser.parse_args()
 
     print(f"Loading checkpoint: {args.checkpoint}")
@@ -52,8 +62,15 @@ def main():
         for k in agent_data:
             print(f"  Kept:    {agent_name}.{k}")
 
+        if args.policy_log_std is not None:
+            policy = agent_data.get("policy")
+            if isinstance(policy, dict) and "log_std_parameter" in policy:
+                policy["log_std_parameter"].fill_(args.policy_log_std)
+                print(f"  Reset:   {agent_name}.policy.log_std_parameter = {args.policy_log_std}")
+
     if not removed:
-        print("WARNING: Nothing removed!")
+        if args.policy_log_std is None:
+            print("WARNING: Nothing removed!")
     else:
         print(f"\nRemoved {len(removed)} entries: {removed}")
 
