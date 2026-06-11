@@ -183,6 +183,17 @@ class Uav1v1SurvivalSoftOobEnvCfg(Uav1v1SurvivalEasyEnvCfg):
 
 
 @configclass
+class Uav2v1SurvivalSoftOobEnvCfg(Uav1v1SurvivalSoftOobEnvCfg):
+    """2v1 survival curriculum step: same soft-OOB rules, one additional predator."""
+
+    num_predators = 2
+
+    action_spaces = {"predator": 8, "prey": 4}
+    observation_spaces = {"predator": 42, "prey": 24}
+    state_space = 66
+
+
+@configclass
 class Uav1v1SurvivalSoftOobPred22EnvCfg(Uav1v1SurvivalSoftOobEnvCfg):
     """Soft-OOB 1v1 ablation with predator thrust matched to the prey."""
 

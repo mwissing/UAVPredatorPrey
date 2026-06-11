@@ -22,6 +22,9 @@ EXPECTED_FULL_OBSERVATIONS = {"predator": 156, "prey": 58}
 EXPECTED_FULL_STATE = 214
 EXPECTED_1V1_SURVIVAL_OBSERVATIONS = {"predator": 18, "prey": 18}
 EXPECTED_1V1_SURVIVAL_STATE = 36
+EXPECTED_2V1_SURVIVAL_ACTIONS = {"predator": 8, "prey": 4}
+EXPECTED_2V1_SURVIVAL_OBSERVATIONS = {"predator": 42, "prey": 24}
+EXPECTED_2V1_SURVIVAL_STATE = 66
 EXPECTED_LOG_KEYS = (
     "Reward/prey_cover",
     "Reward/prey_boundary_progress",
@@ -157,6 +160,7 @@ def _check_contract_only() -> None:
     base_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav3v1EnvCfg")
     survival_1v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalEasyEnvCfg")
     soft_oob_1v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobEnvCfg")
+    soft_oob_2v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav2v1SurvivalSoftOobEnvCfg")
     soft_oob_pred22_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobPred22EnvCfg")
     soft_oob_pred24_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobPred24EnvCfg")
     obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesEnvCfg")
@@ -183,6 +187,8 @@ def _check_contract_only() -> None:
         "Uav1v1SurvivalEasyEnvCfg",
         "1v1-survival-soft-oob-v0",
         "Uav1v1SurvivalSoftOobEnvCfg",
+        "2v1-survival-soft-oob-v0",
+        "Uav2v1SurvivalSoftOobEnvCfg",
         "1v1-survival-soft-oob-pred22-v0",
         "Uav1v1SurvivalSoftOobPred22EnvCfg",
         "1v1-survival-soft-oob-pred24-v0",
@@ -204,6 +210,18 @@ def _check_contract_only() -> None:
         soft_oob_1v1_cfg["prey_low_altitude_margin"],
         1.0,
     )
+    _check_equal("2v1 soft OOB cfg.num_predators", soft_oob_2v1_cfg["num_predators"], 2)
+    _check_equal(
+        "2v1 soft OOB cfg.action_spaces",
+        soft_oob_2v1_cfg["action_spaces"],
+        EXPECTED_2V1_SURVIVAL_ACTIONS,
+    )
+    _check_equal(
+        "2v1 soft OOB cfg.observation_spaces",
+        soft_oob_2v1_cfg["observation_spaces"],
+        EXPECTED_2V1_SURVIVAL_OBSERVATIONS,
+    )
+    _check_equal("2v1 soft OOB cfg.state_space", soft_oob_2v1_cfg["state_space"], EXPECTED_2V1_SURVIVAL_STATE)
     _check_equal(
         "1v1 soft OOB pred22 cfg.predator_thrust_to_weight",
         soft_oob_pred22_cfg["predator_thrust_to_weight"],

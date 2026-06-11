@@ -1,0 +1,30 @@
+{
+  "predator": [
+    {
+      "name": "2v1_lurker_intercept_predator_phase17",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-09_22-56-00_mappo_finetune_torch_finetune\\checkpoints\\agent_24000.pt",
+      "weight": 1.0,
+      "notes": "Strong 2v1 predator pair from hysteresis phase 17: catch_rate about 1.00, predator_oob 0.00, prey_oob 0.00. Visual behavior: one chaser, one lurker/interceptor."
+    },
+    {
+      "name": "2v1_lurker_intercept_predator_phase19",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-09_23-17-14_mappo_finetune_torch_finetune\\checkpoints\\agent_24000.pt",
+      "weight": 1.0,
+      "notes": "Strong 2v1 predator pair from hysteresis phase 19: catch_rate about 0.998, predator_oob about 0.002, prey_oob 0.00."
+    }
+  ],
+  "prey": [
+    {
+      "name": "2v1_safe_orbit_prey_phase12",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-09_21-56-55_mappo_finetune_torch_finetune\\checkpoints\\agent_24000.pt",
+      "weight": 1.0,
+      "notes": "Strong safe 2v1 prey from hysteresis phase 12: catch_rate about 0.055, prey_oob 0.00, prey_soft_arena_outside about 0.006. Use as prey role only; predator in this checkpoint had high soft-arena usage."
+    },
+    {
+      "name": "2v1_safe_orbit_prey_phase16",
+      "checkpoint": "C:\\RL\\UAVPredatorPrey\\logs\\skrl\\uav_3v1_direct\\2026-06-09_22-44-39_mappo_finetune_torch_finetune\\checkpoints\\agent_24000.pt",
+      "weight": 1.0,
+      "notes": "Strong safe 2v1 prey from hysteresis phase 16: catch_rate about 0.012, prey_oob 0.00, prey_soft_arena_outside about 0.002. Use as prey role only; predator in this checkpoint had high OOB."
+    }
+  ]
+}
