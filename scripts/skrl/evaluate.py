@@ -138,6 +138,11 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 import UAVPredatorPrey.tasks  # noqa: F401
 
+if args_cli.ml_framework.startswith("torch"):
+    from UAVPredatorPrey.tasks.direct.uavpredatorprey_3v1.agents.attention_models import patch_skrl_runner
+
+    patch_skrl_runner(Runner)
+
 
 PREFERRED_EPISODE_KEYS = (
     "Metrics/catch_rate",

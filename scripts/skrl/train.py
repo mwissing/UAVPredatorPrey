@@ -133,6 +133,11 @@ logger = logging.getLogger(__name__)
 
 import UAVPredatorPrey.tasks  # noqa: F401
 
+if args_cli.ml_framework.startswith("torch"):
+    from UAVPredatorPrey.tasks.direct.uavpredatorprey_3v1.agents.attention_models import patch_skrl_runner
+
+    patch_skrl_runner(Runner)
+
 # config shortcuts
 if args_cli.agent is None:
     algorithm = args_cli.algorithm.lower()

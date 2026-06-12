@@ -140,6 +140,12 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     predator_spawn_radius = 2.0  # predators spawn on a circle around center
     prey_spawn_pos = [0.0, 0.0, 1.0]  # prey spawns at center
     spawn_pos_noise = 0.3
+    predator_mixed_spawn = False
+    predator_mixed_spawn_ring_probability = 0.50
+    predator_mixed_spawn_wide_probability = 0.25
+    predator_wide_spawn_radius = 4.0
+    predator_same_side_spawn_radius = 3.8
+    predator_same_side_spawn_spread = 0.7  # radians across the predator formation
 
 
 @configclass
@@ -191,6 +197,19 @@ class Uav2v1SurvivalSoftOobEnvCfg(Uav1v1SurvivalSoftOobEnvCfg):
     action_spaces = {"predator": 8, "prey": 4}
     observation_spaces = {"predator": 42, "prey": 24}
     state_space = 66
+
+
+@configclass
+class Uav2v1SurvivalSoftOobMixedSpawnEnvCfg(Uav2v1SurvivalSoftOobEnvCfg):
+    """2v1 soft-OOB diagnostic with mixed predator spawn geometry."""
+
+    predator_mixed_spawn = True
+    predator_mixed_spawn_ring_probability = 0.50
+    predator_mixed_spawn_wide_probability = 0.25
+    predator_wide_spawn_radius = 4.0
+    predator_same_side_spawn_radius = 3.8
+    predator_same_side_spawn_spread = 0.7
+    spawn_pos_noise = 0.35
 
 
 @configclass

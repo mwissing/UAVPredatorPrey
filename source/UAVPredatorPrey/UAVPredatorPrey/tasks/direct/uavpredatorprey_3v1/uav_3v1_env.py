@@ -88,6 +88,41 @@ class Uav3v1Env(DirectMARLEnv):
         self._teammate_src = src  # [0,0, 1,1, 2,2]
         self._teammate_dst = dst  # [1,2, 0,2, 0,1]
 
+    def _sample_predator_spawn_xy(self, n: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Sample predator XY spawn positions relative to each environment origin."""
+
+        base_angles = torch.rand(n, device=self.device) * 2 * math.pi
+        spawn_offsets = torch.tensor(self._spawn_angles, device=self.device).unsqueeze(0)
+        ring_angles = base_angles.unsqueeze(1) + spawn_offsets
+
+        x = self.cfg.predator_spawn_radius * torch.cos(ring_angles)
+        y = self.cfg.predator_spawn_radius * torch.sin(ring_angles)
+
+        if not self.cfg.predator_mixed_spawn:
+            return x, y
+
+        mode = torch.rand(n, device=self.device)
+        ring_probability = float(self.cfg.predator_mixed_spawn_ring_probability)
+        wide_cutoff = ring_probability + float(self.cfg.predator_mixed_spawn_wide_probability)
+
+        wide_mask = (mode >= ring_probability) & (mode < wide_cutoff)
+        if wide_mask.any():
+            x[wide_mask] = self.cfg.predator_wide_spawn_radius * torch.cos(ring_angles[wide_mask])
+            y[wide_mask] = self.cfg.predator_wide_spawn_radius * torch.sin(ring_angles[wide_mask])
+
+        same_side_mask = mode >= wide_cutoff
+        if same_side_mask.any():
+            if self._P == 1:
+                same_side_offsets = torch.zeros(1, device=self.device)
+            else:
+                spread = float(self.cfg.predator_same_side_spawn_spread)
+                same_side_offsets = torch.linspace(-0.5 * spread, 0.5 * spread, self._P, device=self.device)
+            same_side_angles = base_angles[same_side_mask].unsqueeze(1) + same_side_offsets.unsqueeze(0)
+            x[same_side_mask] = self.cfg.predator_same_side_spawn_radius * torch.cos(same_side_angles)
+            y[same_side_mask] = self.cfg.predator_same_side_spawn_radius * torch.sin(same_side_angles)
+
+        return x, y
+
     def _setup_scene(self):
         self._predators: list[Articulation] = []
         for i in range(self.cfg.num_predators):
@@ -531,16 +566,12 @@ class Uav3v1Env(DirectMARLEnv):
         self._pred_actions[env_ids] = 0.0
         self._prey_actions[env_ids] = 0.0
 
-        # Spawn predators (120° apart, random rotation per env)
-        base_angles = torch.rand(n, device=self.device) * 2 * math.pi
+        # Spawn predators according to the active reset geometry.
+        pred_spawn_x, pred_spawn_y = self._sample_predator_spawn_xy(n)
         for i, pred in enumerate(self._predators):
-            angles = base_angles + self._spawn_angles[i]
-            x = self.cfg.predator_spawn_radius * torch.cos(angles)
-            y = self.cfg.predator_spawn_radius * torch.sin(angles)
-
             state = pred.data.default_root_state[env_ids].clone()
-            state[:, 0] = x
-            state[:, 1] = y
+            state[:, 0] = pred_spawn_x[:, i]
+            state[:, 1] = pred_spawn_y[:, i]
             state[:, 2] = self.cfg.target_height
             state[:, :3] += (torch.rand(n, 3, device=self.device) * 2 - 1) * self.cfg.spawn_pos_noise
             state[:, :3] += self._terrain.env_origins[env_ids]

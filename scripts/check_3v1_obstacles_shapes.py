@@ -65,6 +65,7 @@ BASE_CFG_PATH = (
 BASE_ENV_PATH = BASE_CFG_PATH.with_name("uav_3v1_env.py")
 BASE_INIT_PATH = BASE_CFG_PATH.with_name("__init__.py")
 BASE_MAPPO_FINETUNE_CFG_PATH = BASE_CFG_PATH.with_name("agents") / "skrl_mappo_finetune_cfg.yaml"
+BASE_MAPPO_ATTENTION_CFG_PATH = BASE_CFG_PATH.with_name("agents") / "skrl_mappo_attention_cfg.yaml"
 OBSTACLE_CFG_PATH = (
     REPO_ROOT
     / "source"
@@ -79,6 +80,7 @@ OBSTACLE_ENV_PATH = OBSTACLE_CFG_PATH.with_name("uav_3v1_obstacles_env.py")
 OBSTACLE_INIT_PATH = OBSTACLE_CFG_PATH.with_name("__init__.py")
 FULL_OBS_MAPPO_CFG_PATH = OBSTACLE_CFG_PATH.with_name("agents") / "skrl_mappo_full_obs_cfg.yaml"
 SKRL_TRAIN_PATH = REPO_ROOT / "scripts" / "skrl" / "train.py"
+SKRL_EVALUATE_PATH = REPO_ROOT / "scripts" / "skrl" / "evaluate.py"
 RESET_CHECKPOINT_PATH = REPO_ROOT / "scripts" / "reset_checkpoint.py"
 
 
@@ -161,6 +163,7 @@ def _check_contract_only() -> None:
     survival_1v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalEasyEnvCfg")
     soft_oob_1v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobEnvCfg")
     soft_oob_2v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav2v1SurvivalSoftOobEnvCfg")
+    soft_oob_2v1_mixed_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav2v1SurvivalSoftOobMixedSpawnEnvCfg")
     soft_oob_pred22_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobPred22EnvCfg")
     soft_oob_pred24_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobPred24EnvCfg")
     obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesEnvCfg")
@@ -168,6 +171,7 @@ def _check_contract_only() -> None:
     base_env_source = BASE_ENV_PATH.read_text(encoding="utf-8")
     base_init_source = BASE_INIT_PATH.read_text(encoding="utf-8")
     base_mappo_finetune_source = BASE_MAPPO_FINETUNE_CFG_PATH.read_text(encoding="utf-8")
+    base_mappo_attention_source = BASE_MAPPO_ATTENTION_CFG_PATH.read_text(encoding="utf-8")
     obstacle_cfg_source = OBSTACLE_CFG_PATH.read_text(encoding="utf-8")
     env_source = OBSTACLE_ENV_PATH.read_text(encoding="utf-8")
     init_source = OBSTACLE_INIT_PATH.read_text(encoding="utf-8")
@@ -189,6 +193,10 @@ def _check_contract_only() -> None:
         "Uav1v1SurvivalSoftOobEnvCfg",
         "2v1-survival-soft-oob-v0",
         "Uav2v1SurvivalSoftOobEnvCfg",
+        "2v1-survival-soft-oob-mixed-spawn-v0",
+        "Uav2v1SurvivalSoftOobMixedSpawnEnvCfg",
+        "skrl_mappo_attention_cfg_entry_point",
+        "skrl_mappo_attention_cfg.yaml",
         "1v1-survival-soft-oob-pred22-v0",
         "Uav1v1SurvivalSoftOobPred22EnvCfg",
         "1v1-survival-soft-oob-pred24-v0",
@@ -222,6 +230,17 @@ def _check_contract_only() -> None:
         EXPECTED_2V1_SURVIVAL_OBSERVATIONS,
     )
     _check_equal("2v1 soft OOB cfg.state_space", soft_oob_2v1_cfg["state_space"], EXPECTED_2V1_SURVIVAL_STATE)
+    _check_equal("2v1 mixed-spawn cfg.predator_mixed_spawn", soft_oob_2v1_mixed_cfg["predator_mixed_spawn"], True)
+    _check_equal(
+        "2v1 mixed-spawn cfg.predator_mixed_spawn_ring_probability",
+        soft_oob_2v1_mixed_cfg["predator_mixed_spawn_ring_probability"],
+        0.50,
+    )
+    _check_equal(
+        "2v1 mixed-spawn cfg.predator_mixed_spawn_wide_probability",
+        soft_oob_2v1_mixed_cfg["predator_mixed_spawn_wide_probability"],
+        0.25,
+    )
     _check_equal(
         "1v1 soft OOB pred22 cfg.predator_thrust_to_weight",
         soft_oob_pred22_cfg["predator_thrust_to_weight"],
@@ -248,6 +267,8 @@ def _check_contract_only() -> None:
         "_prev_min_pred_prey_distance",
         "Reward/prey_boundary_progress",
         "Metrics/prey_boundary_pressure",
+        "_sample_predator_spawn_xy",
+        "predator_mixed_spawn",
     ):
         if expected not in base_env_source:
             raise AssertionError(f"Missing generic base-env contract for 1v1 curriculum: {expected}")
@@ -265,6 +286,16 @@ def _check_contract_only() -> None:
         if expected not in base_mappo_finetune_source:
             raise AssertionError(f"Missing conservative self-play fine-tune config contract: {expected}")
     print("[OK] self-play fine-tune MAPPO config", flush=True)
+
+    for expected in (
+        "SharedPredatorAttentionGaussianMixin",
+        "attention_min_predators: 2",
+        "attention_size: 64",
+        "fallback_layers: [256, 128, 64]",
+    ):
+        if expected not in base_mappo_attention_source:
+            raise AssertionError(f"Missing shared predator attention MAPPO config contract: {expected}")
+    print("[OK] shared predator attention MAPPO config", flush=True)
 
     _check_equal("obstacle cfg.num_obstacles", obstacle_cfg["num_obstacles"], 4)
     _check_equal("obstacle cfg.catch_distance", obstacle_cfg["catch_distance"], 0.3)
@@ -376,10 +407,17 @@ def _check_contract_only() -> None:
     print("[OK] obstacle collision remains penalty-based", flush=True)
 
     train_source = SKRL_TRAIN_PATH.read_text(encoding="utf-8")
+    evaluate_source = SKRL_EVALUATE_PATH.read_text(encoding="utf-8")
     for expected in ('parser.add_argument("--checkpoint"', 'Runner(env, agent_cfg)', "runner.agent.load(resume_path)"):
         if expected not in train_source:
             raise AssertionError(f"SKRL training script contract changed or missing expected entry point: {expected}")
     print("[OK] SKRL training entry point preserved", flush=True)
+
+    for label, source in (("train", train_source), ("evaluate", evaluate_source)):
+        for expected in ("attention_models import patch_skrl_runner", "patch_skrl_runner(Runner)"):
+            if expected not in source:
+                raise AssertionError(f"Missing attention model runner patch in {label}.py: {expected}")
+    print("[OK] SKRL attention model runner patch", flush=True)
 
     for expected in (
         "class _FrozenAgentOptimizer",
