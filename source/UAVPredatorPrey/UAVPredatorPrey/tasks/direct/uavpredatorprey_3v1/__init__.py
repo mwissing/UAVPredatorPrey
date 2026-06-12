@@ -74,6 +74,32 @@ gym.register(
 )
 
 gym.register(
+    id="3v1-survival-soft-oob-v0",
+    entry_point=f"{__name__}.uav_3v1_env:Uav3v1Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.uav_3v1_env_cfg:Uav3v1SurvivalSoftOobEnvCfg",
+        "skrl_ippo_cfg_entry_point": f"{agents.__name__}:skrl_ippo_cfg.yaml",
+        "skrl_mappo_cfg_entry_point": f"{agents.__name__}:skrl_mappo_cfg.yaml",
+        "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
+        "skrl_mappo_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="3v1-survival-soft-oob-teammate-vel-v0",
+    entry_point=f"{__name__}.uav_3v1_env:Uav3v1Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.uav_3v1_env_cfg:Uav3v1SurvivalSoftOobTeammateVelEnvCfg",
+        "skrl_ippo_cfg_entry_point": f"{agents.__name__}:skrl_ippo_cfg.yaml",
+        "skrl_mappo_cfg_entry_point": f"{agents.__name__}:skrl_mappo_cfg.yaml",
+        "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
+        "skrl_mappo_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_cfg.yaml",
+    },
+)
+
+gym.register(
     id="1v1-survival-soft-oob-pred22-v0",
     entry_point=f"{__name__}.uav_3v1_env:Uav3v1Env",
     disable_env_checker=True,

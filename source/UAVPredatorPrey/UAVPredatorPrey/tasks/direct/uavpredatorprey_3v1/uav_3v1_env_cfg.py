@@ -146,6 +146,8 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     predator_wide_spawn_radius = 4.0
     predator_same_side_spawn_radius = 3.8
     predator_same_side_spawn_spread = 0.7  # radians across the predator formation
+    predator_teammate_close_distance = 0.5  # diagnostics only: flags near teammate contact
+    predator_teammate_velocity_observation = False
 
 
 @configclass
@@ -210,6 +212,26 @@ class Uav2v1SurvivalSoftOobMixedSpawnEnvCfg(Uav2v1SurvivalSoftOobEnvCfg):
     predator_same_side_spawn_radius = 3.8
     predator_same_side_spawn_spread = 0.7
     spawn_pos_noise = 0.35
+
+
+@configclass
+class Uav3v1SurvivalSoftOobEnvCfg(Uav1v1SurvivalSoftOobEnvCfg):
+    """3v1 survival curriculum step with the same soft-OOB constraints as 1v1/2v1."""
+
+    num_predators = 3
+
+    action_spaces = {"predator": 12, "prey": 4}
+    observation_spaces = {"predator": 72, "prey": 30}
+    state_space = 102
+
+
+@configclass
+class Uav3v1SurvivalSoftOobTeammateVelEnvCfg(Uav3v1SurvivalSoftOobEnvCfg):
+    """3v1 soft-OOB variant where predators observe teammate relative velocities."""
+
+    predator_teammate_velocity_observation = True
+    observation_spaces = {"predator": 90, "prey": 30}
+    state_space = 120
 
 
 @configclass

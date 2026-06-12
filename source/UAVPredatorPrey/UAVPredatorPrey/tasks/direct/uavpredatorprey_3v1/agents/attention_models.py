@@ -40,7 +40,7 @@ def _mlp(input_dim: int, layers: Sequence[int], output_dim: int, activation: str
     return nn.Sequential(*modules)
 
 
-def _infer_predator_layout(num_observations: int, num_actions: int, min_predators: int) -> tuple[int, int] | None:
+def _infer_predator_layout(num_observations: int, num_actions: int, min_predators: int) -> tuple[int, int, int] | None:
     if num_actions % 4 != 0:
         return None
 
@@ -48,10 +48,11 @@ def _infer_predator_layout(num_observations: int, num_actions: int, min_predator
     if num_predators < min_predators:
         return None
 
-    per_predator_obs = 12 + 6 + 3 * (num_predators - 1)
-    if num_observations != num_predators * per_predator_obs:
-        return None
-    return num_predators, per_predator_obs
+    for teammate_dim in (3, 6):
+        per_predator_obs = 12 + 6 + teammate_dim * (num_predators - 1)
+        if num_observations == num_predators * per_predator_obs:
+            return num_predators, per_predator_obs, teammate_dim
+    return None
 
 
 class SharedPredatorAttentionGaussianModel(GaussianMixin, Model):
@@ -98,10 +99,10 @@ class SharedPredatorAttentionGaussianModel(GaussianMixin, Model):
         self.uses_predator_attention = layout is not None
 
         if self.uses_predator_attention:
-            self.num_predators, self.per_predator_obs = layout
+            self.num_predators, self.per_predator_obs, self.teammate_dim = layout
             self.own_encoder = _mlp(12, (hidden_size,), attention_size, fallback_activation)
             self.prey_encoder = _mlp(6, (hidden_size,), attention_size, fallback_activation)
-            self.teammate_encoder = _mlp(3, (hidden_size,), attention_size, fallback_activation)
+            self.teammate_encoder = _mlp(self.teammate_dim, (hidden_size,), attention_size, fallback_activation)
             self.query = nn.Linear(attention_size, attention_size)
             self.key = nn.Linear(attention_size, attention_size)
             self.value = nn.Linear(attention_size, attention_size)
@@ -110,6 +111,7 @@ class SharedPredatorAttentionGaussianModel(GaussianMixin, Model):
         else:
             self.num_predators = 0
             self.per_predator_obs = 0
+            self.teammate_dim = 0
             self.net = _mlp(self.num_observations, fallback_layers, self.num_actions, fallback_activation)
             self.log_std_parameter = nn.Parameter(torch.full((self.num_actions,), float(initial_log_std)))
 
@@ -126,7 +128,12 @@ class SharedPredatorAttentionGaussianModel(GaussianMixin, Model):
 
         own = predator_obs[:, :, :12]
         prey = predator_obs[:, :, 12:18]
-        teammates = predator_obs[:, :, 18:].view(batch_size, self.num_predators, self.num_predators - 1, 3)
+        teammates = predator_obs[:, :, 18:].view(
+            batch_size,
+            self.num_predators,
+            self.num_predators - 1,
+            self.teammate_dim,
+        )
 
         own_emb = self.own_encoder(own.reshape(batch_size * self.num_predators, 12))
         own_emb = own_emb.view(batch_size, self.num_predators, -1)
@@ -134,7 +141,7 @@ class SharedPredatorAttentionGaussianModel(GaussianMixin, Model):
         prey_emb = self.prey_encoder(prey.reshape(batch_size * self.num_predators, 6))
         prey_emb = prey_emb.view(batch_size, self.num_predators, 1, -1)
 
-        teammate_emb = self.teammate_encoder(teammates.reshape(-1, 3))
+        teammate_emb = self.teammate_encoder(teammates.reshape(-1, self.teammate_dim))
         teammate_emb = teammate_emb.view(batch_size, self.num_predators, self.num_predators - 1, -1)
 
         entities = torch.cat((prey_emb, teammate_emb), dim=2)

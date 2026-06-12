@@ -49,6 +49,15 @@ partial observability, and robust self-play.
   4. 3v1,
   5. simple obstacles,
   6. complex obstacles / occlusion.
+- Reward shaping lifecycle:
+  - use dense helper rewards early when sparse task rewards are too hard,
+  - explicitly ablate or anneal helper rewards once the behavior is learnable,
+  - treat proximity, cover-seeking, boundary-progress, and similar terms as
+    scaffolding rather than permanent objectives unless diagnostics prove they
+    still improve final behavior,
+  - watch for shaping rewards creating local optima such as hovering near the
+    prey, clustering, boundary surfing, or avoiding risk instead of solving the
+    task.
 - Domain randomization:
   - spawn positions,
   - UAV dynamics,

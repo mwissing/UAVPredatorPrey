@@ -25,6 +25,10 @@ EXPECTED_1V1_SURVIVAL_STATE = 36
 EXPECTED_2V1_SURVIVAL_ACTIONS = {"predator": 8, "prey": 4}
 EXPECTED_2V1_SURVIVAL_OBSERVATIONS = {"predator": 42, "prey": 24}
 EXPECTED_2V1_SURVIVAL_STATE = 66
+EXPECTED_3V1_SURVIVAL_OBSERVATIONS = {"predator": 72, "prey": 30}
+EXPECTED_3V1_SURVIVAL_STATE = 102
+EXPECTED_3V1_SURVIVAL_TEAMMATE_VEL_OBSERVATIONS = {"predator": 90, "prey": 30}
+EXPECTED_3V1_SURVIVAL_TEAMMATE_VEL_STATE = 120
 EXPECTED_LOG_KEYS = (
     "Reward/prey_cover",
     "Reward/prey_boundary_progress",
@@ -66,6 +70,7 @@ BASE_ENV_PATH = BASE_CFG_PATH.with_name("uav_3v1_env.py")
 BASE_INIT_PATH = BASE_CFG_PATH.with_name("__init__.py")
 BASE_MAPPO_FINETUNE_CFG_PATH = BASE_CFG_PATH.with_name("agents") / "skrl_mappo_finetune_cfg.yaml"
 BASE_MAPPO_ATTENTION_CFG_PATH = BASE_CFG_PATH.with_name("agents") / "skrl_mappo_attention_cfg.yaml"
+BASE_ATTENTION_MODELS_PATH = BASE_CFG_PATH.with_name("agents") / "attention_models.py"
 OBSTACLE_CFG_PATH = (
     REPO_ROOT
     / "source"
@@ -164,6 +169,11 @@ def _check_contract_only() -> None:
     soft_oob_1v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobEnvCfg")
     soft_oob_2v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav2v1SurvivalSoftOobEnvCfg")
     soft_oob_2v1_mixed_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav2v1SurvivalSoftOobMixedSpawnEnvCfg")
+    soft_oob_3v1_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav3v1SurvivalSoftOobEnvCfg")
+    soft_oob_3v1_teammate_vel_cfg = _class_literal_assignments(
+        BASE_CFG_PATH,
+        "Uav3v1SurvivalSoftOobTeammateVelEnvCfg",
+    )
     soft_oob_pred22_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobPred22EnvCfg")
     soft_oob_pred24_cfg = _class_literal_assignments(BASE_CFG_PATH, "Uav1v1SurvivalSoftOobPred24EnvCfg")
     obstacle_cfg = _class_literal_assignments(OBSTACLE_CFG_PATH, "Uav3v1ObstaclesEnvCfg")
@@ -172,6 +182,7 @@ def _check_contract_only() -> None:
     base_init_source = BASE_INIT_PATH.read_text(encoding="utf-8")
     base_mappo_finetune_source = BASE_MAPPO_FINETUNE_CFG_PATH.read_text(encoding="utf-8")
     base_mappo_attention_source = BASE_MAPPO_ATTENTION_CFG_PATH.read_text(encoding="utf-8")
+    base_attention_models_source = BASE_ATTENTION_MODELS_PATH.read_text(encoding="utf-8")
     obstacle_cfg_source = OBSTACLE_CFG_PATH.read_text(encoding="utf-8")
     env_source = OBSTACLE_ENV_PATH.read_text(encoding="utf-8")
     init_source = OBSTACLE_INIT_PATH.read_text(encoding="utf-8")
@@ -195,6 +206,10 @@ def _check_contract_only() -> None:
         "Uav2v1SurvivalSoftOobEnvCfg",
         "2v1-survival-soft-oob-mixed-spawn-v0",
         "Uav2v1SurvivalSoftOobMixedSpawnEnvCfg",
+        "3v1-survival-soft-oob-v0",
+        "Uav3v1SurvivalSoftOobEnvCfg",
+        "3v1-survival-soft-oob-teammate-vel-v0",
+        "Uav3v1SurvivalSoftOobTeammateVelEnvCfg",
         "skrl_mappo_attention_cfg_entry_point",
         "skrl_mappo_attention_cfg.yaml",
         "1v1-survival-soft-oob-pred22-v0",
@@ -241,6 +256,29 @@ def _check_contract_only() -> None:
         soft_oob_2v1_mixed_cfg["predator_mixed_spawn_wide_probability"],
         0.25,
     )
+    _check_equal("3v1 soft OOB cfg.num_predators", soft_oob_3v1_cfg["num_predators"], 3)
+    _check_equal("3v1 soft OOB cfg.action_spaces", soft_oob_3v1_cfg["action_spaces"], EXPECTED_ACTIONS)
+    _check_equal(
+        "3v1 soft OOB cfg.observation_spaces",
+        soft_oob_3v1_cfg["observation_spaces"],
+        EXPECTED_3V1_SURVIVAL_OBSERVATIONS,
+    )
+    _check_equal("3v1 soft OOB cfg.state_space", soft_oob_3v1_cfg["state_space"], EXPECTED_3V1_SURVIVAL_STATE)
+    _check_equal(
+        "3v1 teammate-velocity cfg.predator_teammate_velocity_observation",
+        soft_oob_3v1_teammate_vel_cfg["predator_teammate_velocity_observation"],
+        True,
+    )
+    _check_equal(
+        "3v1 teammate-velocity cfg.observation_spaces",
+        soft_oob_3v1_teammate_vel_cfg["observation_spaces"],
+        EXPECTED_3V1_SURVIVAL_TEAMMATE_VEL_OBSERVATIONS,
+    )
+    _check_equal(
+        "3v1 teammate-velocity cfg.state_space",
+        soft_oob_3v1_teammate_vel_cfg["state_space"],
+        EXPECTED_3V1_SURVIVAL_TEAMMATE_VEL_STATE,
+    )
     _check_equal(
         "1v1 soft OOB pred22 cfg.predator_thrust_to_weight",
         soft_oob_pred22_cfg["predator_thrust_to_weight"],
@@ -269,6 +307,12 @@ def _check_contract_only() -> None:
         "Metrics/prey_boundary_pressure",
         "_sample_predator_spawn_xy",
         "predator_mixed_spawn",
+        "Metrics/episode_predator_min_height",
+        "Metrics/episode_teammate_min_distance",
+        "Metrics/predator_teammate_close_step_fraction",
+        "_episode_pred_oob_by_agent",
+        "predator_teammate_velocity_observation",
+        "teammate_vel",
     ):
         if expected not in base_env_source:
             raise AssertionError(f"Missing generic base-env contract for 1v1 curriculum: {expected}")
@@ -296,6 +340,11 @@ def _check_contract_only() -> None:
         if expected not in base_mappo_attention_source:
             raise AssertionError(f"Missing shared predator attention MAPPO config contract: {expected}")
     print("[OK] shared predator attention MAPPO config", flush=True)
+
+    for expected in ("for teammate_dim in (3, 6)", "self.teammate_dim"):
+        if expected not in base_attention_models_source:
+            raise AssertionError(f"Missing shared predator attention model contract: {expected}")
+    print("[OK] shared predator attention model layout", flush=True)
 
     _check_equal("obstacle cfg.num_obstacles", obstacle_cfg["num_obstacles"], 4)
     _check_equal("obstacle cfg.catch_distance", obstacle_cfg["catch_distance"], 0.3)
