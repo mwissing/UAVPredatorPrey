@@ -24,6 +24,14 @@ DEFAULT_ISAACLAB = Path(r"C:\RL\IsaacLab\isaaclab.bat")
 DEFAULT_RUN_ROOT = REPO_ROOT / "logs" / "skrl" / "uav_3v1_direct"
 AGENT_RE = re.compile(r"agent_(\d+)\.pt$")
 AGENTS = ("predator", "prey")
+PRESETS = {
+    "3v1-attention-critic": {
+        "task": "3v1-survival-soft-oob-teammate-vel-v0",
+        "agent": "skrl_mappo_attention_critic_cfg_entry_point",
+        "algorithm": "MAPPO",
+        "output_suffix": "3v1_attention_critic_hysteresis",
+    },
+}
 
 
 def _agent_opponent(agent: str) -> str:
@@ -36,6 +44,10 @@ def _agent_opponent(agent: str) -> str:
 
 def _command_text(command: list[str]) -> str:
     return subprocess.list2cmdline(command)
+
+
+def _cli_arg_present(*names: str) -> bool:
+    return any(arg == name or arg.startswith(f"{name}=") for arg in sys.argv[1:] for name in names)
 
 
 def _run(command: list[str], *, cwd: Path, dry_run: bool) -> None:
@@ -72,6 +84,7 @@ def _load_opponent_pool(path: Path | None) -> dict[str, list[dict[str, Any]]]:
                 entry = dict(raw_entry)
                 entry.setdefault("name", Path(str(entry["checkpoint"])).stem)
                 entry.setdefault("weight", 1.0)
+                entry.setdefault("base_weight", entry["weight"])
                 entry.setdefault("notes", "")
             else:
                 raise RuntimeError(f"Pool entry {agent}[{index}] must be a string or object.")
@@ -81,21 +94,91 @@ def _load_opponent_pool(path: Path | None) -> dict[str, list[dict[str, Any]]]:
                 raise RuntimeError(f"Pool entry '{entry['name']}' checkpoint does not exist: {checkpoint}")
             entry["checkpoint"] = str(checkpoint.resolve())
             entry["weight"] = float(entry["weight"])
+            entry["base_weight"] = float(entry.get("base_weight", entry["weight"]))
             if entry["weight"] > 0.0:
                 pool[agent].append(entry)
 
     return pool
 
 
+def _save_opponent_pool(path: Path, pool: dict[str, list[dict[str, Any]]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(pool, indent=2), encoding="utf-8")
+    print(f"[INFO] Wrote opponent pool: {path}")
+
+
+def _entry_metric(entry: dict[str, Any], key: str, default: float | None = None) -> float | None:
+    last_cross_play = entry.get("last_cross_play", {})
+    if isinstance(last_cross_play, dict):
+        metrics = last_cross_play.get("metrics", {})
+        if isinstance(metrics, dict) and key in metrics:
+            return float(metrics[key])
+
+    metrics = entry.get("metrics", {})
+    if not isinstance(metrics, dict):
+        return default
+    value = metrics.get(key, default)
+    return None if value is None else float(value)
+
+
+def _pfsp_weight(win_rate: float, weighting: str) -> float:
+    win_rate = max(0.0, min(1.0, win_rate))
+    if weighting == "linear":
+        return 1.0 - win_rate
+    if weighting == "squared":
+        return (1.0 - win_rate) ** 2
+    if weighting == "variance":
+        return win_rate * (1.0 - win_rate)
+    raise ValueError(f"Unknown PFSP weighting: {weighting}")
+
+
+def _pool_entry_weight(
+    entry: dict[str, Any],
+    *,
+    sampled_agent: str,
+    training_agent: str | None,
+    args: argparse.Namespace,
+) -> float:
+    base_weight = float(entry.get("base_weight", entry.get("weight", 1.0)))
+    if args.pool_sampling != "pfsp" or training_agent is None:
+        return float(entry.get("weight", base_weight))
+
+    if "pfsp_multiplier" in entry:
+        return base_weight * float(entry["pfsp_multiplier"])
+
+    catch_rate = _entry_metric(entry, "Metrics/catch_rate")
+    if catch_rate is None:
+        return float(entry.get("weight", base_weight))
+
+    if training_agent == "predator" and sampled_agent == "prey":
+        # Predator win-rate proxy against this prey entry.
+        win_rate = catch_rate
+    elif training_agent == "prey" and sampled_agent == "predator":
+        # Prey win-rate proxy against this predator entry.
+        win_rate = 1.0 - catch_rate
+    else:
+        win_rate = 0.5
+
+    return base_weight * max(float(args.pfsp_min_weight), _pfsp_weight(win_rate, args.pfsp_weighting))
+
+
 def _sample_pool_entry(
     pool: dict[str, list[dict[str, Any]]],
     agent: str,
     rng: random.Random,
+    *,
+    training_agent: str | None,
+    args: argparse.Namespace,
 ) -> dict[str, Any] | None:
     entries = pool.get(agent, [])
     if not entries:
         return None
-    weights = [float(entry.get("weight", 1.0)) for entry in entries]
+    weights = [
+        _pool_entry_weight(entry, sampled_agent=agent, training_agent=training_agent, args=args)
+        for entry in entries
+    ]
+    if not any(weight > 0.0 for weight in weights):
+        return None
     return rng.choices(entries, weights=weights, k=1)[0]
 
 
@@ -158,6 +241,288 @@ def _metric(summary: dict[str, Any], key: str, default: float = 0.0) -> float:
     return float(value)
 
 
+def _safe_token(value: Any) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value))
+
+
+def _promotion_gate(agent: str, summary: dict[str, Any], args: argparse.Namespace) -> tuple[bool, str]:
+    catch_rate = _metric(summary, "Metrics/catch_rate")
+    prey_oob = _metric(summary, "Metrics/prey_oob_rate")
+    predator_oob = _metric(summary, "Metrics/predator_oob_rate")
+    prey_soft = _metric(summary, "Metrics/prey_soft_arena_outside")
+    predator_soft = _metric(summary, "Metrics/predator_soft_arena_outside")
+
+    if agent == "predator":
+        checks = [
+            (catch_rate >= args.auto_pool_predator_min_catch, f"catch_rate={catch_rate:.3f}"),
+            (predator_oob <= args.auto_pool_max_predator_oob, f"predator_oob={predator_oob:.3f}"),
+            (predator_soft <= args.auto_pool_max_predator_soft, f"predator_soft={predator_soft:.3f}"),
+            (prey_oob <= args.auto_pool_max_opponent_oob, f"prey_oob={prey_oob:.3f}"),
+            (prey_soft <= args.auto_pool_max_opponent_soft, f"prey_soft={prey_soft:.3f}"),
+        ]
+    elif agent == "prey":
+        checks = [
+            (catch_rate <= args.auto_pool_prey_max_catch, f"catch_rate={catch_rate:.3f}"),
+            (prey_oob <= args.auto_pool_max_prey_oob, f"prey_oob={prey_oob:.3f}"),
+            (prey_soft <= args.auto_pool_max_prey_soft, f"prey_soft={prey_soft:.3f}"),
+            (predator_oob <= args.auto_pool_max_opponent_oob, f"predator_oob={predator_oob:.3f}"),
+            (predator_soft <= args.auto_pool_max_opponent_soft, f"predator_soft={predator_soft:.3f}"),
+        ]
+    else:
+        return False, f"auto-pool promotion only supports predator/prey phases, got {agent}"
+
+    details = ", ".join(detail for _, detail in checks)
+    failed = [detail for ok, detail in checks if not ok]
+    if failed:
+        return False, f"rejected {agent}: {', '.join(failed)}; metrics: {details}"
+    return True, f"accepted {agent}: {details}"
+
+
+def _pool_score(agent: str, summary: dict[str, Any]) -> float:
+    catch_rate = _metric(summary, "Metrics/catch_rate")
+    prey_oob = _metric(summary, "Metrics/prey_oob_rate")
+    predator_oob = _metric(summary, "Metrics/predator_oob_rate")
+    prey_soft = _metric(summary, "Metrics/prey_soft_arena_outside")
+    predator_soft = _metric(summary, "Metrics/predator_soft_arena_outside")
+
+    safety_penalty = prey_oob + predator_oob + 0.1 * (prey_soft + predator_soft)
+    if agent == "predator":
+        return catch_rate - safety_penalty
+    if agent == "prey":
+        return (1.0 - catch_rate) - safety_penalty
+    return 0.0
+
+
+def _pool_entry_name(agent: str, checkpoint: Path, phase_index: int) -> str:
+    run_name = checkpoint.parents[1].name if len(checkpoint.parents) > 1 else checkpoint.parent.name
+    raw_name = f"auto_{agent}_phase_{phase_index:03d}_{run_name}_{checkpoint.stem}"
+    return _safe_token(raw_name)
+
+
+def _prune_pool(pool: dict[str, list[dict[str, Any]]], args: argparse.Namespace) -> None:
+    max_entries = int(args.auto_pool_max_entries_per_role)
+    if max_entries <= 0:
+        return
+    for agent in AGENTS:
+        entries = pool.get(agent, [])
+        if len(entries) <= max_entries:
+            continue
+        entries.sort(
+            key=lambda entry: (
+                float(entry.get("auto_score", entry.get("weight", 1.0))),
+                int(entry.get("added_phase_index", -1)),
+            ),
+            reverse=True,
+        )
+        del entries[max_entries:]
+
+
+def _maybe_promote_to_pool(
+    pool: dict[str, list[dict[str, Any]]],
+    *,
+    agent: str,
+    checkpoint: Path,
+    summary: dict[str, Any],
+    phase_index: int,
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    if not args.auto_pool or agent not in AGENTS:
+        return None
+
+    checkpoint = checkpoint.resolve()
+    for entry in pool.get(agent, []):
+        if Path(str(entry["checkpoint"])).resolve() == checkpoint:
+            print(f"[INFO] Auto-pool skip: {agent} checkpoint already exists in pool: {checkpoint}")
+            return None
+
+    accepted, reason = _promotion_gate(agent, summary, args)
+    if not accepted:
+        print(f"[INFO] Auto-pool {reason}")
+        return {"agent": agent, "promoted": False, "reason": reason, "checkpoint": str(checkpoint)}
+
+    metrics = summary.get("episode_metrics", {})
+    auto_score = _pool_score(agent, summary)
+    entry = {
+        "name": _pool_entry_name(agent, checkpoint, phase_index),
+        "checkpoint": str(checkpoint),
+        "weight": 1.0,
+        "base_weight": 1.0,
+        "auto_score": auto_score,
+        "added_phase_index": phase_index,
+        "added_at": datetime.now().isoformat(timespec="seconds"),
+        "metrics": metrics,
+        "notes": reason,
+    }
+    pool[agent].append(entry)
+    _prune_pool(pool, args)
+    print(f"[INFO] Auto-pool promoted {agent}: {entry['name']} (score={auto_score:.3f})")
+    return {"agent": agent, "promoted": True, "entry": entry, "reason": reason}
+
+
+def _selected_cross_play_entries(
+    pool: dict[str, list[dict[str, Any]]],
+    *,
+    opponent: str,
+    training_agent: str,
+    rng: random.Random,
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    entries = list(pool.get(opponent, []))
+    if not entries or args.cross_play_max_opponents <= 0:
+        return []
+
+    weights = [
+        max(0.0, _pool_entry_weight(entry, sampled_agent=opponent, training_agent=training_agent, args=args))
+        for entry in entries
+    ]
+    max_count = min(int(args.cross_play_max_opponents), len(entries))
+
+    if args.cross_play_selection == "top":
+        ranked = sorted(zip(entries, weights), key=lambda item: item[1], reverse=True)
+        return [entry for entry, weight in ranked[:max_count] if weight > 0.0]
+
+    selected: list[dict[str, Any]] = []
+    available = list(zip(entries, weights))
+    for _ in range(max_count):
+        positive = [(entry, weight) for entry, weight in available if weight > 0.0]
+        if not positive:
+            break
+        chosen = rng.choices([entry for entry, _ in positive], weights=[weight for _, weight in positive], k=1)[0]
+        selected.append(chosen)
+        available = [(entry, weight) for entry, weight in available if entry is not chosen]
+    return selected
+
+
+def _training_agent_win_rate(training_agent: str, catch_rate: float) -> float:
+    if training_agent == "predator":
+        return catch_rate
+    if training_agent == "prey":
+        return 1.0 - catch_rate
+    return 0.5
+
+
+def _update_cross_play_weight(
+    entry: dict[str, Any],
+    *,
+    opponent: str,
+    training_agent: str,
+    current_checkpoint: Path,
+    composed_checkpoint: Path,
+    summary: dict[str, Any],
+    phase_index: int,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    metrics = summary.get("episode_metrics", {})
+    catch_rate = _metric(summary, "Metrics/catch_rate")
+    win_rate = _training_agent_win_rate(training_agent, catch_rate)
+    pfsp_multiplier = max(float(args.pfsp_min_weight), _pfsp_weight(win_rate, args.pfsp_weighting))
+    base_weight = float(entry.get("base_weight", entry.get("weight", 1.0)))
+    effective_weight = base_weight * pfsp_multiplier
+
+    entry["base_weight"] = base_weight
+    entry["pfsp_multiplier"] = pfsp_multiplier
+    entry["weight"] = effective_weight
+    entry["last_cross_play"] = {
+        "phase_index": phase_index,
+        "training_agent": training_agent,
+        "opponent": opponent,
+        "current_checkpoint": str(current_checkpoint),
+        "composed_checkpoint": str(composed_checkpoint),
+        "training_agent_win_rate": win_rate,
+        "metrics": metrics,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+    return {
+        "opponent": opponent,
+        "entry_name": entry.get("name"),
+        "entry_checkpoint": entry.get("checkpoint"),
+        "composed_checkpoint": str(composed_checkpoint),
+        "metrics": metrics,
+        "training_agent_win_rate": win_rate,
+        "pfsp_multiplier": pfsp_multiplier,
+        "effective_weight": effective_weight,
+    }
+
+
+def _run_cross_play(
+    current_checkpoint: Path,
+    *,
+    phase: str,
+    phase_index: int,
+    pool: dict[str, list[dict[str, Any]]],
+    rng: random.Random,
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    if not args.cross_play or phase not in {"predator", "prey"}:
+        return []
+    if args.cross_play_every <= 0 or phase_index % args.cross_play_every != 0:
+        return []
+
+    opponent = _agent_opponent(phase)
+    entries = _selected_cross_play_entries(
+        pool,
+        opponent=opponent,
+        training_agent=phase,
+        rng=rng,
+        args=args,
+    )
+    if not entries:
+        print(f"[INFO] Cross-play skipped: no {opponent} pool entries available.")
+        return []
+
+    records = []
+    for entry in entries:
+        opponent_checkpoint = Path(str(entry["checkpoint"]))
+        safe_name = _safe_token(entry.get("name", opponent_checkpoint.stem))
+        output = args.output_dir / "composed" / f"phase_{phase_index:03d}_cross_{phase}_vs_{opponent}_{safe_name}.pt"
+
+        print(
+            f"[INFO] Cross-play phase {phase_index}: latest {phase} vs "
+            f"{opponent}='{entry.get('name', opponent_checkpoint.stem)}'"
+        )
+        if phase == "predator":
+            composed_checkpoint = _compose_checkpoint(
+                base=current_checkpoint,
+                predator=current_checkpoint,
+                prey=opponent_checkpoint,
+                output=output,
+                args=args,
+            )
+        else:
+            composed_checkpoint = _compose_checkpoint(
+                base=current_checkpoint,
+                predator=opponent_checkpoint,
+                prey=current_checkpoint,
+                output=output,
+                args=args,
+            )
+
+        summary = _evaluate(
+            composed_checkpoint,
+            phase_index=phase_index,
+            output_dir=args.output_dir,
+            args=args,
+            label=f"cross_{phase}_vs_{opponent}_{safe_name}",
+            num_envs=args.cross_play_num_envs,
+            episodes=args.cross_play_episodes,
+        )
+        records.append(
+            _update_cross_play_weight(
+                entry,
+                opponent=opponent,
+                training_agent=phase,
+                current_checkpoint=current_checkpoint,
+                composed_checkpoint=composed_checkpoint,
+                summary=summary,
+                phase_index=phase_index,
+                args=args,
+            )
+        )
+
+    return records
+
+
 def _decide_phase(summary: dict[str, Any], args: argparse.Namespace) -> tuple[str, str]:
     catch_rate = _metric(summary, "Metrics/catch_rate")
     prey_oob = _metric(summary, "Metrics/prey_oob_rate")
@@ -196,6 +561,16 @@ def _freeze_args(phase: str) -> list[str]:
     raise ValueError(f"Unknown phase: {phase}")
 
 
+def _requested_phase_iterations(phase: str, args: argparse.Namespace) -> int:
+    if phase == "predator" and args.predator_phase_iterations is not None:
+        return args.predator_phase_iterations
+    if phase == "prey" and args.prey_phase_iterations is not None:
+        return args.prey_phase_iterations
+    if phase == "both" and args.both_phase_iterations is not None:
+        return args.both_phase_iterations
+    return args.phase_iterations
+
+
 def _evaluate(
     checkpoint: Path,
     *,
@@ -203,8 +578,12 @@ def _evaluate(
     output_dir: Path,
     args: argparse.Namespace,
     label: str,
+    num_envs: int | None = None,
+    episodes: int | None = None,
 ) -> dict[str, Any]:
     json_path = output_dir / f"phase_{phase_index:03d}_{label}_eval.json"
+    eval_num_envs = args.eval_num_envs if num_envs is None else num_envs
+    eval_episodes = args.eval_episodes if episodes is None else episodes
     command = [
         str(args.isaaclab),
         "-p",
@@ -217,9 +596,9 @@ def _evaluate(
         "--algorithm",
         args.algorithm,
         "--num_envs",
-        str(args.eval_num_envs),
+        str(eval_num_envs),
         "--episodes",
-        str(args.eval_episodes),
+        str(eval_episodes),
         "--seed",
         str(args.seed),
         "--checkpoint",
@@ -281,6 +660,51 @@ def _train_phase(
     return next_checkpoint
 
 
+def _record_phase_video(
+    checkpoint: Path,
+    *,
+    phase_index: int,
+    args: argparse.Namespace,
+    label: str,
+) -> None:
+    if not args.record_phase_video:
+        return
+    if args.phase_video_every <= 0 or phase_index % args.phase_video_every != 0:
+        return
+
+    video_dir = args.output_dir / "videos" / f"phase_{phase_index:03d}_{label}"
+    command = [
+        str(args.isaaclab),
+        "-p",
+        str(REPO_ROOT / "scripts" / "skrl" / "play.py"),
+        "--headless",
+        "--video",
+        "--video_length",
+        str(args.phase_video_length),
+        "--video-dir",
+        str(video_dir),
+        "--task",
+        args.task,
+        "--agent",
+        args.agent,
+        "--algorithm",
+        args.algorithm,
+        "--num_envs",
+        str(args.phase_video_num_envs),
+        "--seed",
+        str(args.seed),
+        "--checkpoint",
+        str(checkpoint),
+        "--camera-eye",
+        *(str(value) for value in args.phase_video_camera_eye),
+        "--camera-target",
+        *(str(value) for value in args.phase_video_camera_target),
+        "--camera-env-index",
+        str(args.phase_video_camera_env_index),
+    ]
+    _run(command, cwd=REPO_ROOT, dry_run=args.dry_run)
+
+
 def _pool_train_checkpoint(
     current_checkpoint: Path,
     *,
@@ -296,13 +720,13 @@ def _pool_train_checkpoint(
         return current_checkpoint, None
 
     opponent = _agent_opponent(phase)
-    entry = _sample_pool_entry(pool, opponent, rng)
+    entry = _sample_pool_entry(pool, opponent, rng, training_agent=phase, args=args)
     if entry is None:
         print(f"[INFO] No {opponent} pool entries available; using current opponent.")
         return current_checkpoint, None
 
     pool_checkpoint = Path(entry["checkpoint"])
-    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(entry["name"]))
+    safe_name = _safe_token(entry["name"])
     output = args.output_dir / "composed" / f"phase_{phase_index:03d}_{phase}_vs_pool_{opponent}_{safe_name}.pt"
 
     print(
@@ -374,8 +798,32 @@ def _write_record(output_dir: Path, record: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True, help="Starting checkpoint.")
+    parser.add_argument(
+        "--preset",
+        choices=("none", *PRESETS.keys()),
+        default="none",
+        help="Apply task/agent defaults for a known curriculum setup.",
+    )
     parser.add_argument("--total-iterations", type=int, default=20_000, help="Total outer-loop training iterations.")
     parser.add_argument("--phase-iterations", type=int, default=500, help="Iterations per train phase.")
+    parser.add_argument(
+        "--predator-phase-iterations",
+        type=int,
+        default=None,
+        help="Optional iteration count for predator-only phases. Defaults to --phase-iterations.",
+    )
+    parser.add_argument(
+        "--prey-phase-iterations",
+        type=int,
+        default=None,
+        help="Optional iteration count for prey-only phases. Defaults to --phase-iterations.",
+    )
+    parser.add_argument(
+        "--both-phase-iterations",
+        type=int,
+        default=None,
+        help="Optional iteration count for both-agent phases. Defaults to --phase-iterations.",
+    )
     parser.add_argument("--low", type=float, default=0.40, help="Train predator below this catch-rate.")
     parser.add_argument("--high", type=float, default=0.60, help="Train prey above this catch-rate.")
     parser.add_argument(
@@ -416,10 +864,128 @@ def main() -> None:
         help="Probability that a single-agent phase trains against an old frozen opponent from the pool.",
     )
     parser.add_argument(
+        "--pool-sampling",
+        choices=("static", "pfsp"),
+        default="static",
+        help="Pool sampling rule. 'pfsp' reweights entries by stored win-rate difficulty.",
+    )
+    parser.add_argument(
+        "--pfsp-weighting",
+        choices=("linear", "squared", "variance"),
+        default="squared",
+        help="PFSP weighting function applied to the training agent win-rate proxy.",
+    )
+    parser.add_argument(
+        "--pfsp-min-weight",
+        type=float,
+        default=0.05,
+        help="Minimum PFSP multiplier so hard/easy opponents are not fully discarded.",
+    )
+    parser.add_argument(
         "--pool-seed",
         type=int,
         default=None,
         help="Seed for opponent-pool sampling. Defaults to --seed.",
+    )
+    parser.add_argument(
+        "--auto-pool",
+        action="store_true",
+        help="Automatically promote good post-phase checkpoints into an evolving opponent pool.",
+    )
+    parser.add_argument(
+        "--auto-pool-path",
+        type=Path,
+        default=None,
+        help="Path to write the evolving auto-pool JSON. Defaults to <output-dir>/opponent_pool_auto.json.",
+    )
+    parser.add_argument(
+        "--auto-pool-max-entries-per-role",
+        type=int,
+        default=12,
+        help="Maximum number of auto-pool entries to keep per role.",
+    )
+    parser.add_argument(
+        "--auto-pool-predator-min-catch",
+        type=float,
+        default=0.75,
+        help="Minimum catch-rate for promoting a predator checkpoint.",
+    )
+    parser.add_argument(
+        "--auto-pool-prey-max-catch",
+        type=float,
+        default=0.25,
+        help="Maximum catch-rate for promoting a prey checkpoint.",
+    )
+    parser.add_argument(
+        "--auto-pool-max-predator-oob",
+        type=float,
+        default=0.08,
+        help="Maximum predator OOB rate for promotion gates.",
+    )
+    parser.add_argument(
+        "--auto-pool-max-prey-oob",
+        type=float,
+        default=0.08,
+        help="Maximum prey OOB rate for promotion gates.",
+    )
+    parser.add_argument(
+        "--auto-pool-max-predator-soft",
+        type=float,
+        default=0.30,
+        help="Maximum predator soft-arena outside metric for promotion gates.",
+    )
+    parser.add_argument(
+        "--auto-pool-max-prey-soft",
+        type=float,
+        default=0.30,
+        help="Maximum prey soft-arena outside metric for promotion gates.",
+    )
+    parser.add_argument(
+        "--auto-pool-max-opponent-oob",
+        type=float,
+        default=0.20,
+        help="Maximum opponent OOB rate allowed when promoting a candidate.",
+    )
+    parser.add_argument(
+        "--auto-pool-max-opponent-soft",
+        type=float,
+        default=0.50,
+        help="Maximum opponent soft-arena outside metric allowed when promoting a candidate.",
+    )
+    parser.add_argument(
+        "--cross-play",
+        action="store_true",
+        help="Evaluate latest trained role against selected pool opponents after each phase and update PFSP weights.",
+    )
+    parser.add_argument(
+        "--cross-play-every",
+        type=int,
+        default=1,
+        help="Run cross-play every N phase evaluations when --cross-play is enabled.",
+    )
+    parser.add_argument(
+        "--cross-play-max-opponents",
+        type=int,
+        default=4,
+        help="Maximum number of pool opponents to cross-play after a single-agent phase.",
+    )
+    parser.add_argument(
+        "--cross-play-selection",
+        choices=("weighted", "top"),
+        default="weighted",
+        help="How to select cross-play opponents from the relevant pool role.",
+    )
+    parser.add_argument(
+        "--cross-play-num-envs",
+        type=int,
+        default=256,
+        help="Number of vectorized envs for each cross-play evaluation.",
+    )
+    parser.add_argument(
+        "--cross-play-episodes",
+        type=int,
+        default=256,
+        help="Completed episodes for each cross-play evaluation.",
     )
     parser.add_argument("--task", default="1v1-survival-soft-oob-v0", help="Isaac Lab task id.")
     parser.add_argument("--agent", default="skrl_mappo_finetune_cfg_entry_point", help="SKRL agent config entry point.")
@@ -427,6 +993,56 @@ def main() -> None:
     parser.add_argument("--train-num-envs", type=int, default=4096, help="Number of training envs.")
     parser.add_argument("--eval-num-envs", type=int, default=512, help="Number of evaluation envs.")
     parser.add_argument("--eval-episodes", type=int, default=512, help="Deterministic eval episodes per phase.")
+    parser.add_argument(
+        "--record-phase-video",
+        action="store_true",
+        help="Record one fixed-camera video after each selected curriculum phase.",
+    )
+    parser.add_argument(
+        "--phase-video-every",
+        type=int,
+        default=1,
+        help="Record a video every N completed phases when --record-phase-video is enabled.",
+    )
+    parser.add_argument(
+        "--phase-video-length",
+        type=int,
+        default=500,
+        help="Number of environment steps per phase video.",
+    )
+    parser.add_argument(
+        "--phase-video-num-envs",
+        type=int,
+        default=1,
+        help="Number of environments for phase video recording. Use 1 for stable camera framing.",
+    )
+    parser.add_argument(
+        "--phase-video-camera-eye",
+        type=float,
+        nargs=3,
+        default=(7.0, -7.0, 6.0),
+        metavar=("X", "Y", "Z"),
+        help="Env-relative camera eye used for phase videos.",
+    )
+    parser.add_argument(
+        "--phase-video-camera-target",
+        type=float,
+        nargs=3,
+        default=(0.0, 0.0, 1.0),
+        metavar=("X", "Y", "Z"),
+        help="Env-relative camera target used for phase videos.",
+    )
+    parser.add_argument(
+        "--phase-video-camera-env-index",
+        type=int,
+        default=0,
+        help="Environment index used as origin for phase video camera framing.",
+    )
+    parser.add_argument(
+        "--skip-pool-opponent-eval",
+        action="store_true",
+        help="Skip the extra deterministic eval of a trained pool-composed checkpoint before restoring the current pair.",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Seed for train/eval subprocesses.")
     parser.add_argument("--isaaclab", type=Path, default=DEFAULT_ISAACLAB, help="Path to isaaclab.bat.")
     parser.add_argument("--run-root", type=Path, default=DEFAULT_RUN_ROOT, help="SKRL run root directory.")
@@ -439,22 +1055,71 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing them.")
     args = parser.parse_args()
 
+    preset = PRESETS.get(args.preset)
+    if preset is not None:
+        if not _cli_arg_present("--task"):
+            args.task = preset["task"]
+        if not _cli_arg_present("--agent"):
+            args.agent = preset["agent"]
+        if not _cli_arg_present("--algorithm"):
+            args.algorithm = preset["algorithm"]
+
     args.checkpoint = args.checkpoint.resolve()
     args.isaaclab = args.isaaclab.resolve()
     args.run_root = args.run_root.resolve()
     if args.output_dir is None:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        args.output_dir = REPO_ROOT / "logs" / "curriculum" / f"{timestamp}_hysteresis"
+        suffix = preset["output_suffix"] if preset is not None else "hysteresis"
+        args.output_dir = REPO_ROOT / "logs" / "curriculum" / f"{timestamp}_{suffix}"
     args.output_dir = args.output_dir.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    args.phase_iterations = max(1, int(args.phase_iterations))
+    args.predator_phase_iterations = (
+        None if args.predator_phase_iterations is None else max(1, int(args.predator_phase_iterations))
+    )
+    args.prey_phase_iterations = None if args.prey_phase_iterations is None else max(1, int(args.prey_phase_iterations))
+    args.both_phase_iterations = None if args.both_phase_iterations is None else max(1, int(args.both_phase_iterations))
     args.pool_prob = max(0.0, min(1.0, args.pool_prob))
+    args.pfsp_min_weight = max(0.0, float(args.pfsp_min_weight))
+    args.cross_play_every = max(1, int(args.cross_play_every))
+    args.cross_play_max_opponents = max(0, int(args.cross_play_max_opponents))
+    args.cross_play_num_envs = max(1, int(args.cross_play_num_envs))
+    args.cross_play_episodes = max(1, int(args.cross_play_episodes))
+    args.phase_video_every = max(1, int(args.phase_video_every))
+    args.phase_video_length = max(1, int(args.phase_video_length))
+    args.phase_video_num_envs = max(1, int(args.phase_video_num_envs))
     pool_path = args.opponent_pool.resolve() if args.opponent_pool else None
     pool = _load_opponent_pool(pool_path)
+    if args.auto_pool or args.cross_play:
+        args.auto_pool_path = (
+            args.auto_pool_path.resolve()
+            if args.auto_pool_path is not None
+            else args.output_dir / "opponent_pool_auto.json"
+        )
+        _save_opponent_pool(args.auto_pool_path, pool)
     rng = random.Random(args.pool_seed if args.pool_seed is not None else args.seed)
     if pool_path is not None:
         print(f"[INFO] Loaded opponent pool: {pool_path}")
         print(f"[INFO] Predator entries: {len(pool['predator'])}; prey entries: {len(pool['prey'])}")
         print(f"[INFO] Pool sampling probability: {args.pool_prob:.3f}")
+        print(f"[INFO] Pool sampling rule: {args.pool_sampling}")
+    if args.auto_pool:
+        print(f"[INFO] Auto-pool enabled: {args.auto_pool_path}")
+    elif args.cross_play:
+        print(f"[INFO] Cross-play pool output: {args.auto_pool_path}")
+    if args.cross_play:
+        print(
+            "[INFO] Cross-play enabled: "
+            f"every={args.cross_play_every}, max_opponents={args.cross_play_max_opponents}, "
+            f"num_envs={args.cross_play_num_envs}, episodes={args.cross_play_episodes}"
+        )
+    print(
+        "[INFO] Phase iterations: "
+        f"default={args.phase_iterations}, "
+        f"predator={args.predator_phase_iterations or args.phase_iterations}, "
+        f"prey={args.prey_phase_iterations or args.phase_iterations}, "
+        f"both={args.both_phase_iterations or args.phase_iterations}"
+    )
 
     current_checkpoint = args.checkpoint
     completed_iterations = 0
@@ -466,6 +1131,12 @@ def main() -> None:
         catch_rate = _metric(summary, "Metrics/catch_rate")
         prey_oob = _metric(summary, "Metrics/prey_oob_rate")
         predator_oob = _metric(summary, "Metrics/predator_oob_rate")
+        requested_phase_iterations = None if phase == "stop" else _requested_phase_iterations(phase, args)
+        phase_iterations = (
+            None
+            if requested_phase_iterations is None
+            else min(requested_phase_iterations, args.total_iterations - completed_iterations)
+        )
         print(
             "\n[DECISION] "
             f"phase={phase}, reason={reason}, catch={catch_rate:.3f}, "
@@ -479,6 +1150,8 @@ def main() -> None:
                 "checkpoint": str(current_checkpoint),
                 "decision": phase,
                 "reason": reason,
+                "requested_phase_iterations": requested_phase_iterations,
+                "actual_phase_iterations": phase_iterations,
                 "metrics": summary.get("episode_metrics", {}),
             },
         )
@@ -487,7 +1160,6 @@ def main() -> None:
             print("[INFO] Balanced band reached and --balanced-action=stop. Stopping.")
             break
 
-        phase_iterations = min(args.phase_iterations, args.total_iterations - completed_iterations)
         phase_start_checkpoint = current_checkpoint
         train_checkpoint, pool_sample = _pool_train_checkpoint(
             current_checkpoint,
@@ -503,6 +1175,15 @@ def main() -> None:
             phase_iterations=phase_iterations,
             args=args,
         )
+        pool_opponent_summary = None
+        if pool_sample is not None and not args.skip_pool_opponent_eval:
+            pool_opponent_summary = _evaluate(
+                trained_checkpoint,
+                phase_index=phase_index,
+                output_dir=args.output_dir,
+                args=args,
+                label=f"pool_{phase}_opponent_after",
+            )
         current_checkpoint = _restore_current_pair_after_pool(
             phase_start_checkpoint,
             trained_checkpoint,
@@ -517,9 +1198,14 @@ def main() -> None:
                 {
                     "phase_index": phase_index,
                     "completed_iterations": completed_iterations,
+                    "requested_phase_iterations": requested_phase_iterations,
+                    "actual_phase_iterations": phase_iterations,
                     "pool_sample": pool_sample,
                     "trained_checkpoint": str(trained_checkpoint),
                     "restored_current_pair_checkpoint": str(current_checkpoint),
+                    "pool_opponent_metrics": (
+                        pool_opponent_summary.get("episode_metrics", {}) if pool_opponent_summary else None
+                    ),
                 },
             )
         completed_iterations += phase_iterations
@@ -531,6 +1217,51 @@ def main() -> None:
             args=args,
             label="after",
         )
+        _record_phase_video(
+            current_checkpoint,
+            phase_index=phase_index,
+            args=args,
+            label="after",
+        )
+        promotion = _maybe_promote_to_pool(
+            pool,
+            agent=phase,
+            checkpoint=current_checkpoint,
+            summary=summary,
+            phase_index=phase_index,
+            args=args,
+        )
+        if promotion is not None:
+            _write_record(
+                args.output_dir,
+                {
+                    "phase_index": phase_index,
+                    "completed_iterations": completed_iterations,
+                    "auto_pool_promotion": promotion,
+                },
+            )
+            if args.auto_pool_path is not None:
+                _save_opponent_pool(args.auto_pool_path, pool)
+
+        cross_play_records = _run_cross_play(
+            current_checkpoint,
+            phase=phase,
+            phase_index=phase_index,
+            pool=pool,
+            rng=rng,
+            args=args,
+        )
+        if cross_play_records:
+            _write_record(
+                args.output_dir,
+                {
+                    "phase_index": phase_index,
+                    "completed_iterations": completed_iterations,
+                    "cross_play": cross_play_records,
+                },
+            )
+            if args.auto_pool_path is not None:
+                _save_opponent_pool(args.auto_pool_path, pool)
 
     final_path = args.output_dir / "final_checkpoint.txt"
     final_path.write_text(str(current_checkpoint), encoding="utf-8")

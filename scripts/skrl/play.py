@@ -19,8 +19,37 @@ from isaaclab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from skrl.")
-parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
+parser.add_argument("--video", action="store_true", default=False, help="Record a rollout video.")
 parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
+parser.add_argument("--video-dir", type=str, default=None, help="Optional output folder for recorded videos.")
+parser.add_argument(
+    "--camera-eye",
+    type=float,
+    nargs=3,
+    default=(7.0, -7.0, 6.0),
+    metavar=("X", "Y", "Z"),
+    help="Viewer camera eye position. By default this is relative to --camera-env-index.",
+)
+parser.add_argument(
+    "--camera-target",
+    type=float,
+    nargs=3,
+    default=(0.0, 0.0, 1.0),
+    metavar=("X", "Y", "Z"),
+    help="Viewer camera target position. By default this is relative to --camera-env-index.",
+)
+parser.add_argument(
+    "--camera-env-index",
+    type=int,
+    default=0,
+    help="Environment index used as origin for camera-eye and camera-target.",
+)
+parser.add_argument(
+    "--camera-world-frame",
+    action="store_true",
+    default=False,
+    help="Interpret camera-eye and camera-target as world-frame coordinates instead of env-relative coordinates.",
+)
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
@@ -115,6 +144,11 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 import UAVPredatorPrey.tasks  # noqa: F401
 
+if args_cli.ml_framework.startswith("torch"):
+    from UAVPredatorPrey.tasks.direct.uavpredatorprey_3v1.agents.attention_models import patch_skrl_runner
+
+    patch_skrl_runner(Runner)
+
 # config shortcuts
 if args_cli.agent is None:
     algorithm = args_cli.algorithm.lower()
@@ -122,6 +156,37 @@ if args_cli.agent is None:
 else:
     agent_cfg_entry_point = args_cli.agent
     algorithm = agent_cfg_entry_point.split("_cfg")[0].split("skrl_")[-1].lower()
+
+
+def _env_origin(env, env_index: int) -> torch.Tensor:
+    unwrapped = env.unwrapped
+    origins = None
+    scene = getattr(unwrapped, "scene", None)
+    if scene is not None:
+        origins = getattr(scene, "env_origins", None)
+    if origins is None:
+        terrain = getattr(unwrapped, "_terrain", None)
+        origins = getattr(terrain, "env_origins", None) if terrain is not None else None
+    if origins is None:
+        return torch.zeros(3)
+
+    env_index = max(0, min(int(env_index), int(origins.shape[0]) - 1))
+    return origins[env_index].detach().cpu()
+
+
+def _set_viewer_camera(env) -> None:
+    eye = torch.tensor(args_cli.camera_eye, dtype=torch.float32)
+    target = torch.tensor(args_cli.camera_target, dtype=torch.float32)
+    if not args_cli.camera_world_frame:
+        origin = _env_origin(env, args_cli.camera_env_index)
+        eye = eye + origin
+        target = target + origin
+
+    env.unwrapped.sim.set_camera_view(
+        eye=tuple(float(value) for value in eye),
+        target=tuple(float(value) for value in target),
+    )
+    print(f"[INFO] Camera eye={tuple(float(value) for value in eye)}, target={tuple(float(value) for value in target)}")
 
 
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
@@ -171,6 +236,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    _set_viewer_camera(env)
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:
@@ -185,7 +251,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # wrap for video recording
     if args_cli.video:
         video_kwargs = {
-            "video_folder": os.path.join(log_dir, "videos", "play"),
+            "video_folder": args_cli.video_dir if args_cli.video_dir is not None else os.path.join(log_dir, "videos", "play"),
             "step_trigger": lambda step: step == 0,
             "video_length": args_cli.video_length,
             "disable_logger": True,

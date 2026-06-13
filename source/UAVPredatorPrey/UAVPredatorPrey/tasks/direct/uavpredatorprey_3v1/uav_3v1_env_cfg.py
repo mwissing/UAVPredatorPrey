@@ -105,8 +105,8 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     predator_proximity_reward_scale = 5.0  # was 8.0 — reduced so flight dominates early
     predator_distance_progress_reward_scale = 0.0
     predator_distance_progress_reward_clip = 0.08
-    predator_catch_bonus = 200.0           # only the catcher gets this
-    predator_assist_bonus = 50.0           # teammates within assist_distance also rewarded
+    predator_catch_bonus = 200.0           # effective team bonus stays constant across predator counts
+    predator_assist_bonus = 0.0            # disabled while testing whether assist encourages orbiting
     assist_distance = 1.5                  # [m] must be this close to get assist reward
     prey_alive_bonus = 2.0
     prey_evasion_reward_scale = 5.0       # reward for distance from nearest predator (mirrors predator proximity)

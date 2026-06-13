@@ -82,6 +82,7 @@ class Uav3v1Env(DirectMARLEnv):
         self._current_distances = torch.zeros(N, P, device=self.device)
         self._caught = torch.zeros(N, dtype=torch.bool, device=self.device)
         self._has_nan = torch.zeros(N, dtype=torch.bool, device=self.device)
+        self._intermediate_values_valid = False
 
         # Pre-build teammate index pairs for vectorized teammate obs
         # For pred i, teammates are the other 2 predators
@@ -166,6 +167,8 @@ class Uav3v1Env(DirectMARLEnv):
     # ------------------------------------------------------------------
 
     def _pre_physics_step(self, actions: dict[str, torch.Tensor]) -> None:
+        self._intermediate_values_valid = False
+
         # Predator: reshape shared policy action to (N, num_predators, 4).
         self._pred_actions[:] = actions["predator"].clamp(-1.0, 1.0).view(self.num_envs, self._P, 4)
         self._pred_thrust[:, :, 0, 2] = (
@@ -192,36 +195,22 @@ class Uav3v1Env(DirectMARLEnv):
             body_ids=self._prey_body_id, forces=self._prey_thrust, torques=self._prey_moment
         )
 
-    # ------------------------------------------------------------------
-    # Observations — fully vectorized
-    # ------------------------------------------------------------------
+    def _compute_intermediate_values(self) -> None:
+        """Update state-derived caches used by dones, rewards and observations."""
 
-    def _get_observations(self) -> dict[str, torch.Tensor]:
         N = self.num_envs
         P = self._P
-        prey_pos_w = self._prey.data.root_pos_w         # (N, 3)
-        prey_vel_w = self._prey.data.root_lin_vel_w      # (N, 3)
-        prey_quat_w = self._prey.data.root_quat_w        # (N, 4)
-        env_origins = self._terrain.env_origins           # (N, 3)
+        prey_pos_w = self._prey.data.root_pos_w
+        pred_pos_w = torch.stack([p.data.root_pos_w for p in self._predators])
+        env_origins = self._terrain.env_origins
 
-        # Stack all predator data into (P, N, D) then transpose to (N, P, D)
-        pred_pos_w = torch.stack([p.data.root_pos_w for p in self._predators])    # (P, N, 3)
-        pred_quat_w = torch.stack([p.data.root_quat_w for p in self._predators])  # (P, N, 4)
-        pred_lin_vel_w = torch.stack([p.data.root_lin_vel_w for p in self._predators])
-        pred_lin_vel_b = torch.stack([p.data.root_lin_vel_b for p in self._predators])
-        pred_ang_vel_b = torch.stack([p.data.root_ang_vel_b for p in self._predators])
-        pred_grav_b = torch.stack([p.data.projected_gravity_b for p in self._predators])
-
-        # === Cached shared data (in-place) ===
-        # Prey relative + OOB
         self._prey_pos_rel[:] = prey_pos_w - env_origins
         self._prey_horiz[:] = torch.linalg.norm(self._prey_pos_rel[:, :2], dim=1)
         prey_below_min = self._prey_pos_rel[:, 2] < self.cfg.min_height
 
-        # Predator relative + OOB — vectorized (P, N, 3) → (N, P, 3)
-        pred_pos_rel = (pred_pos_w - env_origins.unsqueeze(0)).permute(1, 0, 2)  # (N, P, 3)
+        pred_pos_rel = (pred_pos_w - env_origins.unsqueeze(0)).permute(1, 0, 2)
         self._pred_pos_rel[:] = pred_pos_rel
-        self._pred_horiz[:] = torch.linalg.norm(pred_pos_rel[:, :, :2], dim=2)   # (N, P)
+        self._pred_horiz[:] = torch.linalg.norm(pred_pos_rel[:, :, :2], dim=2)
         pred_below_min = pred_pos_rel[:, :, 2] < self.cfg.min_height
 
         if self.cfg.soft_arena_boundary:
@@ -253,7 +242,6 @@ class Uav3v1Env(DirectMARLEnv):
                 | (self._pred_horiz > self.cfg.arena_radius)
             )
 
-        # Distances: all predators to prey — vectorized
         self._pred_min_height[:] = pred_pos_rel[:, :, 2].min(dim=1).values
         if self._pair_src:
             teammate_distances = torch.linalg.norm(
@@ -268,24 +256,44 @@ class Uav3v1Env(DirectMARLEnv):
 
         self._current_distances[:] = torch.linalg.norm(
             pred_pos_w - prey_pos_w.unsqueeze(0), dim=-1
-        ).t()  # (N, P)
+        ).t()
 
-        # NaN detection (in-place)
         self._has_nan.zero_()
         self._has_nan |= torch.any(torch.isnan(self._current_distances), dim=1)
         for i in range(P):
             self._has_nan |= torch.any(torch.isnan(pred_pos_w[i]), dim=1)
         self._has_nan |= torch.any(torch.isnan(prey_pos_w), dim=1)
 
-        # Sanitize
         self._current_distances[:] = torch.nan_to_num(self._current_distances, nan=100.0)
         self._pred_pos_rel[:] = torch.nan_to_num(self._pred_pos_rel, nan=0.0)
         self._pred_horiz[:] = torch.nan_to_num(self._pred_horiz, nan=100.0)
         self._prey_pos_rel[:] = torch.nan_to_num(self._prey_pos_rel, nan=0.0)
         self._prey_horiz[:] = torch.nan_to_num(self._prey_horiz, nan=100.0)
 
-        # Caught
         self._caught[:] = self._current_distances.min(dim=1).values < self.cfg.catch_distance
+        self._intermediate_values_valid = True
+
+    # ------------------------------------------------------------------
+    # Observations — fully vectorized
+    # ------------------------------------------------------------------
+
+    def _get_observations(self) -> dict[str, torch.Tensor]:
+        if not self._intermediate_values_valid:
+            self._compute_intermediate_values()
+
+        N = self.num_envs
+        P = self._P
+        prey_pos_w = self._prey.data.root_pos_w         # (N, 3)
+        prey_vel_w = self._prey.data.root_lin_vel_w      # (N, 3)
+        prey_quat_w = self._prey.data.root_quat_w        # (N, 4)
+
+        # Stack all predator data into (P, N, D) then transpose to (N, P, D)
+        pred_pos_w = torch.stack([p.data.root_pos_w for p in self._predators])    # (P, N, 3)
+        pred_quat_w = torch.stack([p.data.root_quat_w for p in self._predators])  # (P, N, 4)
+        pred_lin_vel_w = torch.stack([p.data.root_lin_vel_w for p in self._predators])
+        pred_lin_vel_b = torch.stack([p.data.root_lin_vel_b for p in self._predators])
+        pred_ang_vel_b = torch.stack([p.data.root_ang_vel_b for p in self._predators])
+        pred_grav_b = torch.stack([p.data.projected_gravity_b for p in self._predators])
 
         # === Predator observations — batched subtract_frame_transforms ===
         # Pred-to-prey: batch all P predators in one call (P*N, 3)
@@ -365,6 +373,9 @@ class Uav3v1Env(DirectMARLEnv):
     # ------------------------------------------------------------------
 
     def _get_rewards(self) -> dict[str, torch.Tensor]:
+        if not self._intermediate_values_valid:
+            self._compute_intermediate_values()
+
         dt = self.step_dt
         P = self._P
         warn_radius = self.cfg.arena_radius * self.cfg.boundary_warn_fraction
@@ -383,8 +394,8 @@ class Uav3v1Env(DirectMARLEnv):
 
         # Flight stability (P, N)
         upright = (-pred_grav_z) * self.cfg.upright_reward_scale * dt
-        height_err = self._pred_pos_rel[:, :, 2].t()  # (P, N)
-        height = torch.square(height_err - self.cfg.target_height) * self.cfg.height_penalty_scale * dt
+        pred_low_height_err = torch.clamp(self.cfg.target_height - self._pred_pos_rel[:, :, 2].t(), min=0.0)  # (P, N)
+        height = torch.square(pred_low_height_err) * self.cfg.height_penalty_scale * dt
         lin_vel = pred_lin_vel_sq * self.cfg.lin_vel_penalty * dt
         ang_vel = pred_ang_vel_sq * self.cfg.ang_vel_penalty * dt
         action_pen = torch.sum(torch.square(self._pred_actions), dim=2).t() * self.cfg.action_penalty * dt  # (P, N)
@@ -414,7 +425,8 @@ class Uav3v1Env(DirectMARLEnv):
         # Catch attribution (P, N)
         pred_indices = torch.arange(P, device=self.device).unsqueeze(1)  # (P, 1)
         is_catcher = (closest_pred_idx.unsqueeze(0) == pred_indices) & self._caught.unsqueeze(0)  # (P, N)
-        catch_bonus = is_catcher.float() * self.cfg.predator_catch_bonus
+        # Scale before the team mean so the effective catch reward does not shrink with predator count.
+        catch_bonus = is_catcher.float() * self.cfg.predator_catch_bonus * P
         is_assisting = (~is_catcher) & self._caught.unsqueeze(0) & (distances_t < self.cfg.assist_distance)
         assist_bonus = is_assisting.float() * self.cfg.predator_assist_bonus
 
@@ -438,7 +450,8 @@ class Uav3v1Env(DirectMARLEnv):
 
         # === Prey reward ===
         prey_upright = (-self._prey.data.projected_gravity_b[:, 2]) * self.cfg.upright_reward_scale * dt
-        prey_height = torch.square(self._prey_pos_rel[:, 2] - self.cfg.target_height) * self.cfg.height_penalty_scale * dt
+        prey_low_height_err = torch.clamp(self.cfg.target_height - self._prey_pos_rel[:, 2], min=0.0)
+        prey_height = torch.square(prey_low_height_err) * self.cfg.height_penalty_scale * dt
         prey_low_altitude = (
             -torch.square(torch.clamp(self.cfg.prey_low_altitude_margin - self._prey_pos_rel[:, 2], min=0.0))
             * self.cfg.prey_low_altitude_penalty_scale
@@ -568,6 +581,9 @@ class Uav3v1Env(DirectMARLEnv):
     # ------------------------------------------------------------------
 
     def _get_dones(self) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+        if not self._intermediate_values_valid:
+            self._compute_intermediate_values()
+
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         terminated = self._caught | self._pred_oob.any(dim=1) | self._prey_oob | self._has_nan
         return (
@@ -662,3 +678,4 @@ class Uav3v1Env(DirectMARLEnv):
         self._prev_min_pred_prey_distance[env_ids] = pred_prey_distances.min(dim=1).values
         prey_pos_rel = prey_pos_w - self._terrain.env_origins[env_ids]
         self._prev_prey_horiz[env_ids] = torch.linalg.norm(prey_pos_rel[:, :2], dim=1)
+        self._intermediate_values_valid = False

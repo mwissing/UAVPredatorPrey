@@ -70,6 +70,7 @@ BASE_ENV_PATH = BASE_CFG_PATH.with_name("uav_3v1_env.py")
 BASE_INIT_PATH = BASE_CFG_PATH.with_name("__init__.py")
 BASE_MAPPO_FINETUNE_CFG_PATH = BASE_CFG_PATH.with_name("agents") / "skrl_mappo_finetune_cfg.yaml"
 BASE_MAPPO_ATTENTION_CFG_PATH = BASE_CFG_PATH.with_name("agents") / "skrl_mappo_attention_cfg.yaml"
+BASE_MAPPO_ATTENTION_CRITIC_CFG_PATH = BASE_CFG_PATH.with_name("agents") / "skrl_mappo_attention_critic_cfg.yaml"
 BASE_ATTENTION_MODELS_PATH = BASE_CFG_PATH.with_name("agents") / "attention_models.py"
 OBSTACLE_CFG_PATH = (
     REPO_ROOT
@@ -182,6 +183,7 @@ def _check_contract_only() -> None:
     base_init_source = BASE_INIT_PATH.read_text(encoding="utf-8")
     base_mappo_finetune_source = BASE_MAPPO_FINETUNE_CFG_PATH.read_text(encoding="utf-8")
     base_mappo_attention_source = BASE_MAPPO_ATTENTION_CFG_PATH.read_text(encoding="utf-8")
+    base_mappo_attention_critic_source = BASE_MAPPO_ATTENTION_CRITIC_CFG_PATH.read_text(encoding="utf-8")
     base_attention_models_source = BASE_ATTENTION_MODELS_PATH.read_text(encoding="utf-8")
     obstacle_cfg_source = OBSTACLE_CFG_PATH.read_text(encoding="utf-8")
     env_source = OBSTACLE_ENV_PATH.read_text(encoding="utf-8")
@@ -212,6 +214,8 @@ def _check_contract_only() -> None:
         "Uav3v1SurvivalSoftOobTeammateVelEnvCfg",
         "skrl_mappo_attention_cfg_entry_point",
         "skrl_mappo_attention_cfg.yaml",
+        "skrl_mappo_attention_critic_cfg_entry_point",
+        "skrl_mappo_attention_critic_cfg.yaml",
         "1v1-survival-soft-oob-pred22-v0",
         "Uav1v1SurvivalSoftOobPred22EnvCfg",
         "1v1-survival-soft-oob-pred24-v0",
@@ -341,7 +345,22 @@ def _check_contract_only() -> None:
             raise AssertionError(f"Missing shared predator attention MAPPO config contract: {expected}")
     print("[OK] shared predator attention MAPPO config", flush=True)
 
-    for expected in ("for teammate_dim in (3, 6)", "self.teammate_dim"):
+    for expected in (
+        "EntityAttentionCentralizedValueMixin",
+        "experiment_name: \"attention_critic\"",
+        "class: SharedPredatorAttentionGaussianMixin",
+    ):
+        if expected not in base_mappo_attention_critic_source:
+            raise AssertionError(f"Missing entity-attention centralized critic MAPPO config contract: {expected}")
+    print("[OK] entity-attention centralized critic MAPPO config", flush=True)
+
+    for expected in (
+        "for teammate_dim in (3, 6)",
+        "self.teammate_dim",
+        "EntityAttentionCentralizedValueModel",
+        "_infer_centralized_state_layout",
+        "entityattentioncentralizedvaluemixin",
+    ):
         if expected not in base_attention_models_source:
             raise AssertionError(f"Missing shared predator attention model contract: {expected}")
     print("[OK] shared predator attention model layout", flush=True)

@@ -20,6 +20,7 @@ gym.register(
         "skrl_mappo_cfg_entry_point": f"{agents.__name__}:skrl_mappo_cfg.yaml",
         "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
         "skrl_mappo_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_cfg.yaml",
+        "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
     },
 )
 
@@ -57,6 +58,7 @@ gym.register(
         "skrl_mappo_cfg_entry_point": f"{agents.__name__}:skrl_mappo_cfg.yaml",
         "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
         "skrl_mappo_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_cfg.yaml",
+        "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
     },
 )
 
@@ -70,6 +72,7 @@ gym.register(
         "skrl_mappo_cfg_entry_point": f"{agents.__name__}:skrl_mappo_cfg.yaml",
         "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
         "skrl_mappo_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_cfg.yaml",
+        "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
     },
 )
 
@@ -83,6 +86,7 @@ gym.register(
         "skrl_mappo_cfg_entry_point": f"{agents.__name__}:skrl_mappo_cfg.yaml",
         "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
         "skrl_mappo_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_cfg.yaml",
+        "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
     },
 )
 
@@ -96,6 +100,7 @@ gym.register(
         "skrl_mappo_cfg_entry_point": f"{agents.__name__}:skrl_mappo_cfg.yaml",
         "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
         "skrl_mappo_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_cfg.yaml",
+        "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
     },
 )
 

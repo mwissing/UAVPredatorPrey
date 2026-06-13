@@ -14,7 +14,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from skrl.models.torch import GaussianMixin, Model
+from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
 from skrl.utils.spaces.torch import unflatten_tensorized_space
 
 
@@ -52,6 +52,19 @@ def _infer_predator_layout(num_observations: int, num_actions: int, min_predator
         per_predator_obs = 12 + 6 + teammate_dim * (num_predators - 1)
         if num_observations == num_predators * per_predator_obs:
             return num_predators, per_predator_obs, teammate_dim
+    return None
+
+
+def _infer_centralized_state_layout(num_states: int, max_predators: int = 6) -> tuple[int, int, int, int] | None:
+    """Infer centralized state layout: stacked predator observations plus prey observation."""
+
+    for num_predators in range(1, max_predators + 1):
+        prey_obs_dim = 12 + 6 * num_predators
+        for teammate_dim in (6, 3):
+            per_predator_obs = 12 + 6 + teammate_dim * (num_predators - 1)
+            predator_obs_dim = num_predators * per_predator_obs
+            if num_states == predator_obs_dim + prey_obs_dim:
+                return num_predators, per_predator_obs, teammate_dim, prey_obs_dim
     return None
 
 
@@ -176,6 +189,101 @@ def shared_predator_attention_gaussian_model(
     return SharedPredatorAttentionGaussianModel(observation_space, action_space, device=device, **kwargs)
 
 
+class EntityAttentionCentralizedValueModel(DeterministicMixin, Model):
+    """Centralized value model with entity attention over predators and prey."""
+
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        device=None,
+        *,
+        clip_actions: bool = False,
+        hidden_size: int = 128,
+        attention_size: int = 64,
+        fallback_layers: Sequence[int] = (256, 128, 64),
+        fallback_activation: str = "elu",
+        max_predators: int = 6,
+        **_: Any,
+    ) -> None:
+        Model.__init__(self, observation_space, action_space, device)
+        DeterministicMixin.__init__(self, clip_actions=clip_actions)
+
+        layout = _infer_centralized_state_layout(self.num_observations, max_predators=max_predators)
+        self.uses_entity_attention = layout is not None
+
+        if self.uses_entity_attention:
+            self.num_predators, self.per_predator_obs, self.teammate_dim, self.prey_obs_dim = layout
+            self.predator_encoder = _mlp(
+                self.per_predator_obs,
+                (hidden_size,),
+                attention_size,
+                fallback_activation,
+            )
+            self.prey_encoder = _mlp(
+                self.prey_obs_dim,
+                (hidden_size,),
+                attention_size,
+                fallback_activation,
+            )
+            self.query = nn.Linear(attention_size, attention_size)
+            self.key = nn.Linear(attention_size, attention_size)
+            self.value = nn.Linear(attention_size, attention_size)
+            self.value_head = _mlp(attention_size, (hidden_size,), 1, fallback_activation)
+        else:
+            self.num_predators = 0
+            self.per_predator_obs = 0
+            self.teammate_dim = 0
+            self.prey_obs_dim = 0
+            self.net = _mlp(self.num_observations, fallback_layers, 1, fallback_activation)
+
+    def compute(self, inputs, role=""):
+        states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))
+        if states.dim() == 1:
+            states = states.unsqueeze(0)
+
+        if not self.uses_entity_attention:
+            return self.net(states), {}
+
+        batch_size = states.shape[0]
+        predator_state_dim = self.num_predators * self.per_predator_obs
+        predator_obs = states[:, :predator_state_dim].view(
+            batch_size,
+            self.num_predators,
+            self.per_predator_obs,
+        )
+        prey_obs = states[:, predator_state_dim : predator_state_dim + self.prey_obs_dim]
+
+        predator_emb = self.predator_encoder(predator_obs.reshape(-1, self.per_predator_obs))
+        predator_emb = predator_emb.view(batch_size, self.num_predators, -1)
+        prey_emb = self.prey_encoder(prey_obs).unsqueeze(1)
+        entities = torch.cat((predator_emb, prey_emb), dim=1)
+
+        query = self.query(entities)
+        key = self.key(entities)
+        value = self.value(entities)
+        scores = torch.matmul(query, key.transpose(-1, -2)) / math.sqrt(key.shape[-1])
+        weights = torch.softmax(scores, dim=-1)
+        attended = torch.matmul(weights, value)
+        pooled = attended.mean(dim=1)
+
+        return self.value_head(pooled), {}
+
+
+def entity_attention_centralized_value_model(
+    observation_space,
+    action_space,
+    device=None,
+    return_source: bool = False,
+    **kwargs: Any,
+):
+    """skrl Runner-compatible centralized value instantiator."""
+
+    if return_source:
+        return "EntityAttentionCentralizedValueModel(entity encoder critic over centralized state; flat MLP fallback)"
+    return EntityAttentionCentralizedValueModel(observation_space, action_space, device=device, **kwargs)
+
+
 def patch_skrl_runner(Runner) -> None:
     """Register custom model names with skrl's YAML runner."""
 
@@ -185,8 +293,11 @@ def patch_skrl_runner(Runner) -> None:
     original_component = Runner._component
 
     def _component(self, name: str):
-        if name.lower() == "sharedpredatorattentiongaussianmixin":
+        component_name = name.lower()
+        if component_name == "sharedpredatorattentiongaussianmixin":
             return shared_predator_attention_gaussian_model
+        if component_name == "entityattentioncentralizedvaluemixin":
+            return entity_attention_centralized_value_model
         return original_component(self, name)
 
     Runner._component = _component
