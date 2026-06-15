@@ -18,6 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import torch
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ISAACLAB = Path(r"C:\RL\IsaacLab\isaaclab.bat")
@@ -30,6 +32,12 @@ PRESETS = {
         "agent": "skrl_mappo_attention_critic_cfg_entry_point",
         "algorithm": "MAPPO",
         "output_suffix": "3v1_attention_critic_hysteresis",
+    },
+    "3v1-attention-critic-prey-attention": {
+        "task": "3v1-survival-soft-oob-teammate-vel-random-spawn-v0",
+        "agent": "skrl_mappo_attention_critic_prey_attention_cfg_entry_point",
+        "algorithm": "MAPPO",
+        "output_suffix": "3v1_attention_critic_prey_attention_hysteresis",
     },
 }
 
@@ -180,6 +188,49 @@ def _sample_pool_entry(
     if not any(weight > 0.0 for weight in weights):
         return None
     return rng.choices(entries, weights=weights, k=1)[0]
+
+
+def _pool_entry_compatible(entry: dict[str, Any], *, role: str, args: argparse.Namespace) -> bool:
+    """Return whether a pool entry can be loaded by the active model config."""
+
+    if role != "prey" or "prey_attention" not in args.agent:
+        return True
+
+    checkpoint_path = Path(str(entry["checkpoint"]))
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    except Exception as exc:
+        print(f"[WARNING] Skipping pool entry that cannot be inspected: {entry.get('name', checkpoint_path.stem)}")
+        print(f"[WARNING]   {exc}")
+        return False
+
+    role_state = checkpoint.get(role)
+    policy_state = role_state.get("policy") if isinstance(role_state, dict) else None
+    if not isinstance(policy_state, dict):
+        print(f"[WARNING] Skipping pool entry without {role} policy: {entry.get('name', checkpoint_path.stem)}")
+        return False
+
+    if any(key.startswith("predator_encoder.") for key in policy_state):
+        return True
+
+    print(
+        f"[WARNING] Skipping incompatible {role} pool entry for active prey-attention config: "
+        f"{entry.get('name', checkpoint_path.stem)}"
+    )
+    return False
+
+
+def _compatible_pool_for_role(
+    pool: dict[str, list[dict[str, Any]]],
+    *,
+    role: str,
+    args: argparse.Namespace,
+) -> dict[str, list[dict[str, Any]]]:
+    compatible = dict(pool)
+    compatible[role] = [
+        entry for entry in pool.get(role, []) if _pool_entry_compatible(entry, role=role, args=args)
+    ]
+    return compatible
 
 
 def _compose_checkpoint(
@@ -367,7 +418,11 @@ def _selected_cross_play_entries(
     rng: random.Random,
     args: argparse.Namespace,
 ) -> list[dict[str, Any]]:
-    entries = list(pool.get(opponent, []))
+    entries = [
+        entry
+        for entry in pool.get(opponent, [])
+        if _pool_entry_compatible(entry, role=opponent, args=args)
+    ]
     if not entries or args.cross_play_max_opponents <= 0:
         return []
 
@@ -742,7 +797,8 @@ def _pool_train_checkpoint(
         return current_checkpoint, None
 
     opponent = _agent_opponent(phase)
-    entry = _sample_pool_entry(pool, opponent, rng, training_agent=phase, args=args)
+    compatible_pool = _compatible_pool_for_role(pool, role=opponent, args=args)
+    entry = _sample_pool_entry(compatible_pool, opponent, rng, training_agent=phase, args=args)
     if entry is None:
         print(f"[INFO] No {opponent} pool entries available; using current opponent.")
         return current_checkpoint, None

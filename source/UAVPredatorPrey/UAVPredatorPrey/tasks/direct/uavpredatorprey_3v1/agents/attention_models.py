@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Custom skrl model instantiators for shared predator attention policies."""
+"""Custom skrl model instantiators for entity-attention MAPPO policies."""
 
 from __future__ import annotations
 
@@ -66,6 +66,19 @@ def _infer_centralized_state_layout(num_states: int, max_predators: int = 6) -> 
             if num_states == predator_obs_dim + prey_obs_dim:
                 return num_predators, per_predator_obs, teammate_dim, prey_obs_dim
     return None
+
+
+def _infer_prey_layout(num_observations: int, num_actions: int, min_predators: int) -> int | None:
+    if num_actions != 4:
+        return None
+    if num_observations < 18:
+        return None
+    if (num_observations - 12) % 6 != 0:
+        return None
+    num_predators = (num_observations - 12) // 6
+    if num_predators < min_predators:
+        return None
+    return num_predators
 
 
 class SharedPredatorAttentionGaussianModel(GaussianMixin, Model):
@@ -189,6 +202,162 @@ def shared_predator_attention_gaussian_model(
     return SharedPredatorAttentionGaussianModel(observation_space, action_space, device=device, **kwargs)
 
 
+class PredatorPreyAttentionGaussianModel(GaussianMixin, Model):
+    """Gaussian policy with predator-team attention and prey attention.
+
+    Predator observations keep the shared per-predator actor used by
+    SharedPredatorAttentionGaussianModel. Prey observations are parsed as
+    own_state(12) + N * predator_info(6), where each predator_info is relative
+    position plus relative velocity. The prey own-state embedding queries the
+    predator entity set and produces one 4D action.
+    """
+
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        device=None,
+        *,
+        clip_actions: bool = False,
+        clip_log_std: bool = True,
+        min_log_std: float = -2.0,
+        max_log_std: float = 0.0,
+        initial_log_std: float = -0.5,
+        reduction: str = "sum",
+        hidden_size: int = 128,
+        attention_size: int = 64,
+        fallback_layers: Sequence[int] = (256, 128, 64),
+        fallback_activation: str = "elu",
+        attention_min_predators: int = 2,
+        prey_attention_min_predators: int = 2,
+        **_: Any,
+    ) -> None:
+        Model.__init__(self, observation_space, action_space, device)
+        GaussianMixin.__init__(
+            self,
+            clip_actions=clip_actions,
+            clip_log_std=clip_log_std,
+            min_log_std=min_log_std,
+            max_log_std=max_log_std,
+            reduction=reduction,
+        )
+
+        predator_layout = _infer_predator_layout(self.num_observations, self.num_actions, attention_min_predators)
+        prey_num_predators = _infer_prey_layout(
+            self.num_observations,
+            self.num_actions,
+            prey_attention_min_predators,
+        )
+
+        self.mode = "fallback"
+        if predator_layout is not None:
+            self.mode = "predator"
+            self.num_predators, self.per_predator_obs, self.teammate_dim = predator_layout
+            self.own_encoder = _mlp(12, (hidden_size,), attention_size, fallback_activation)
+            self.prey_encoder = _mlp(6, (hidden_size,), attention_size, fallback_activation)
+            self.teammate_encoder = _mlp(self.teammate_dim, (hidden_size,), attention_size, fallback_activation)
+            self.query = nn.Linear(attention_size, attention_size)
+            self.key = nn.Linear(attention_size, attention_size)
+            self.value = nn.Linear(attention_size, attention_size)
+            self.actor_head = _mlp(attention_size * 2, (hidden_size,), 4, fallback_activation)
+            self.log_std_parameter = nn.Parameter(torch.full((4,), float(initial_log_std)))
+        elif prey_num_predators is not None:
+            self.mode = "prey"
+            self.num_predators = prey_num_predators
+            self.per_predator_obs = 0
+            self.teammate_dim = 0
+            self.own_encoder = _mlp(12, (hidden_size,), attention_size, fallback_activation)
+            self.predator_encoder = _mlp(6, (hidden_size,), attention_size, fallback_activation)
+            self.query = nn.Linear(attention_size, attention_size)
+            self.key = nn.Linear(attention_size, attention_size)
+            self.value = nn.Linear(attention_size, attention_size)
+            self.actor_head = _mlp(attention_size * 2, (hidden_size,), 4, fallback_activation)
+            self.log_std_parameter = nn.Parameter(torch.full((4,), float(initial_log_std)))
+        else:
+            self.num_predators = 0
+            self.per_predator_obs = 0
+            self.teammate_dim = 0
+            self.net = _mlp(self.num_observations, fallback_layers, self.num_actions, fallback_activation)
+            self.log_std_parameter = nn.Parameter(torch.full((self.num_actions,), float(initial_log_std)))
+
+    def compute(self, inputs, role=""):
+        states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))
+        if states.dim() == 1:
+            states = states.unsqueeze(0)
+
+        if self.mode == "fallback":
+            return self.net(states), self.log_std_parameter, {}
+
+        batch_size = states.shape[0]
+
+        if self.mode == "predator":
+            predator_obs = states.view(batch_size, self.num_predators, self.per_predator_obs)
+            own = predator_obs[:, :, :12]
+            prey = predator_obs[:, :, 12:18]
+            teammates = predator_obs[:, :, 18:].view(
+                batch_size,
+                self.num_predators,
+                self.num_predators - 1,
+                self.teammate_dim,
+            )
+
+            own_emb = self.own_encoder(own.reshape(batch_size * self.num_predators, 12))
+            own_emb = own_emb.view(batch_size, self.num_predators, -1)
+
+            prey_emb = self.prey_encoder(prey.reshape(batch_size * self.num_predators, 6))
+            prey_emb = prey_emb.view(batch_size, self.num_predators, 1, -1)
+
+            teammate_emb = self.teammate_encoder(teammates.reshape(-1, self.teammate_dim))
+            teammate_emb = teammate_emb.view(batch_size, self.num_predators, self.num_predators - 1, -1)
+
+            entities = torch.cat((prey_emb, teammate_emb), dim=2)
+            query = self.query(own_emb).unsqueeze(2)
+            key = self.key(entities)
+            value = self.value(entities)
+
+            weights = torch.softmax((query * key).sum(dim=-1) / math.sqrt(key.shape[-1]), dim=-1)
+            context = (weights.unsqueeze(-1) * value).sum(dim=2)
+
+            actions = self.actor_head(torch.cat((own_emb, context), dim=-1))
+            actions = actions.reshape(batch_size, self.num_predators * 4)
+            log_std = self.log_std_parameter.repeat(self.num_predators)
+            return actions, log_std, {}
+
+        own = states[:, :12]
+        predators = states[:, 12:].view(batch_size, self.num_predators, 6)
+
+        own_emb = self.own_encoder(own)
+        predator_emb = self.predator_encoder(predators.reshape(batch_size * self.num_predators, 6))
+        predator_emb = predator_emb.view(batch_size, self.num_predators, -1)
+
+        query = self.query(own_emb).unsqueeze(1)
+        key = self.key(predator_emb)
+        value = self.value(predator_emb)
+
+        weights = torch.softmax((query * key).sum(dim=-1) / math.sqrt(key.shape[-1]), dim=-1)
+        context = (weights.unsqueeze(-1) * value).sum(dim=1)
+        actions = self.actor_head(torch.cat((own_emb, context), dim=-1))
+
+        return actions, self.log_std_parameter, {}
+
+
+def predator_prey_attention_gaussian_model(
+    observation_space,
+    action_space,
+    device=None,
+    return_source: bool = False,
+    **kwargs: Any,
+):
+    """skrl Runner-compatible actor with attention for predator team and prey."""
+
+    if return_source:
+        return (
+            "PredatorPreyAttentionGaussianModel("
+            "predator shared attention actor; prey attention over predator entities; flat MLP fallback)"
+        )
+    return PredatorPreyAttentionGaussianModel(observation_space, action_space, device=device, **kwargs)
+
+
 class EntityAttentionCentralizedValueModel(DeterministicMixin, Model):
     """Centralized value model with entity attention over predators and prey."""
 
@@ -296,6 +465,8 @@ def patch_skrl_runner(Runner) -> None:
         component_name = name.lower()
         if component_name == "sharedpredatorattentiongaussianmixin":
             return shared_predator_attention_gaussian_model
+        if component_name == "predatorpreyattentiongaussianmixin":
+            return predator_prey_attention_gaussian_model
         if component_name == "entityattentioncentralizedvaluemixin":
             return entity_attention_centralized_value_model
         return original_component(self, name)

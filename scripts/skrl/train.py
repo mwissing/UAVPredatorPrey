@@ -345,9 +345,14 @@ class _PoolPolicy:
         return actions
 
 
-def _build_pool_policies(agent: Any, role: str, entries: list[dict[str, Any]], device: torch.device) -> list[_PoolPolicy]:
+def _build_pool_policies(
+    agent: Any,
+    role: str,
+    entries: list[dict[str, Any]],
+    device: torch.device,
+) -> tuple[list[_PoolPolicy], list[float]]:
     if not entries:
-        return []
+        return [], []
 
     policies = getattr(agent, "policies", {})
     state_preprocessors = getattr(agent, "_state_preprocessor", {})
@@ -357,16 +362,26 @@ def _build_pool_policies(agent: Any, role: str, entries: list[dict[str, Any]], d
         raise RuntimeError(f"Cannot build per-env pool: no policy found for frozen role '{role}'.")
 
     pool_policies: list[_PoolPolicy] = []
+    pool_weights: list[float] = []
     for entry in entries:
         checkpoint_path = Path(str(entry["checkpoint"]))
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         role_state = checkpoint.get(role)
         if not isinstance(role_state, dict) or "policy" not in role_state:
-            raise RuntimeError(f"Checkpoint does not contain role '{role}' policy: {checkpoint_path}")
+            print(f"[WARNING] Skipping pool entry without role '{role}' policy: {checkpoint_path}")
+            continue
 
         policy = copy.deepcopy(template_policy)
         policy.to(device)
-        policy.load_state_dict(role_state["policy"])
+        try:
+            policy.load_state_dict(role_state["policy"])
+        except RuntimeError as exc:
+            print(
+                f"[WARNING] Skipping incompatible pool entry for frozen role '{role}': "
+                f"{entry.get('name', checkpoint_path.stem)} ({checkpoint_path})"
+            )
+            print(f"[WARNING]   {exc}")
+            continue
 
         preprocessor = copy.deepcopy(template_preprocessor) if template_preprocessor is not None else None
         _load_module_state(preprocessor, role_state.get("state_preprocessor"), f"{role} state_preprocessor")
@@ -378,8 +393,9 @@ def _build_pool_policies(agent: Any, role: str, entries: list[dict[str, Any]], d
                 state_preprocessor=preprocessor,
             )
         )
+        pool_weights.append(float(entry.get("weight", 1.0)))
 
-    return pool_policies
+    return pool_policies, pool_weights
 
 
 class _PerEnvOpponentPoolWrapper:
@@ -499,8 +515,13 @@ def _wrap_per_env_opponent_pool(env: Any, runner: Runner, freeze_agents: set[str
         return env
 
     seed = args_cli.per_env_pool_seed if args_cli.per_env_pool_seed is not None else args_cli.seed
-    pool_weights = [float(entry.get("weight", 1.0)) for entry in entries]
-    pool_policies = _build_pool_policies(runner.agent, frozen_role, entries, env.device)
+    pool_policies, pool_weights = _build_pool_policies(runner.agent, frozen_role, entries, env.device)
+    if not pool_policies:
+        print(
+            f"[WARNING] Per-env opponent pool has no compatible entries for frozen role '{frozen_role}'. "
+            "Disabling."
+        )
+        return env
     return _PerEnvOpponentPoolWrapper(
         env,
         frozen_role=frozen_role,
