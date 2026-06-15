@@ -62,7 +62,7 @@ def _load_opponent_pool(path: Path | None) -> dict[str, list[dict[str, Any]]]:
     if path is None:
         return {agent: [] for agent in AGENTS}
 
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
     pool = {agent: [] for agent in AGENTS}
     for agent in AGENTS:
         entries = data.get(agent, [])
@@ -571,6 +571,14 @@ def _requested_phase_iterations(phase: str, args: argparse.Namespace) -> int:
     return args.phase_iterations
 
 
+def _per_env_pool_path(args: argparse.Namespace) -> Path | None:
+    if args.per_env_pool_prob <= 0.0:
+        return None
+    if args.auto_pool_path is not None:
+        return args.auto_pool_path
+    return args.opponent_pool
+
+
 def _evaluate(
     checkpoint: Path,
     *,
@@ -650,6 +658,20 @@ def _train_phase(
         str(phase_iterations),
     ]
     command.extend(_freeze_args(phase))
+    per_env_pool_path = _per_env_pool_path(args)
+    if phase in {"predator", "prey"} and per_env_pool_path is not None:
+        command.extend(
+            [
+                "--per-env-opponent-pool",
+                str(per_env_pool_path),
+                "--per-env-pool-prob",
+                str(args.per_env_pool_prob),
+                "--per-env-pool-max-policies",
+                str(args.per_env_pool_max_policies),
+                "--per-env-pool-seed",
+                str(args.per_env_pool_seed if args.per_env_pool_seed is not None else args.seed),
+            ]
+        )
     _run(command, cwd=REPO_ROOT, dry_run=args.dry_run)
     if args.dry_run:
         return checkpoint
@@ -862,6 +884,27 @@ def main() -> None:
         type=float,
         default=0.0,
         help="Probability that a single-agent phase trains against an old frozen opponent from the pool.",
+    )
+    parser.add_argument(
+        "--per-env-pool-prob",
+        type=float,
+        default=0.0,
+        help=(
+            "Fraction of envs in a single-agent phase that use frozen opponents sampled from the pool. "
+            "This mixes opponents inside one rollout batch."
+        ),
+    )
+    parser.add_argument(
+        "--per-env-pool-max-policies",
+        type=int,
+        default=8,
+        help="Maximum number of pool policies loaded into train.py for per-env opponent mixing.",
+    )
+    parser.add_argument(
+        "--per-env-pool-seed",
+        type=int,
+        default=None,
+        help="Seed for per-env opponent assignment. Defaults to --seed.",
     )
     parser.add_argument(
         "--pool-sampling",
@@ -1080,6 +1123,8 @@ def main() -> None:
     args.prey_phase_iterations = None if args.prey_phase_iterations is None else max(1, int(args.prey_phase_iterations))
     args.both_phase_iterations = None if args.both_phase_iterations is None else max(1, int(args.both_phase_iterations))
     args.pool_prob = max(0.0, min(1.0, args.pool_prob))
+    args.per_env_pool_prob = max(0.0, min(1.0, args.per_env_pool_prob))
+    args.per_env_pool_max_policies = max(1, int(args.per_env_pool_max_policies))
     args.pfsp_min_weight = max(0.0, float(args.pfsp_min_weight))
     args.cross_play_every = max(1, int(args.cross_play_every))
     args.cross_play_max_opponents = max(0, int(args.cross_play_max_opponents))
@@ -1103,6 +1148,13 @@ def main() -> None:
         print(f"[INFO] Predator entries: {len(pool['predator'])}; prey entries: {len(pool['prey'])}")
         print(f"[INFO] Pool sampling probability: {args.pool_prob:.3f}")
         print(f"[INFO] Pool sampling rule: {args.pool_sampling}")
+    if args.per_env_pool_prob > 0.0:
+        per_env_pool_path = _per_env_pool_path(args)
+        print(
+            "[INFO] Per-env pool mixing: "
+            f"prob={args.per_env_pool_prob:.3f}, max_policies={args.per_env_pool_max_policies}, "
+            f"path={per_env_pool_path}"
+        )
     if args.auto_pool:
         print(f"[INFO] Auto-pool enabled: {args.auto_pool_path}")
     elif args.cross_play:

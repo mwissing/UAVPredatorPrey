@@ -104,6 +104,13 @@ class Uav3v1Env(DirectMARLEnv):
         self._pair_src = pair_src
         self._pair_dst = pair_dst
 
+    def _sample_arena_xy(self, shape: tuple[int, ...], radius: float) -> tuple[torch.Tensor, torch.Tensor]:
+        """Sample XY positions uniformly from a disk centered at the arena origin."""
+
+        angles = torch.rand(shape, device=self.device) * 2 * math.pi
+        radii = radius * torch.sqrt(torch.rand(shape, device=self.device))
+        return radii * torch.cos(angles), radii * torch.sin(angles)
+
     def _sample_predator_spawn_xy(self, n: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Sample predator XY spawn positions relative to each environment origin."""
 
@@ -138,6 +145,48 @@ class Uav3v1Env(DirectMARLEnv):
             y[same_side_mask] = self.cfg.predator_same_side_spawn_radius * torch.sin(same_side_angles)
 
         return x, y
+
+    def _sample_random_spawn_z(self, shape: tuple[int, ...]) -> torch.Tensor:
+        z_min = float(self.cfg.random_spawn_z_min)
+        z_max = float(self.cfg.random_spawn_z_max)
+        return z_min + torch.rand(shape, device=self.device) * (z_max - z_min)
+
+    def _sample_random_arena_spawn_xy(
+        self, n: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample random prey and predator XY starts with simple separation guards."""
+
+        radius = self.cfg.arena_radius * self.cfg.random_spawn_radius_fraction
+        prey_x, prey_y = self._sample_arena_xy((n,), radius)
+        pred_x, pred_y = self._sample_arena_xy((n, self._P), radius)
+
+        min_prey_predator_sq = float(self.cfg.random_spawn_min_prey_predator_distance) ** 2
+        min_predator_sq = float(self.cfg.random_spawn_min_predator_distance) ** 2
+
+        for _ in range(int(self.cfg.random_spawn_resample_attempts)):
+            invalid = torch.zeros(n, self._P, dtype=torch.bool, device=self.device)
+
+            if min_prey_predator_sq > 0.0:
+                dx = pred_x - prey_x.unsqueeze(1)
+                dy = pred_y - prey_y.unsqueeze(1)
+                invalid |= (dx * dx + dy * dy) < min_prey_predator_sq
+
+            if min_predator_sq > 0.0 and self._pair_src:
+                pair_dx = pred_x[:, self._pair_src] - pred_x[:, self._pair_dst]
+                pair_dy = pred_y[:, self._pair_src] - pred_y[:, self._pair_dst]
+                close_pairs = (pair_dx * pair_dx + pair_dy * pair_dy) < min_predator_sq
+                for pair_index, (src, dst) in enumerate(zip(self._pair_src, self._pair_dst)):
+                    invalid[:, src] |= close_pairs[:, pair_index]
+                    invalid[:, dst] |= close_pairs[:, pair_index]
+
+            if not invalid.any():
+                break
+
+            new_x, new_y = self._sample_arena_xy((n, self._P), radius)
+            pred_x = torch.where(invalid, new_x, pred_x)
+            pred_y = torch.where(invalid, new_y, pred_y)
+
+        return pred_x, pred_y, prey_x, prey_y
 
     def _setup_scene(self):
         self._predators: list[Articulation] = []
@@ -636,12 +685,22 @@ class Uav3v1Env(DirectMARLEnv):
         self._prey_actions[env_ids] = 0.0
 
         # Spawn predators according to the active reset geometry.
-        pred_spawn_x, pred_spawn_y = self._sample_predator_spawn_xy(n)
+        if self.cfg.random_arena_spawn:
+            pred_spawn_x, pred_spawn_y, prey_spawn_x, prey_spawn_y = self._sample_random_arena_spawn_xy(n)
+            pred_spawn_z = self._sample_random_spawn_z((n, self._P))
+            prey_spawn_z = self._sample_random_spawn_z((n,))
+        else:
+            pred_spawn_x, pred_spawn_y = self._sample_predator_spawn_xy(n)
+            prey_spawn_x = torch.full((n,), self.cfg.prey_spawn_pos[0], device=self.device)
+            prey_spawn_y = torch.full((n,), self.cfg.prey_spawn_pos[1], device=self.device)
+            pred_spawn_z = torch.full((n, self._P), self.cfg.target_height, device=self.device)
+            prey_spawn_z = torch.full((n,), self.cfg.prey_spawn_pos[2], device=self.device)
+
         for i, pred in enumerate(self._predators):
             state = pred.data.default_root_state[env_ids].clone()
             state[:, 0] = pred_spawn_x[:, i]
             state[:, 1] = pred_spawn_y[:, i]
-            state[:, 2] = self.cfg.target_height
+            state[:, 2] = pred_spawn_z[:, i]
             state[:, :3] += (torch.rand(n, 3, device=self.device) * 2 - 1) * self.cfg.spawn_pos_noise
             state[:, :3] += self._terrain.env_origins[env_ids]
 
@@ -655,9 +714,9 @@ class Uav3v1Env(DirectMARLEnv):
 
         # Spawn prey at center
         prey_state = self._prey.data.default_root_state[env_ids].clone()
-        prey_state[:, 0] = self.cfg.prey_spawn_pos[0]
-        prey_state[:, 1] = self.cfg.prey_spawn_pos[1]
-        prey_state[:, 2] = self.cfg.prey_spawn_pos[2]
+        prey_state[:, 0] = prey_spawn_x
+        prey_state[:, 1] = prey_spawn_y
+        prey_state[:, 2] = prey_spawn_z
         prey_state[:, :3] += (torch.rand(n, 3, device=self.device) * 2 - 1) * self.cfg.spawn_pos_noise
         prey_state[:, :3] += self._terrain.env_origins[env_ids]
 

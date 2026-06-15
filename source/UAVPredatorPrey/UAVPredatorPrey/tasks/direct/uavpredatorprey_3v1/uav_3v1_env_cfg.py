@@ -146,6 +146,13 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     predator_wide_spawn_radius = 4.0
     predator_same_side_spawn_radius = 3.8
     predator_same_side_spawn_spread = 0.7  # radians across the predator formation
+    random_arena_spawn = False
+    random_spawn_radius_fraction = 0.85
+    random_spawn_z_min = 0.7
+    random_spawn_z_max = 2.3
+    random_spawn_min_prey_predator_distance = 1.0
+    random_spawn_min_predator_distance = 0.8
+    random_spawn_resample_attempts = 32
     predator_teammate_close_distance = 0.5  # diagnostics only: flags near teammate contact
     predator_teammate_velocity_observation = False
 
@@ -232,6 +239,20 @@ class Uav3v1SurvivalSoftOobTeammateVelEnvCfg(Uav3v1SurvivalSoftOobEnvCfg):
     predator_teammate_velocity_observation = True
     observation_spaces = {"predator": 90, "prey": 30}
     state_space = 120
+
+
+@configclass
+class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg(Uav3v1SurvivalSoftOobTeammateVelEnvCfg):
+    """3v1 teammate-velocity variant with random XY starts inside the arena."""
+
+    random_arena_spawn = True
+    random_spawn_radius_fraction = 0.85
+    random_spawn_z_min = 0.7
+    random_spawn_z_max = 2.3
+    random_spawn_min_prey_predator_distance = 1.0
+    random_spawn_min_predator_distance = 0.8
+    random_spawn_resample_attempts = 32
+    spawn_pos_noise = 0.0
 
 
 @configclass

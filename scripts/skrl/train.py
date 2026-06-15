@@ -70,6 +70,33 @@ parser.add_argument(
     default=False,
     help="Deprecated shortcut for --freeze-agents predator.",
 )
+parser.add_argument(
+    "--per-env-opponent-pool",
+    type=str,
+    default=None,
+    help=(
+        "Optional opponent pool JSON used to mix frozen opponent policies across vectorized envs. "
+        "Only active when exactly one agent is frozen."
+    ),
+)
+parser.add_argument(
+    "--per-env-pool-prob",
+    type=float,
+    default=0.0,
+    help="Fraction of envs assigned to pool opponents instead of the latest frozen opponent.",
+)
+parser.add_argument(
+    "--per-env-pool-max-policies",
+    type=int,
+    default=8,
+    help="Maximum number of pool policies loaded for the frozen opponent role.",
+)
+parser.add_argument(
+    "--per-env-pool-seed",
+    type=int,
+    default=None,
+    help="Seed for per-env opponent assignment. Defaults to --seed.",
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -88,10 +115,14 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import logging
+import copy
+import json
 import os
 import random
 import time
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Mapping
 
 import gymnasium as gym
 import skrl
@@ -241,6 +272,245 @@ def _freeze_agent_training(agent, agent_names: set[str]) -> None:
             print(f"[INFO] Agent '{agent_name}' scheduler left unused because learning rate is 0.0.")
 
 
+def _load_pool_entries(path: str | None, role: str, max_policies: int) -> list[dict[str, Any]]:
+    if path is None:
+        return []
+
+    pool_path = Path(path).expanduser().resolve()
+    if not pool_path.exists():
+        raise FileNotFoundError(f"Per-env opponent pool not found: {pool_path}")
+
+    data = json.loads(pool_path.read_text(encoding="utf-8-sig"))
+    raw_entries = data.get(role, [])
+    entries: list[dict[str, Any]] = []
+    for index, raw_entry in enumerate(raw_entries):
+        if isinstance(raw_entry, str):
+            entry = {
+                "name": Path(raw_entry).stem,
+                "checkpoint": raw_entry,
+                "weight": 1.0,
+            }
+        elif isinstance(raw_entry, dict):
+            if "checkpoint" not in raw_entry:
+                raise RuntimeError(f"Pool entry {role}[{index}] is missing 'checkpoint'.")
+            entry = dict(raw_entry)
+            entry.setdefault("name", Path(str(entry["checkpoint"])).stem)
+            entry.setdefault("weight", 1.0)
+        else:
+            raise RuntimeError(f"Pool entry {role}[{index}] must be a string or object.")
+
+        checkpoint = Path(str(entry["checkpoint"])).expanduser().resolve()
+        if not checkpoint.exists():
+            raise FileNotFoundError(f"Pool entry '{entry['name']}' checkpoint does not exist: {checkpoint}")
+
+        entry["checkpoint"] = str(checkpoint)
+        entry["weight"] = float(entry.get("weight", 1.0))
+        if entry["weight"] > 0.0:
+            entries.append(entry)
+
+    entries.sort(key=lambda item: float(item.get("weight", 1.0)), reverse=True)
+    if max_policies > 0:
+        entries = entries[:max_policies]
+    return entries
+
+
+def _load_module_state(module: Any, state: Any, label: str) -> None:
+    if state is None or module is None:
+        return
+    if hasattr(module, "load_state_dict"):
+        try:
+            module.load_state_dict(state)
+        except Exception as exc:
+            print(f"[WARNING] Could not load {label} state: {exc}")
+
+
+class _PoolPolicy:
+    """Frozen policy copy used only for action generation."""
+
+    def __init__(self, *, name: str, role: str, policy: torch.nn.Module, state_preprocessor: Any | None):
+        self.name = name
+        self.role = role
+        self.policy = policy
+        self.state_preprocessor = state_preprocessor
+        self.policy.eval()
+        if hasattr(self.state_preprocessor, "eval"):
+            self.state_preprocessor.eval()
+
+    @torch.no_grad()
+    def act(self, observations: torch.Tensor) -> torch.Tensor:
+        states = observations
+        if self.state_preprocessor is not None:
+            states = self.state_preprocessor(states)
+        actions, _, _ = self.policy.act({"states": states}, role="policy")
+        return actions
+
+
+def _build_pool_policies(agent: Any, role: str, entries: list[dict[str, Any]], device: torch.device) -> list[_PoolPolicy]:
+    if not entries:
+        return []
+
+    policies = getattr(agent, "policies", {})
+    state_preprocessors = getattr(agent, "_state_preprocessor", {})
+    template_policy = policies.get(role) if isinstance(policies, dict) else None
+    template_preprocessor = state_preprocessors.get(role) if isinstance(state_preprocessors, dict) else None
+    if template_policy is None:
+        raise RuntimeError(f"Cannot build per-env pool: no policy found for frozen role '{role}'.")
+
+    pool_policies: list[_PoolPolicy] = []
+    for entry in entries:
+        checkpoint_path = Path(str(entry["checkpoint"]))
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        role_state = checkpoint.get(role)
+        if not isinstance(role_state, dict) or "policy" not in role_state:
+            raise RuntimeError(f"Checkpoint does not contain role '{role}' policy: {checkpoint_path}")
+
+        policy = copy.deepcopy(template_policy)
+        policy.to(device)
+        policy.load_state_dict(role_state["policy"])
+
+        preprocessor = copy.deepcopy(template_preprocessor) if template_preprocessor is not None else None
+        _load_module_state(preprocessor, role_state.get("state_preprocessor"), f"{role} state_preprocessor")
+        pool_policies.append(
+            _PoolPolicy(
+                name=str(entry.get("name", checkpoint_path.stem)),
+                role=role,
+                policy=policy,
+                state_preprocessor=preprocessor,
+            )
+        )
+
+    return pool_policies
+
+
+class _PerEnvOpponentPoolWrapper:
+    """Delegate env wrapper that mixes frozen opponent policies across vectorized envs."""
+
+    def __init__(
+        self,
+        env: Any,
+        *,
+        frozen_role: str,
+        pool_policies: list[_PoolPolicy],
+        pool_weights: list[float],
+        pool_prob: float,
+        seed: int | None,
+    ):
+        self._env = env
+        self.frozen_role = frozen_role
+        self.pool_policies = pool_policies
+        self.pool_prob = max(0.0, min(1.0, float(pool_prob)))
+        self._last_observations: Mapping[str, torch.Tensor] | None = None
+        self._assignment: torch.Tensor | None = None
+        self._logged_assignment = False
+
+        device = getattr(env, "device", torch.device("cpu"))
+        self._device = torch.device(device)
+        pool_weight_tensor = torch.as_tensor(pool_weights, dtype=torch.float32)
+        pool_weight_tensor = torch.clamp(pool_weight_tensor, min=0.0)
+        if pool_weight_tensor.numel() == 0 or float(pool_weight_tensor.sum().item()) <= 0.0:
+            raise RuntimeError("Per-env opponent pool requires at least one positive pool weight.")
+        pool_weight_tensor = pool_weight_tensor / pool_weight_tensor.sum()
+
+        latest_weight = torch.tensor([1.0 - self.pool_prob], dtype=torch.float32)
+        pool_weights_scaled = pool_weight_tensor * self.pool_prob
+        self._source_probs = torch.cat((latest_weight, pool_weights_scaled), dim=0)
+
+        self._generator = torch.Generator(device="cpu")
+        if seed is not None:
+            self._generator.manual_seed(int(seed))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._env, name)
+
+    def _sample_assignment(self) -> None:
+        num_envs = int(self._env.num_envs)
+        self._assignment = torch.multinomial(
+            self._source_probs,
+            num_samples=num_envs,
+            replacement=True,
+            generator=self._generator,
+        ).to(self._device)
+
+        if not self._logged_assignment:
+            counts = torch.bincount(self._assignment.cpu(), minlength=len(self._source_probs))
+            latest_count = int(counts[0].item())
+            pool_count = int(counts[1:].sum().item())
+            print(
+                f"[INFO] Per-env opponent pool active for frozen '{self.frozen_role}': "
+                f"latest_envs={latest_count}, pool_envs={pool_count}, "
+                f"pool_prob={self.pool_prob:.3f}, policies={len(self.pool_policies)}"
+            )
+            for index, policy in enumerate(self.pool_policies, start=1):
+                print(f"[INFO]   source {index}: {policy.name}, envs={int(counts[index].item())}")
+            self._logged_assignment = True
+
+    def reset(self):
+        observations, infos = self._env.reset()
+        self._last_observations = observations
+        self._sample_assignment()
+        return observations, infos
+
+    def step(self, actions: Mapping[str, torch.Tensor]):
+        if self._last_observations is None:
+            raise RuntimeError("Per-env opponent pool wrapper received step before reset.")
+        if self.frozen_role not in actions:
+            raise RuntimeError(f"Frozen role '{self.frozen_role}' not present in action dict.")
+        if self.frozen_role not in self._last_observations:
+            raise RuntimeError(f"Frozen role '{self.frozen_role}' not present in observation dict.")
+
+        mixed_actions = dict(actions)
+        frozen_actions = actions[self.frozen_role].clone()
+        frozen_observations = self._last_observations[self.frozen_role]
+
+        for source_index, policy in enumerate(self.pool_policies, start=1):
+            mask = self._assignment == source_index
+            if torch.any(mask):
+                pool_actions = policy.act(frozen_observations)
+                frozen_actions[mask] = pool_actions[mask]
+        mixed_actions[self.frozen_role] = frozen_actions
+
+        next_observations, rewards, terminated, truncated, infos = self._env.step(mixed_actions)
+        self._last_observations = next_observations
+
+        if isinstance(infos, dict):
+            episode_info = infos.setdefault("episode", {})
+            if isinstance(episode_info, dict):
+                pool_fraction = torch.mean((self._assignment > 0).float()).to(self._device)
+                episode_info[f"Pool/{self.frozen_role}_per_env_pool_fraction"] = pool_fraction
+
+        return next_observations, rewards, terminated, truncated, infos
+
+
+def _wrap_per_env_opponent_pool(env: Any, runner: Runner, freeze_agents: set[str]) -> Any:
+    pool_prob = max(0.0, min(1.0, float(args_cli.per_env_pool_prob)))
+    if args_cli.per_env_opponent_pool is None or pool_prob <= 0.0:
+        return env
+    if len(freeze_agents) != 1:
+        print(
+            "[WARNING] Per-env opponent pool is only active when exactly one agent is frozen. "
+            f"Got frozen agents: {sorted(freeze_agents)}. Disabling per-env pool."
+        )
+        return env
+
+    frozen_role = next(iter(freeze_agents))
+    entries = _load_pool_entries(args_cli.per_env_opponent_pool, frozen_role, int(args_cli.per_env_pool_max_policies))
+    if not entries:
+        print(f"[WARNING] Per-env opponent pool has no entries for frozen role '{frozen_role}'. Disabling.")
+        return env
+
+    seed = args_cli.per_env_pool_seed if args_cli.per_env_pool_seed is not None else args_cli.seed
+    pool_weights = [float(entry.get("weight", 1.0)) for entry in entries]
+    pool_policies = _build_pool_policies(runner.agent, frozen_role, entries, env.device)
+    return _PerEnvOpponentPoolWrapper(
+        env,
+        frozen_role=frozen_role,
+        pool_policies=pool_policies,
+        pool_weights=pool_weights,
+        pool_prob=pool_prob,
+        seed=seed,
+    )
+
+
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: dict):
     """Train with skrl agent."""
@@ -350,6 +620,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if freeze_agents:
         print(f"[INFO] Freezing agents during training: {', '.join(sorted(freeze_agents))}")
         _freeze_agent_training(runner.agent, freeze_agents)
+
+    runner._trainer.env = _wrap_per_env_opponent_pool(env, runner, freeze_agents)
 
     # run training
     runner.run()
