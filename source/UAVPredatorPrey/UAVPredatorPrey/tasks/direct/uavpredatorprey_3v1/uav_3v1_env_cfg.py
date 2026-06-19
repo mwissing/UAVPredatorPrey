@@ -242,8 +242,29 @@ class Uav3v1SurvivalSoftOobTeammateVelEnvCfg(Uav3v1SurvivalSoftOobEnvCfg):
 
 
 @configclass
+class Uav3v1FlightBootstrapTeammateVelEnvCfg(Uav3v1SurvivalSoftOobTeammateVelEnvCfg):
+    """3v1 flight-stability bootstrap with chase/evasion rewards disabled."""
+
+    predator_proximity_reward_scale = 0.0
+    predator_distance_progress_reward_scale = 0.0
+    predator_catch_bonus = 0.0
+    predator_assist_bonus = 0.0
+
+    prey_evasion_reward_scale = 0.0
+    prey_caught_penalty = 0.0
+    prey_distance_progress_reward_scale = 0.0
+    prey_boundary_progress_reward_scale = 0.0
+
+    predator_mixed_spawn = False
+    random_arena_spawn = False
+    spawn_pos_noise = 0.1
+
+
+@configclass
 class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg(Uav3v1SurvivalSoftOobTeammateVelEnvCfg):
     """3v1 teammate-velocity variant with random XY starts inside the arena."""
+
+    predator_proximity_reward_scale = 0.0
 
     random_arena_spawn = True
     random_spawn_radius_fraction = 0.85

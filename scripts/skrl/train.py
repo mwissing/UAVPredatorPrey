@@ -119,6 +119,7 @@ import copy
 import json
 import os
 import random
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -272,7 +273,12 @@ def _freeze_agent_training(agent, agent_names: set[str]) -> None:
             print(f"[INFO] Agent '{agent_name}' scheduler left unused because learning rate is 0.0.")
 
 
-def _load_pool_entries(path: str | None, role: str, max_policies: int) -> list[dict[str, Any]]:
+def _load_pool_entries(
+    path: str | None,
+    role: str,
+    max_policies: int,
+    exclude_checkpoint: str | None = None,
+) -> list[dict[str, Any]]:
     if path is None:
         return []
 
@@ -280,9 +286,11 @@ def _load_pool_entries(path: str | None, role: str, max_policies: int) -> list[d
     if not pool_path.exists():
         raise FileNotFoundError(f"Per-env opponent pool not found: {pool_path}")
 
+    exclude_path = Path(exclude_checkpoint).expanduser().resolve() if exclude_checkpoint else None
     data = json.loads(pool_path.read_text(encoding="utf-8-sig"))
     raw_entries = data.get(role, [])
     entries: list[dict[str, Any]] = []
+    skipped_current = 0
     for index, raw_entry in enumerate(raw_entries):
         if isinstance(raw_entry, str):
             entry = {
@@ -302,11 +310,20 @@ def _load_pool_entries(path: str | None, role: str, max_policies: int) -> list[d
         checkpoint = Path(str(entry["checkpoint"])).expanduser().resolve()
         if not checkpoint.exists():
             raise FileNotFoundError(f"Pool entry '{entry['name']}' checkpoint does not exist: {checkpoint}")
+        if exclude_path is not None and checkpoint == exclude_path:
+            skipped_current += 1
+            continue
 
         entry["checkpoint"] = str(checkpoint)
         entry["weight"] = float(entry.get("weight", 1.0))
         if entry["weight"] > 0.0:
             entries.append(entry)
+
+    if skipped_current:
+        print(
+            f"[INFO] Per-env opponent pool skipped {skipped_current} current frozen "
+            f"'{role}' checkpoint entr{'y' if skipped_current == 1 else 'ies'}."
+        )
 
     entries.sort(key=lambda item: float(item.get("weight", 1.0)), reverse=True)
     if max_policies > 0:
@@ -343,6 +360,11 @@ class _PoolPolicy:
             states = self.state_preprocessor(states)
         actions, _, _ = self.policy.act({"states": states}, role="policy")
         return actions
+
+
+def _safe_log_token(value: Any, *, max_len: int = 80) -> str:
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_")
+    return token[:max_len] if len(token) > max_len else token
 
 
 def _build_pool_policies(
@@ -418,6 +440,14 @@ class _PerEnvOpponentPoolWrapper:
         self._last_observations: Mapping[str, torch.Tensor] | None = None
         self._assignment: torch.Tensor | None = None
         self._logged_assignment = False
+        self._source_names = ["latest"] + [policy.name for policy in self.pool_policies]
+        self._source_tokens = [
+            "00_latest",
+            *[
+                f"{index:02d}_{_safe_log_token(policy.name)}"
+                for index, policy in enumerate(self.pool_policies, start=1)
+            ],
+        ]
 
         device = getattr(env, "device", torch.device("cpu"))
         self._device = torch.device(device)
@@ -466,6 +496,80 @@ class _PerEnvOpponentPoolWrapper:
         self._sample_assignment()
         return observations, infos
 
+    def _done_mask(
+        self,
+        terminated: Mapping[str, torch.Tensor],
+        truncated: Mapping[str, torch.Tensor],
+    ) -> torch.Tensor:
+        terminated_mask = next(iter(terminated.values())).reshape(-1).bool()
+        truncated_mask = next(iter(truncated.values())).reshape(-1).bool()
+        return terminated_mask | truncated_mask
+
+    def _write_pool_logs(
+        self,
+        infos: Mapping[str, Any],
+        terminated: Mapping[str, torch.Tensor],
+        truncated: Mapping[str, torch.Tensor],
+    ) -> None:
+        if not isinstance(infos, dict) or self._assignment is None:
+            return
+
+        log_info = infos.setdefault("log", {})
+        if not isinstance(log_info, dict):
+            return
+
+        counts = torch.bincount(self._assignment.cpu(), minlength=len(self._source_probs)).to(self._device).float()
+        num_envs = max(1, int(self._env.num_envs))
+        log_info[f"Pool/{self.frozen_role}/pool_env_fraction"] = (counts[1:].sum() / num_envs).to(self._device)
+        for source_index, token in enumerate(self._source_tokens):
+            log_info[f"Pool/{self.frozen_role}/{token}/env_fraction"] = (counts[source_index] / num_envs).to(self._device)
+
+        episode_payload = infos.get("pool_episode")
+        if not isinstance(episode_payload, dict):
+            return
+        env_ids = episode_payload.get("env_ids")
+        if not isinstance(env_ids, torch.Tensor) or env_ids.numel() == 0:
+            return
+
+        env_ids = env_ids.to(self._device, dtype=torch.long).reshape(-1)
+        current_finished = self._done_mask(terminated, truncated)
+        valid = current_finished[env_ids]
+        if not torch.any(valid):
+            return
+
+        env_ids = env_ids[valid]
+        episode_assignment = self._assignment[env_ids]
+
+        metric_names = {
+            "catch": "catch_rate",
+            "clean_catch": "clean_catch_rate",
+            "forced_prey_oob": "forced_prey_oob_rate",
+            "predator_success": "predator_success_rate",
+            "predator_oob": "predator_oob_rate",
+            "prey_oob": "prey_oob_rate",
+            "episode_length": "episode_length",
+            "closest_approach": "closest_approach",
+            "predator_min_height": "predator_min_height",
+            "teammate_min_distance": "teammate_min_distance",
+            "teammate_close_rate": "teammate_close_rate",
+        }
+        for source_index, token in enumerate(self._source_tokens):
+            source_mask = episode_assignment == source_index
+            if not torch.any(source_mask):
+                continue
+
+            source_count = source_mask.float().sum()
+            log_info[f"Pool/{self.frozen_role}/{token}/completed_episodes"] = source_count
+            log_info[f"Pool/{self.frozen_role}/{token}/completed_episode_fraction"] = (
+                source_count / max(1, int(env_ids.numel()))
+            )
+
+            for payload_name, log_name in metric_names.items():
+                values = episode_payload.get(payload_name)
+                if isinstance(values, torch.Tensor) and values.numel() == valid.numel():
+                    source_values = values.to(self._device).reshape(-1)[valid][source_mask]
+                    log_info[f"Pool/{self.frozen_role}/{token}/{log_name}"] = source_values.float().mean()
+
     def step(self, actions: Mapping[str, torch.Tensor]):
         if self._last_observations is None:
             raise RuntimeError("Per-env opponent pool wrapper received step before reset.")
@@ -488,11 +592,7 @@ class _PerEnvOpponentPoolWrapper:
         next_observations, rewards, terminated, truncated, infos = self._env.step(mixed_actions)
         self._last_observations = next_observations
 
-        if isinstance(infos, dict):
-            episode_info = infos.setdefault("episode", {})
-            if isinstance(episode_info, dict):
-                pool_fraction = torch.mean((self._assignment > 0).float()).to(self._device)
-                episode_info[f"Pool/{self.frozen_role}_per_env_pool_fraction"] = pool_fraction
+        self._write_pool_logs(infos, terminated, truncated)
 
         return next_observations, rewards, terminated, truncated, infos
 
@@ -509,7 +609,12 @@ def _wrap_per_env_opponent_pool(env: Any, runner: Runner, freeze_agents: set[str
         return env
 
     frozen_role = next(iter(freeze_agents))
-    entries = _load_pool_entries(args_cli.per_env_opponent_pool, frozen_role, int(args_cli.per_env_pool_max_policies))
+    entries = _load_pool_entries(
+        args_cli.per_env_opponent_pool,
+        frozen_role,
+        int(args_cli.per_env_pool_max_policies),
+        exclude_checkpoint=args_cli.checkpoint,
+    )
     if not entries:
         print(f"[WARNING] Per-env opponent pool has no entries for frozen role '{frozen_role}'. Disabling.")
         return env

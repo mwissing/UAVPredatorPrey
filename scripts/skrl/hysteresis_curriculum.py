@@ -39,6 +39,12 @@ PRESETS = {
         "algorithm": "MAPPO",
         "output_suffix": "3v1_attention_critic_prey_attention_hysteresis",
     },
+    "3v1-attention-critic-prey-attention-large": {
+        "task": "3v1-survival-soft-oob-teammate-vel-random-spawn-v0",
+        "agent": "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point",
+        "algorithm": "MAPPO",
+        "output_suffix": "3v1_attention_critic_prey_attention_large_hysteresis",
+    },
 }
 
 
@@ -296,7 +302,12 @@ def _safe_token(value: Any) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value))
 
 
-def _promotion_gate(agent: str, summary: dict[str, Any], args: argparse.Namespace) -> tuple[bool, str]:
+def _promotion_gate(
+    agent: str,
+    summary: dict[str, Any],
+    args: argparse.Namespace,
+    cross_play_aggregate: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
     catch_rate = _metric(summary, "Metrics/catch_rate")
     prey_oob = _metric(summary, "Metrics/prey_oob_rate")
     predator_oob = _metric(summary, "Metrics/predator_oob_rate")
@@ -311,6 +322,21 @@ def _promotion_gate(agent: str, summary: dict[str, Any], args: argparse.Namespac
             (prey_oob <= args.auto_pool_max_opponent_oob, f"prey_oob={prey_oob:.3f}"),
             (prey_soft <= args.auto_pool_max_opponent_soft, f"prey_soft={prey_soft:.3f}"),
         ]
+        if cross_play_aggregate:
+            cross_avg = float(cross_play_aggregate["catch_avg"])
+            cross_min = float(cross_play_aggregate["catch_min"])
+            checks.extend(
+                [
+                    (
+                        cross_avg >= args.auto_pool_predator_min_cross_play_avg_catch,
+                        f"cross_avg_catch={cross_avg:.3f}",
+                    ),
+                    (
+                        cross_min >= args.auto_pool_predator_min_cross_play_min_catch,
+                        f"cross_min_catch={cross_min:.3f}",
+                    ),
+                ]
+            )
     elif agent == "prey":
         checks = [
             (catch_rate <= args.auto_pool_prey_max_catch, f"catch_rate={catch_rate:.3f}"),
@@ -319,6 +345,21 @@ def _promotion_gate(agent: str, summary: dict[str, Any], args: argparse.Namespac
             (predator_oob <= args.auto_pool_max_opponent_oob, f"predator_oob={predator_oob:.3f}"),
             (predator_soft <= args.auto_pool_max_opponent_soft, f"predator_soft={predator_soft:.3f}"),
         ]
+        if cross_play_aggregate:
+            cross_avg = float(cross_play_aggregate["catch_avg"])
+            cross_max = float(cross_play_aggregate["catch_max"])
+            checks.extend(
+                [
+                    (
+                        cross_avg <= args.auto_pool_prey_max_cross_play_avg_catch,
+                        f"cross_avg_catch={cross_avg:.3f}",
+                    ),
+                    (
+                        cross_max <= args.auto_pool_prey_max_cross_play_max_catch,
+                        f"cross_max_catch={cross_max:.3f}",
+                    ),
+                ]
+            )
     else:
         return False, f"auto-pool promotion only supports predator/prey phases, got {agent}"
 
@@ -329,7 +370,11 @@ def _promotion_gate(agent: str, summary: dict[str, Any], args: argparse.Namespac
     return True, f"accepted {agent}: {details}"
 
 
-def _pool_score(agent: str, summary: dict[str, Any]) -> float:
+def _pool_score(
+    agent: str,
+    summary: dict[str, Any],
+    cross_play_aggregate: dict[str, Any] | None = None,
+) -> float:
     catch_rate = _metric(summary, "Metrics/catch_rate")
     prey_oob = _metric(summary, "Metrics/prey_oob_rate")
     predator_oob = _metric(summary, "Metrics/predator_oob_rate")
@@ -338,9 +383,23 @@ def _pool_score(agent: str, summary: dict[str, Any]) -> float:
 
     safety_penalty = prey_oob + predator_oob + 0.1 * (prey_soft + predator_soft)
     if agent == "predator":
-        return catch_rate - safety_penalty
+        score = catch_rate - safety_penalty
+        if cross_play_aggregate:
+            score = (
+                0.5 * score
+                + 0.3 * float(cross_play_aggregate["catch_avg"])
+                + 0.2 * float(cross_play_aggregate["catch_min"])
+            )
+        return score
     if agent == "prey":
-        return (1.0 - catch_rate) - safety_penalty
+        score = (1.0 - catch_rate) - safety_penalty
+        if cross_play_aggregate:
+            score = (
+                0.5 * score
+                + 0.3 * (1.0 - float(cross_play_aggregate["catch_avg"]))
+                + 0.2 * (1.0 - float(cross_play_aggregate["catch_max"]))
+            )
+        return score
     return 0.0
 
 
@@ -374,6 +433,7 @@ def _maybe_promote_to_pool(
     agent: str,
     checkpoint: Path,
     summary: dict[str, Any],
+    cross_play_aggregate: dict[str, Any] | None,
     phase_index: int,
     args: argparse.Namespace,
 ) -> dict[str, Any] | None:
@@ -386,13 +446,13 @@ def _maybe_promote_to_pool(
             print(f"[INFO] Auto-pool skip: {agent} checkpoint already exists in pool: {checkpoint}")
             return None
 
-    accepted, reason = _promotion_gate(agent, summary, args)
+    accepted, reason = _promotion_gate(agent, summary, args, cross_play_aggregate)
     if not accepted:
         print(f"[INFO] Auto-pool {reason}")
         return {"agent": agent, "promoted": False, "reason": reason, "checkpoint": str(checkpoint)}
 
     metrics = summary.get("episode_metrics", {})
-    auto_score = _pool_score(agent, summary)
+    auto_score = _pool_score(agent, summary, cross_play_aggregate)
     entry = {
         "name": _pool_entry_name(agent, checkpoint, phase_index),
         "checkpoint": str(checkpoint),
@@ -404,6 +464,8 @@ def _maybe_promote_to_pool(
         "metrics": metrics,
         "notes": reason,
     }
+    if cross_play_aggregate:
+        entry["cross_play_aggregate"] = cross_play_aggregate
     pool[agent].append(entry)
     _prune_pool(pool, args)
     print(f"[INFO] Auto-pool promoted {agent}: {entry['name']} (score={auto_score:.3f})")
@@ -500,6 +562,35 @@ def _update_cross_play_weight(
     }
 
 
+def _cross_play_aggregate(records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not records:
+        return None
+
+    catch_rates = [
+        float(record.get("metrics", {}).get("Metrics/catch_rate", 0.0))
+        for record in records
+    ]
+    win_rates = [float(record.get("training_agent_win_rate", 0.5)) for record in records]
+    return {
+        "count": len(records),
+        "catch_avg": sum(catch_rates) / len(catch_rates),
+        "catch_min": min(catch_rates),
+        "catch_max": max(catch_rates),
+        "training_win_avg": sum(win_rates) / len(win_rates),
+        "training_win_min": min(win_rates),
+        "training_win_max": max(win_rates),
+        "opponents": [
+            {
+                "name": record.get("entry_name"),
+                "checkpoint": record.get("entry_checkpoint"),
+                "catch_rate": float(record.get("metrics", {}).get("Metrics/catch_rate", 0.0)),
+                "training_agent_win_rate": float(record.get("training_agent_win_rate", 0.5)),
+            }
+            for record in records
+        ],
+    }
+
+
 def _run_cross_play(
     current_checkpoint: Path,
     *,
@@ -578,12 +669,67 @@ def _run_cross_play(
     return records
 
 
-def _decide_phase(summary: dict[str, Any], args: argparse.Namespace) -> tuple[str, str]:
+def _cross_play_robustness(
+    agent: str,
+    aggregate: dict[str, Any] | None,
+    args: argparse.Namespace,
+) -> tuple[bool | None, str]:
+    if not args.phase_decision_cross_play:
+        return None, "cross-play phase decisions disabled"
+    if aggregate is None:
+        return None, f"{agent} cross-play unavailable"
+
+    count = int(aggregate.get("count", 0))
+    if count < args.phase_decision_cross_play_min_count:
+        return None, (
+            f"{agent} cross-play count={count} < "
+            f"{args.phase_decision_cross_play_min_count}"
+        )
+
+    catch_avg = float(aggregate["catch_avg"])
+    catch_min = float(aggregate["catch_min"])
+    catch_max = float(aggregate["catch_max"])
+
+    if agent == "predator":
+        avg_ok = catch_avg >= args.auto_pool_predator_min_cross_play_avg_catch
+        min_ok = catch_min >= args.auto_pool_predator_min_cross_play_min_catch
+        robust = avg_ok and min_ok
+        return robust, (
+            f"predator_cross_avg={catch_avg:.3f}, "
+            f"predator_cross_min={catch_min:.3f}, "
+            f"robust={robust}"
+        )
+
+    if agent == "prey":
+        avg_ok = catch_avg <= args.auto_pool_prey_max_cross_play_avg_catch
+        max_ok = catch_max <= args.auto_pool_prey_max_cross_play_max_catch
+        robust = avg_ok and max_ok
+        return robust, (
+            f"prey_cross_avg={catch_avg:.3f}, "
+            f"prey_cross_max={catch_max:.3f}, "
+            f"robust={robust}"
+        )
+
+    raise ValueError(f"Unknown agent: {agent}")
+
+
+def _decide_phase(
+    summary: dict[str, Any],
+    args: argparse.Namespace,
+    cross_play_by_agent: dict[str, dict[str, Any] | None] | None = None,
+) -> tuple[str, str]:
     catch_rate = _metric(summary, "Metrics/catch_rate")
     prey_oob = _metric(summary, "Metrics/prey_oob_rate")
     predator_oob = _metric(summary, "Metrics/predator_oob_rate")
     prey_soft = _metric(summary, "Metrics/prey_soft_arena_outside")
     predator_soft = _metric(summary, "Metrics/predator_soft_arena_outside")
+    cross_play_by_agent = cross_play_by_agent or {}
+    predator_robust, predator_reason = _cross_play_robustness(
+        "predator", cross_play_by_agent.get("predator"), args
+    )
+    prey_robust, prey_reason = _cross_play_robustness(
+        "prey", cross_play_by_agent.get("prey"), args
+    )
 
     if prey_oob > args.max_prey_oob or prey_soft > args.max_prey_soft:
         return "prey", (
@@ -595,6 +741,35 @@ def _decide_phase(summary: dict[str, Any], args: argparse.Namespace) -> tuple[st
             f"predator safety repair: predator_oob={predator_oob:.3f}, "
             f"predator_soft={predator_soft:.3f}"
         )
+
+    if predator_robust is not None and prey_robust is not None:
+        if predator_robust == prey_robust:
+            state = "both sides are pool-robust" if predator_robust else "neither side is pool-robust"
+            return "both", (
+                f"{state}; train both with pool: "
+                f"{predator_reason}; {prey_reason}"
+            )
+        if predator_robust is False:
+            return "predator", (
+                "only predator is not pool-robust: "
+                f"{predator_reason}; {prey_reason}"
+            )
+        return "prey", (
+            "only prey is not pool-robust: "
+            f"{predator_reason}; {prey_reason}"
+        )
+
+    if predator_robust is False:
+        return "predator", (
+            "predator is not pool-robust and prey robustness is unavailable: "
+            f"{predator_reason}; {prey_reason}"
+        )
+    if prey_robust is False:
+        return "prey", (
+            "prey is not pool-robust and predator robustness is unavailable: "
+            f"{predator_reason}; {prey_reason}"
+        )
+
     if catch_rate < args.low:
         return "predator", f"prey too strong: catch_rate={catch_rate:.3f} < {args.low:.3f}"
     if catch_rate > args.high:
@@ -1052,6 +1227,30 @@ def main() -> None:
         help="Maximum opponent soft-arena outside metric allowed when promoting a candidate.",
     )
     parser.add_argument(
+        "--auto-pool-predator-min-cross-play-avg-catch",
+        type=float,
+        default=0.55,
+        help="Minimum average catch-rate against sampled prey pool opponents for predator promotion.",
+    )
+    parser.add_argument(
+        "--auto-pool-predator-min-cross-play-min-catch",
+        type=float,
+        default=0.25,
+        help="Minimum worst sampled catch-rate against prey pool opponents for predator promotion.",
+    )
+    parser.add_argument(
+        "--auto-pool-prey-max-cross-play-avg-catch",
+        type=float,
+        default=0.50,
+        help="Maximum average predator catch-rate against sampled predator pool opponents for prey promotion.",
+    )
+    parser.add_argument(
+        "--auto-pool-prey-max-cross-play-max-catch",
+        type=float,
+        default=0.80,
+        help="Maximum worst sampled predator catch-rate against predator pool opponents for prey promotion.",
+    )
+    parser.add_argument(
         "--cross-play",
         action="store_true",
         help="Evaluate latest trained role against selected pool opponents after each phase and update PFSP weights.",
@@ -1085,6 +1284,21 @@ def main() -> None:
         type=int,
         default=256,
         help="Completed episodes for each cross-play evaluation.",
+    )
+    parser.add_argument(
+        "--phase-decision-cross-play",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Use latest per-role cross-play aggregates to override current-pair "
+            "catch-rate phase decisions when a side is not pool-robust."
+        ),
+    )
+    parser.add_argument(
+        "--phase-decision-cross-play-min-count",
+        type=int,
+        default=2,
+        help="Minimum sampled pool opponents required before cross-play can steer phase decisions.",
     )
     parser.add_argument("--task", default="1v1-survival-soft-oob-v0", help="Isaac Lab task id.")
     parser.add_argument("--agent", default="skrl_mappo_finetune_cfg_entry_point", help="SKRL agent config entry point.")
@@ -1186,6 +1400,7 @@ def main() -> None:
     args.cross_play_max_opponents = max(0, int(args.cross_play_max_opponents))
     args.cross_play_num_envs = max(1, int(args.cross_play_num_envs))
     args.cross_play_episodes = max(1, int(args.cross_play_episodes))
+    args.phase_decision_cross_play_min_count = max(1, int(args.phase_decision_cross_play_min_count))
     args.phase_video_every = max(1, int(args.phase_video_every))
     args.phase_video_length = max(1, int(args.phase_video_length))
     args.phase_video_num_envs = max(1, int(args.phase_video_num_envs))
@@ -1221,6 +1436,11 @@ def main() -> None:
             f"every={args.cross_play_every}, max_opponents={args.cross_play_max_opponents}, "
             f"num_envs={args.cross_play_num_envs}, episodes={args.cross_play_episodes}"
         )
+    if args.phase_decision_cross_play:
+        print(
+            "[INFO] Cross-play phase decisions enabled: "
+            f"min_count={args.phase_decision_cross_play_min_count}"
+        )
     print(
         "[INFO] Phase iterations: "
         f"default={args.phase_iterations}, "
@@ -1233,9 +1453,10 @@ def main() -> None:
     completed_iterations = 0
     phase_index = 0
     summary = _evaluate(current_checkpoint, phase_index=phase_index, output_dir=args.output_dir, args=args, label="start")
+    cross_play_by_agent: dict[str, dict[str, Any] | None] = {agent: None for agent in AGENTS}
 
     while completed_iterations < args.total_iterations:
-        phase, reason = _decide_phase(summary, args)
+        phase, reason = _decide_phase(summary, args, cross_play_by_agent)
         catch_rate = _metric(summary, "Metrics/catch_rate")
         prey_oob = _metric(summary, "Metrics/prey_oob_rate")
         predator_oob = _metric(summary, "Metrics/predator_oob_rate")
@@ -1261,6 +1482,7 @@ def main() -> None:
                 "requested_phase_iterations": requested_phase_iterations,
                 "actual_phase_iterations": phase_iterations,
                 "metrics": summary.get("episode_metrics", {}),
+                "phase_decision_cross_play": cross_play_by_agent,
             },
         )
 
@@ -1331,11 +1553,38 @@ def main() -> None:
             args=args,
             label="after",
         )
+        cross_play_records = _run_cross_play(
+            current_checkpoint,
+            phase=phase,
+            phase_index=phase_index,
+            pool=pool,
+            rng=rng,
+            args=args,
+        )
+        cross_play_aggregate = _cross_play_aggregate(cross_play_records)
+        if phase in AGENTS:
+            cross_play_by_agent[phase] = cross_play_aggregate
+        elif phase == "both":
+            cross_play_by_agent = {agent: None for agent in AGENTS}
+        if cross_play_records:
+            _write_record(
+                args.output_dir,
+                {
+                    "phase_index": phase_index,
+                    "completed_iterations": completed_iterations,
+                    "cross_play": cross_play_records,
+                    "cross_play_aggregate": cross_play_aggregate,
+                },
+            )
+            if args.auto_pool_path is not None:
+                _save_opponent_pool(args.auto_pool_path, pool)
+
         promotion = _maybe_promote_to_pool(
             pool,
             agent=phase,
             checkpoint=current_checkpoint,
             summary=summary,
+            cross_play_aggregate=cross_play_aggregate,
             phase_index=phase_index,
             args=args,
         )
@@ -1346,26 +1595,7 @@ def main() -> None:
                     "phase_index": phase_index,
                     "completed_iterations": completed_iterations,
                     "auto_pool_promotion": promotion,
-                },
-            )
-            if args.auto_pool_path is not None:
-                _save_opponent_pool(args.auto_pool_path, pool)
-
-        cross_play_records = _run_cross_play(
-            current_checkpoint,
-            phase=phase,
-            phase_index=phase_index,
-            pool=pool,
-            rng=rng,
-            args=args,
-        )
-        if cross_play_records:
-            _write_record(
-                args.output_dir,
-                {
-                    "phase_index": phase_index,
-                    "completed_iterations": completed_iterations,
-                    "cross_play": cross_play_records,
+                    "cross_play_aggregate": cross_play_aggregate,
                 },
             )
             if args.auto_pool_path is not None:

@@ -72,3 +72,8 @@ python scripts/skrl/train.py --task=3v1-empty-v0 --algorithm=MAPPO --headless
 
 The obstacle curriculum and checkpoint workflow for `3v1-obstacles-v0` is documented in
 [`docs/training_3v1_obstacles.md`](docs/training_3v1_obstacles.md).
+
+## Design Notes
+
+- [`docs/planning_and_hierarchical_rl_ideas.md`](docs/planning_and_hierarchical_rl_ideas.md) records hierarchical
+  subgoal RL and learned-model MPC ideas for predator-prey UAV control.

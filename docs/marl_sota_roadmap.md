@@ -58,7 +58,9 @@ training backbone.
 - Recurrent memory only when partial observability is real:
   - GRU as the first practical option,
   - GTrXL / Transformer-XL style memory as a later option,
-  - Mamba-style sequence models only as a research-level extension.
+  - Mamba / Mamba-2 style state-space sequence models only as a
+    research-level extension,
+  - xLSTM as another modern recurrent-memory research option.
 - Gaussian continuous-action head.
 
 ### Critic
@@ -79,7 +81,12 @@ training backbone.
 - HAPPO/HATRPO only if agents become truly heterogeneous.
 - Alternating self-play with freeze phases.
 - League / opponent-pool training to avoid cyclic forgetting.
-- PFSP-style opponent sampling as the next league upgrade:
+- Per-env opponent-pool mixing during single-agent freeze phases:
+  - most envs use the latest frozen opponent,
+  - a controlled fraction of envs use historical pool opponents,
+  - this is meant to reduce overfitting to one frozen opponent behavior inside
+    a phase.
+- PFSP-style opponent sampling as a league upgrade:
   - sample old opponents by measured difficulty / win-rate,
   - prefer opponents that are neither trivial nor impossible,
   - keep this as a sampling rule before building full automated population
@@ -102,6 +109,7 @@ training backbone.
     task.
 - Domain randomization:
   - spawn positions,
+  - initial velocities,
   - UAV dynamics,
   - action noise,
   - observation noise,
@@ -115,6 +123,10 @@ training backbone.
 - Alternating freeze-based self-play.
 - Hysteresis curriculum scheduler.
 - Opponent-pool / league-style checkpoint sampling.
+- Per-env opponent-pool mixing for frozen opponents during single-agent phases.
+- Auto-pool promotion into run-local `opponent_pool_auto.json`.
+- Cross-play evaluation against pool entries.
+- PFSP-style weighted opponent sampling.
 - Soft OOB arena penalties.
 - 1v1 and 2v1 survival curriculum tasks.
 - First shared per-predator attention actor for predator teams.
@@ -137,23 +149,31 @@ training backbone.
   - currently under validation against the flat centralized critic baseline.
 - League training:
   - implemented as explicit checkpoint pools,
-  - currently uses simple probability-based sampling,
-  - PFSP-style weighted sampling is planned but not implemented,
-  - not yet automated population management.
+  - supports run-local auto-pool promotion,
+  - supports cross-play-based weight updates,
+  - supports PFSP-style weighted sampling,
+  - supports per-env opponent mixing during single-agent frozen-opponent phases,
+  - not yet a full AlphaStar-style league with main agents, exploiters,
+    automatic role assignment, and population-level promotion rules.
 - Domain randomization:
   - basic spawn/randomization exists,
+  - not yet systematic mixed/random arena spawn curriculum,
+  - not yet systematic initial velocity randomization,
   - not yet systematic dynamics/sensor randomization.
 
 ### Missing
 
 - Prey-side entity-attention actor over predator entities.
 - Recurrent actor/critic memory.
+- Neural belief-state estimator for occluded prey position, velocity, and
+  uncertainty.
 - Obstacle-aware attention.
 - Partial observability / line-of-sight masking.
 - 3v1 shared-attention validation.
 - HAPPO/HATRPO experiments.
-- PFSP-style opponent-pool sampling.
-- Automated league population scoring and pruning.
+- Full automated league population scoring, pruning, and role assignment.
+- Mixed/random spawn curriculum.
+- Initial velocity randomization curriculum.
 
 ## Recommended Implementation Order
 
@@ -276,7 +296,86 @@ Implementation direction:
 - attend from prey state to predator entities,
 - feed own-state embedding + attention context into the Gaussian action head.
 
-### Stage 5: Add Obstacles as Entities
+### Stage 5: Spawn and Initial-State Robustness Curriculum
+
+Goal: prevent both sides from learning opening-book strategies that only work
+from the current symmetric spawn geometry.
+
+Reason:
+
+- If predators always spawn in fixed ring-like positions around the prey, the
+  policies can memorize common first moves.
+- Robust pursuit/evasion should work from different relative geometries, not
+  only from the current curriculum start state.
+- This should be added before obstacles so failures remain attributable to
+  start-state distribution rather than obstacle reasoning.
+
+Recommended progression:
+
+1. current ring spawn as the baseline,
+2. mixed spawn:
+   - mostly current ring spawn,
+   - some wider predator ring spawns,
+   - some random arena spawns,
+3. full random arena spawn with minimum separation constraints,
+4. small initial horizontal velocity noise,
+5. larger velocity and yaw/angular-velocity noise after position
+   randomization is stable.
+
+Required constraints:
+
+- minimum predator-prey distance to avoid immediate trivial catches,
+- minimum predator-predator distance to avoid spawn collisions,
+- margin from soft arena boundary,
+- height near target height,
+- optional cap on initial speed during early curriculum stages.
+
+Metrics to watch:
+
+- catch-rate should not be dominated by instant spawn catches,
+- predator/prey OOB should remain low,
+- episode length should not collapse due to bad initial states,
+- policies should still work on the original ring spawn evaluation.
+
+### Stage 6: League Hardening After Per-Env Pooling
+
+Goal: turn per-env pooling from a useful anti-overfitting mechanism into a
+reliable training distribution.
+
+Current mechanism:
+
+- single-agent phases can mix latest frozen opponent and pool opponents across
+  envs,
+- auto-pool promotion writes new candidates into the run-local pool,
+- cross-play updates pool weights,
+- PFSP-style sampling can emphasize difficult opponents.
+
+Next upgrades:
+
+- start some diagnostic runs from an empty pool to verify the league can build
+  itself,
+- keep explicit evaluation against:
+  - latest opponent,
+  - current run-local pool,
+  - selected historical reference opponents,
+- add minimum-quality gates before promotion:
+  - role-specific win/catch threshold,
+  - max own OOB / soft-arena usage,
+  - max opponent exploit via OOB / crash,
+- add stale-entry pruning based on cross-play usefulness,
+- separate conceptual roles later:
+  - main agents,
+  - exploiters,
+  - historical reference policies.
+
+Practical default:
+
+- keep phase-level pool composition disabled while validating per-env mixing,
+- use per-env pool mixing only during single-agent freeze phases,
+- start with about 25% pool envs and tune only after comparing videos and
+  cross-play matrices.
+
+### Stage 7: Add Obstacles as Entities
 
 Goal: extend the entity set from agents only to agents + obstacles.
 
@@ -287,7 +386,7 @@ Observation direction:
 - optionally line-of-sight or occlusion flags,
 - nearest-k or attention over all visible obstacles.
 
-### Stage 6: Add Partial Observability and Memory
+### Stage 8: Add Partial Observability and Memory
 
 Only add memory when it solves a real missing-information problem.
 
@@ -305,7 +404,68 @@ Initial memory choice:
 Research memory choices:
 
 - GTrXL / Transformer-XL,
-- Mamba-style state-space sequence model.
+- Mamba / Mamba-2 style state-space sequence models,
+- xLSTM-style modern recurrent memory.
+
+Modern sequence-memory options:
+
+- Treat Mamba, Mamba-2, or xLSTM as memory/backbone modules, not as
+  replacements for PPO/MAPPO.
+- Test them only after a GRU memory baseline shows that history is useful.
+- Most relevant use case in this project:
+  - occluded prey tracking,
+  - long-horizon belief over hidden prey motion,
+  - camera/depth/lidar token histories,
+  - temporal fusion of own state, teammate states, and visible object tokens.
+- First comparison should be:
+  1. feedforward entity-attention policy,
+  2. GRU entity-attention policy,
+  3. one modern sequence-memory variant: Mamba, Mamba-2, or xLSTM.
+- Success criteria:
+  - better occluded-pursuit success rate,
+  - lower collision rate,
+  - better generalization to longer occlusions,
+  - no unacceptable inference-latency increase.
+- Do not add it for full-state predator-prey without occlusion; in that setting
+  it is likely extra complexity rather than the bottleneck.
+
+Neural belief-state estimator option:
+
+- Use this after line-of-sight masking or obstacle occlusion makes the prey
+  state genuinely hidden.
+- Estimate compact task-relevant hidden state first, not a full hidden point
+  cloud:
+  - prey position,
+  - prey velocity,
+  - optional heading/acceleration,
+  - uncertainty over the estimate.
+- Possible input:
+  - own state history,
+  - visible prey-state history,
+  - visibility / line-of-sight history,
+  - own action history,
+  - obstacle or occlusion indicators.
+- Possible output:
+  - deterministic estimate `[p_prey, v_prey]`,
+  - or mean and log standard deviation for an uncertainty-aware belief.
+- Training target in simulation:
+  - use ground-truth prey state even when the policy observation is masked,
+  - start with supervised MSE for position/velocity,
+  - upgrade to negative log likelihood if the network predicts uncertainty.
+- Policy input after estimator:
+  - current visible observation,
+  - estimated prey position and velocity,
+  - uncertainty,
+  - visibility flag.
+- Later extensions:
+  - prey-position probability heatmap,
+  - dynamic occupancy map,
+  - voxel / point-cloud completion only if visual scene reconstruction becomes
+    necessary for control.
+- First baseline before a neural estimator:
+  - last-seen prey position,
+  - constant-velocity extrapolation,
+  - uncertainty increasing with time since last seen.
 
 ## Reading Map
 
@@ -362,16 +522,43 @@ Research memory choices:
 - Gu and Dao, "Mamba: Linear-Time Sequence Modeling with Selective State Spaces"
   - Research direction for long sequence memory; not an immediate implementation target.
   - https://arxiv.org/abs/2312.00752
+- Dao and Gu, "Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality"
+  - Mamba-2 / SSD direction; relevant if Mamba becomes a serious memory-backbone experiment.
+  - https://arxiv.org/abs/2405.21060
+- Beck et al., "xLSTM: Extended Long Short-Term Memory"
+  - Modern LSTM-family sequence model; useful as a research comparison to GRU and Mamba-style memory.
+  - https://arxiv.org/abs/2405.04517
+- Mustafa et al., "Context-aware Mamba-based Reinforcement Learning for social robot navigation"
+  - Example of Mamba used in robot navigation RL.
+  - https://arxiv.org/abs/2408.02661
+- Liu et al., "RoboMamba: Efficient Vision-Language-Action Model for Robotic Reasoning and Manipulation"
+  - Example of Mamba in robot manipulation and VLA-style policy modeling.
+  - https://arxiv.org/abs/2406.04339
+- Liu et al., "TrackingMiM: Efficient Mamba-in-Mamba Serialization for Real-time UAV Object Tracking"
+  - UAV-relevant Mamba example for real-time visual tracking rather than control.
+  - https://arxiv.org/abs/2507.01535
 
 ## Near-Term Rule
 
 Do not add all SOTA components at once.
 
-The next architecture step after the current 2v1 attention pool run should be:
+The current near-term sequence after the 3v1 attention-critic per-env-pooling
+run is:
 
-1. evaluate whether shared-attention actor + pool stabilizes 2v1,
-2. if yes, add entity-attention centralized critic,
-3. validate the critic on 3v1 teammate-velocity survival,
-4. add prey-side entity attention over predator entities,
-5. then add obstacles as entities,
-6. then add memory only when partial observability is introduced.
+1. validate per-env pooling against latest-vs-latest, pool cross-play, and
+   phase videos,
+2. if the run is stable, use per-env pooling as the default self-play
+   curriculum mechanism,
+3. run at least one empty-start-pool experiment to check whether the league can
+   build useful opponents without seeded historical policies,
+4. harden league logic with promotion gates, stale-entry pruning, and explicit
+   cross-play matrices,
+5. add mixed spawn and later random arena spawn as the next robustness
+   curriculum,
+6. add initial velocity randomization only after position randomization is
+   stable,
+7. add prey-side entity attention if prey behavior remains slot/order sensitive
+   or brittle under randomized spawns,
+8. add obstacles as entities,
+9. add recurrent memory only when partial observability or occlusion makes the
+   current state insufficient.
