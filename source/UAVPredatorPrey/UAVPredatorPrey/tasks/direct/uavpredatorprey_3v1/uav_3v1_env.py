@@ -59,6 +59,7 @@ class Uav3v1Env(DirectMARLEnv):
         self._episode_prey_oob = torch.zeros(N, device=self.device)
         self._episode_min_distance = torch.full((N,), 100.0, device=self.device)
         self._episode_min_predator_height = torch.full((N,), 100.0, device=self.device)
+        self._episode_min_prey_height = torch.full((N,), 100.0, device=self.device)
         self._episode_min_teammate_distance = torch.full((N,), 100.0, device=self.device)
         self._episode_teammate_close = torch.zeros(N, device=self.device)
         self._episode_pred_oob_by_agent = torch.zeros(N, P, device=self.device)
@@ -480,7 +481,7 @@ class Uav3v1Env(DirectMARLEnv):
         pred_low_height_err = torch.clamp(self.cfg.target_height - self._pred_pos_rel[:, :, 2].t(), min=0.0)  # (P, N)
         height = torch.square(pred_low_height_err) * self.cfg.height_penalty_scale * dt * pred_alive_reward_mask
         lin_vel = pred_lin_vel_sq * self.cfg.lin_vel_penalty * dt * pred_alive_reward_mask
-        ang_vel = pred_ang_vel_sq * self.cfg.ang_vel_penalty * dt * pred_alive_reward_mask
+        ang_vel = pred_ang_vel_sq * self.cfg.predator_ang_vel_penalty * dt * pred_alive_reward_mask
         action_pen = (
             torch.sum(torch.square(self._pred_actions), dim=2).t()
             * self.cfg.action_penalty
@@ -526,7 +527,7 @@ class Uav3v1Env(DirectMARLEnv):
         # Boundary + OOB (P, N)
         horiz_t = self._pred_horiz.t()  # (P, N)
         boundary = torch.clamp(horiz_t - warn_radius, min=0.0) * self.cfg.boundary_penalty_scale * dt * pred_alive_reward_mask
-        oob_pen = self._pred_oob.t().float() * self.cfg.oob_penalty
+        oob_pen = self._pred_oob.t().float() * self.cfg.predator_oob_penalty
         pred_soft_arena_pen = (
             -torch.square(self._pred_soft_arena_outside.t())
             * self.cfg.soft_arena_penalty_scale
@@ -552,13 +553,13 @@ class Uav3v1Env(DirectMARLEnv):
             * dt
         )
         prey_lin_vel = torch.sum(torch.square(self._prey.data.root_lin_vel_b), dim=1) * self.cfg.lin_vel_penalty * dt
-        prey_ang_vel = torch.sum(torch.square(self._prey.data.root_ang_vel_b), dim=1) * self.cfg.ang_vel_penalty * dt
+        prey_ang_vel = torch.sum(torch.square(self._prey.data.root_ang_vel_b), dim=1) * self.cfg.prey_ang_vel_penalty * dt
         prey_action_pen = torch.sum(torch.square(self._prey_actions), dim=1) * self.cfg.action_penalty * dt
         prey_flying = (self._prey_pos_rel[:, 2] > self.cfg.min_height).float()
         prey_alive_gated = prey_flying * self.cfg.prey_alive_bonus * dt
         prey_caught = caught_f * self.cfg.prey_caught_penalty
         prey_boundary = torch.clamp(self._prey_horiz - warn_radius, min=0.0) * self.cfg.boundary_penalty_scale * dt
-        prey_oob_pen = self._prey_oob.float() * self.cfg.oob_penalty
+        prey_oob_pen = self._prey_oob.float() * self.cfg.prey_oob_penalty
         prey_soft_arena_pen = (
             -torch.square(self._prey_soft_arena_outside)
             * self.cfg.soft_arena_penalty_scale
@@ -571,7 +572,17 @@ class Uav3v1Env(DirectMARLEnv):
         clean_catch = self._caught & (~self._prey_oob)
         forced_prey_oob = self._prey_oob & (~self._caught) & (min_pred_dist < self.cfg.assist_distance)
         predator_success = self._caught | forced_prey_oob
-        prey_evasion = prey_flying * torch.tanh(min_pred_dist / 2.0) * self.cfg.prey_evasion_reward_scale * dt
+        pred_prey_delta = self._pred_pos_rel - self._prey_pos_rel.unsqueeze(1)
+        weighted_pred_prey_delta = pred_prey_delta.clone()
+        weighted_pred_prey_delta[:, :, 2] *= self.cfg.prey_evasion_vertical_weight
+        weighted_pred_prey_distances = torch.linalg.norm(weighted_pred_prey_delta, dim=2)
+        weighted_active_distances = torch.where(
+            self._pred_alive,
+            weighted_pred_prey_distances,
+            torch.full_like(weighted_pred_prey_distances, 100.0),
+        )
+        weighted_min_pred_dist = weighted_active_distances.min(dim=1).values
+        prey_evasion = prey_flying * torch.tanh(weighted_min_pred_dist / 2.0) * self.cfg.prey_evasion_reward_scale * dt
         progress_state_valid = (
             (~self._caught)
             & (self._pred_alive.any(dim=1))
@@ -650,6 +661,7 @@ class Uav3v1Env(DirectMARLEnv):
         self.extras["log"]["Metrics/predator_distance_progress"] = predator_distance_progress.mean()
         self.extras["log"]["Metrics/predator_soft_arena_outside"] = self._pred_soft_arena_outside.mean()
         self.extras["log"]["Metrics/predator_min_height"] = self._pred_min_height.mean()
+        self.extras["log"]["Metrics/prey_min_height"] = self._prey_pos_rel[:, 2].min()
         self.extras["log"]["Metrics/predator_teammate_min_distance"] = self._pred_teammate_min_distance.mean()
         self.extras["log"]["Metrics/predator_teammate_close_step_fraction"] = self._pred_teammate_close.float().mean()
         self.extras["log"]["Metrics/clean_catch_step_fraction"] = clean_catch.float().mean()
@@ -676,6 +688,7 @@ class Uav3v1Env(DirectMARLEnv):
         )
         self._episode_prey_oob += self._prey_oob.float()
         self._episode_min_predator_height = torch.minimum(self._episode_min_predator_height, self._pred_min_height)
+        self._episode_min_prey_height = torch.minimum(self._episode_min_prey_height, self._prey_pos_rel[:, 2])
         self._episode_min_teammate_distance = torch.minimum(
             self._episode_min_teammate_distance,
             self._pred_teammate_min_distance,
@@ -735,6 +748,7 @@ class Uav3v1Env(DirectMARLEnv):
             "episode_length": episode_lengths.clone(),
             "closest_approach": self._episode_min_distance[env_ids].clone(),
             "predator_min_height": self._episode_min_predator_height[env_ids].clone(),
+            "prey_min_height": self._episode_min_prey_height[env_ids].clone(),
             "teammate_min_distance": self._episode_min_teammate_distance[env_ids].clone(),
             "teammate_close_rate": (self._episode_teammate_close[env_ids] / safe_episode_lengths).clone(),
         }
@@ -750,6 +764,7 @@ class Uav3v1Env(DirectMARLEnv):
         self.extras["log"]["Metrics/episode_length"] = episode_lengths.mean()
         self.extras["log"]["Metrics/episode_closest_approach"] = self._episode_min_distance[env_ids].mean()
         self.extras["log"]["Metrics/episode_predator_min_height"] = self._episode_min_predator_height[env_ids].mean()
+        self.extras["log"]["Metrics/episode_prey_min_height"] = self._episode_min_prey_height[env_ids].mean()
         self.extras["log"]["Metrics/episode_teammate_min_distance"] = self._episode_min_teammate_distance[env_ids].mean()
         self.extras["log"]["Metrics/episode_teammate_close_rate"] = (
             self._episode_teammate_close[env_ids] / safe_episode_lengths
@@ -764,6 +779,7 @@ class Uav3v1Env(DirectMARLEnv):
         self._episode_prey_oob[env_ids] = 0.0
         self._episode_min_distance[env_ids] = 100.0
         self._episode_min_predator_height[env_ids] = 100.0
+        self._episode_min_prey_height[env_ids] = 100.0
         self._episode_min_teammate_distance[env_ids] = 100.0
         self._episode_teammate_close[env_ids] = 0.0
         self._episode_pred_oob_by_agent[env_ids] = 0.0

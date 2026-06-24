@@ -45,6 +45,12 @@ PRESETS = {
         "algorithm": "MAPPO",
         "output_suffix": "3v1_attention_critic_prey_attention_large_hysteresis",
     },
+    "3v1-attention-critic-prey-attention-large-gru": {
+        "task": "3v1-survival-soft-oob-teammate-vel-random-spawn-v0",
+        "agent": "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point",
+        "algorithm": "MAPPO",
+        "output_suffix": "3v1_attention_critic_prey_attention_large_gru_hysteresis",
+    },
 }
 
 
@@ -865,6 +871,7 @@ def _train_phase(
     phase: str,
     phase_iterations: int,
     args: argparse.Namespace,
+    frozen_source_checkpoint: Path | None = None,
 ) -> Path:
     before = {path for path in args.run_root.iterdir() if path.is_dir()}
     command = [
@@ -902,6 +909,8 @@ def _train_phase(
                 str(args.per_env_pool_seed if args.per_env_pool_seed is not None else args.seed),
             ]
         )
+        if frozen_source_checkpoint is not None:
+            command.extend(["--per-env-opponent-pool-exclude-checkpoint", str(frozen_source_checkpoint)])
     _run(command, cwd=REPO_ROOT, dry_run=args.dry_run)
     if args.dry_run:
         return checkpoint
@@ -1051,6 +1060,24 @@ def _write_record(output_dir: Path, record: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True, help="Starting checkpoint.")
+    parser.add_argument(
+        "--predator-source-checkpoint",
+        type=Path,
+        default=None,
+        help=(
+            "Checkpoint that represents the predator weights inside --checkpoint. "
+            "Defaults to --checkpoint; useful when resuming from a checkpoint whose prey changed last."
+        ),
+    )
+    parser.add_argument(
+        "--prey-source-checkpoint",
+        type=Path,
+        default=None,
+        help=(
+            "Checkpoint that represents the prey weights inside --checkpoint. "
+            "Defaults to --checkpoint; useful when resuming from a checkpoint whose predator changed last."
+        ),
+    )
     parser.add_argument(
         "--preset",
         choices=("none", *PRESETS.keys()),
@@ -1378,6 +1405,10 @@ def main() -> None:
             args.algorithm = preset["algorithm"]
 
     args.checkpoint = args.checkpoint.resolve()
+    args.predator_source_checkpoint = (
+        args.predator_source_checkpoint.resolve() if args.predator_source_checkpoint is not None else None
+    )
+    args.prey_source_checkpoint = args.prey_source_checkpoint.resolve() if args.prey_source_checkpoint is not None else None
     args.isaaclab = args.isaaclab.resolve()
     args.run_root = args.run_root.resolve()
     if args.output_dir is None:
@@ -1450,6 +1481,10 @@ def main() -> None:
     )
 
     current_checkpoint = args.checkpoint
+    role_source_checkpoints: dict[str, Path] = {
+        "predator": args.predator_source_checkpoint or current_checkpoint,
+        "prey": args.prey_source_checkpoint or current_checkpoint,
+    }
     completed_iterations = 0
     phase_index = 0
     summary = _evaluate(current_checkpoint, phase_index=phase_index, output_dir=args.output_dir, args=args, label="start")
@@ -1483,6 +1518,9 @@ def main() -> None:
                 "actual_phase_iterations": phase_iterations,
                 "metrics": summary.get("episode_metrics", {}),
                 "phase_decision_cross_play": cross_play_by_agent,
+                "role_source_checkpoints": {
+                    agent: str(checkpoint) for agent, checkpoint in role_source_checkpoints.items()
+                },
             },
         )
 
@@ -1491,6 +1529,7 @@ def main() -> None:
             break
 
         phase_start_checkpoint = current_checkpoint
+        phase_start_role_sources = dict(role_source_checkpoints)
         train_checkpoint, pool_sample = _pool_train_checkpoint(
             current_checkpoint,
             phase=phase,
@@ -1499,11 +1538,20 @@ def main() -> None:
             rng=rng,
             args=args,
         )
+        frozen_role = _agent_opponent(phase) if phase in AGENTS else None
+        frozen_source_checkpoint = None
+        if frozen_role is not None:
+            frozen_source_checkpoint = (
+                Path(str(pool_sample["entry"]["checkpoint"]))
+                if pool_sample is not None
+                else phase_start_role_sources[frozen_role]
+            )
         trained_checkpoint = _train_phase(
             train_checkpoint,
             phase=phase,
             phase_iterations=phase_iterations,
             args=args,
+            frozen_source_checkpoint=frozen_source_checkpoint,
         )
         pool_opponent_summary = None
         if pool_sample is not None and not args.skip_pool_opponent_eval:
@@ -1533,11 +1581,19 @@ def main() -> None:
                     "pool_sample": pool_sample,
                     "trained_checkpoint": str(trained_checkpoint),
                     "restored_current_pair_checkpoint": str(current_checkpoint),
+                    "frozen_source_checkpoint": (
+                        str(frozen_source_checkpoint) if frozen_source_checkpoint is not None else None
+                    ),
                     "pool_opponent_metrics": (
                         pool_opponent_summary.get("episode_metrics", {}) if pool_opponent_summary else None
                     ),
                 },
             )
+        if phase in AGENTS:
+            role_source_checkpoints[phase] = current_checkpoint
+            role_source_checkpoints[_agent_opponent(phase)] = phase_start_role_sources[_agent_opponent(phase)]
+        elif phase == "both":
+            role_source_checkpoints = {agent: current_checkpoint for agent in AGENTS}
         completed_iterations += phase_iterations
         phase_index += 1
         summary = _evaluate(

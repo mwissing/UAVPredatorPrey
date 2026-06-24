@@ -151,6 +151,7 @@ PREFERRED_EPISODE_KEYS = (
     "Metrics/episode_length",
     "Metrics/episode_closest_approach",
     "Metrics/episode_predator_min_height",
+    "Metrics/episode_prey_min_height",
     "Metrics/episode_teammate_min_distance",
     "Metrics/episode_teammate_close_rate",
     "Metrics/final_distance",
@@ -424,6 +425,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             _collect_logs(log, step_reward_stats, weight=1.0, prefixes=("Reward/",))
 
             done = _done_mask(terminated) | _done_mask(truncated)
+            if hasattr(runner.agent, "reset_recurrent_states"):
+                runner.agent.reset_recurrent_states(done)
             done_count = int(done.sum().item())
             if done_count <= 0:
                 continue

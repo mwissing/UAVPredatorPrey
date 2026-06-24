@@ -335,6 +335,87 @@ My notes:
 
 -
 
+## Closest UAV Pursuit-Evasion Reference
+
+### 14. OPEN / Multi-UAV Pursuit-Evasion with Online Planning
+
+**Multi-UAV Pursuit-Evasion with Online Planning in Unknown Environments by Deep Reinforcement Learning**  
+Jiayu Chen, Chao Yu, Guosheng Li, Wenhao Tang, Xinyi Yang, Botian Xu, Huazhong Yang, Yu Wang, 2024  
+Link: https://arxiv.org/abs/2409.15866  
+Project page: https://sites.google.com/view/pursuit-evasion-rl
+
+Why it matters:
+
+- This is the closest current paper to the long-term UAV predator-prey goal:
+  3D multi-UAV pursuit, physical dynamics, obstacles, partial observability,
+  online planning, and real quadrotor deployment.
+- Uses MAPPO with collective thrust/body-rate commands, an attention-based
+  observation encoder, an LSTM evader-prediction network, adaptive environment
+  generation, and two-stage reward refinement.
+- Gives a concrete reference point for what "domain-level SOTA" looks like
+  beyond a strong full-state MAPPO baseline.
+
+Project connection:
+
+- Similar to our direction: MAPPO, continuous UAV control, attention over
+  entities/observations, multi-UAV capture, and eventual obstacle/occlusion
+  handling.
+- Different from our current strength: the paper emphasizes evader prediction,
+  hard-scenario generation, calibrated dynamics, and sim-to-real deployment;
+  our stack emphasizes self-play, opponent pools, cross-play robustness, and
+  co-adapting predator/prey policies.
+- Most useful near-term lesson: before adding visual models or MPC, add
+  measurable prey-prediction / belief-state diagnostics and hard-scenario
+  curriculum tests once partial observability is introduced.
+
+Status:
+
+- [ ] Read later
+
+My notes:
+
+-
+
+## Late-Stage MPC / Model-Based Control
+
+These are not immediate implementation targets. Read them when the direct
+MAPPO/self-play stack has a strong baseline and we want to test whether
+model-based local control improves transfer, safety, or action smoothness.
+
+### 15. MA-AC-MPC Actor Interface
+
+**Merging model-based control with multi-agent reinforcement learning for multi-agent cooperative teaming strategies**  
+Christian Llanes, Spencer W. Jensen, Samuel Coogan, 2026  
+Link: https://arxiv.org/abs/2606.06011
+
+Why it matters:
+
+- Shows how a neural actor can output MPC cost/reference parameters instead of
+  directly outputting low-level actions.
+- Keeps MAPPO-style actor-critic training while adding a differentiable MPC
+  layer for dynamically feasible actions.
+- Provides a useful comparison point for an eventual
+  `RL chooses local objective -> MPC executes` architecture.
+
+Project connection:
+
+- Relevant as a late-stage actor-head experiment, not as a replacement for the
+  current self-play stack.
+- The direct comparison for our project would be:
+  - current Gaussian body-rate/thrust actor,
+  - same self-play/curriculum/evaluation stack with an MPC-structured action
+    head.
+- Especially relevant if Crazyflow/JAX becomes a fast backend for testing
+  structured local controllers before Isaac Lab fine-tuning.
+
+Status:
+
+- [ ] Read later
+
+My notes:
+
+-
+
 ## Practical Rule
 
 For the current project stage, prioritize papers in this order:
@@ -342,5 +423,8 @@ For the current project stage, prioritize papers in this order:
 1. MAPPO.
 2. Actor-Attention-Critic.
 3. Graph Attention Networks.
-4. Autocurricula / league training.
-5. Memory papers only after partial observability is introduced.
+4. OPEN / Multi-UAV Pursuit-Evasion once comparing against domain-level UAV
+   pursuit-evasion SOTA.
+5. Autocurricula / league training.
+6. Memory papers only after partial observability is introduced.
+7. MPC/model-based control only after a strong direct-action baseline exists.

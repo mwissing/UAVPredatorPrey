@@ -293,7 +293,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             else:
                 actions = outputs[-1].get("mean_actions", outputs[0])
             # env stepping
-            obs, _, _, _, _ = env.step(actions)
+            obs, _, terminated, truncated, _ = env.step(actions)
+            if hasattr(runner.agent, "reset_recurrent_states"):
+                if isinstance(terminated, dict):
+                    done = {
+                        agent: terminated[agent].to(dtype=torch.bool) | truncated[agent].to(dtype=torch.bool)
+                        for agent in terminated
+                    }
+                else:
+                    done = terminated.to(dtype=torch.bool) | truncated.to(dtype=torch.bool)
+                runner.agent.reset_recurrent_states(done)
         if args_cli.video:
             timestep += 1
             # exit the play loop after recording one video

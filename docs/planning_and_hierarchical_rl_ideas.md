@@ -432,3 +432,113 @@ hierarchical subgoal + MPC worker
 The key experimental question is not which idea sounds more powerful. The key
 question is which decomposition makes the UAV predator-prey task easier to
 learn, debug, and explain.
+
+## Reference: OPEN-Style Online Planning
+
+Chen et al., "Multi-UAV Pursuit-Evasion with Online Planning in Unknown
+Environments by Deep Reinforcement Learning" is the closest current paper to
+the long-term version of this project.
+
+It is not an MPC paper. The useful planning structure is:
+
+```text
+history + current observation
+    -> LSTM evader prediction
+    -> attention-based actor-critic
+    -> Gaussian collective thrust/body-rate action
+```
+
+The paper also adds an adaptive environment generator:
+
+```text
+policy weaknesses -> harder initial states / obstacle layouts -> new training tasks
+```
+
+The main project lessons are:
+
+- add explicit prey/evader prediction once occlusion or partial observability
+  becomes real,
+- treat hard-scenario generation as a curriculum mechanism, not only random
+  domain randomization,
+- evaluate against corner cases such as narrow gaps, walls, random obstacles,
+  and unseen passages,
+- use reward refinement and action regularization as a separate deployment
+  phase after the policy has learned the main capture behavior,
+- keep this distinct from self-play: OPEN improves a pursuer policy against
+  difficult environments, while this project also studies predator/prey
+  co-adaptation through opponent pools and cross-play.
+
+## Idea 3: MPC-Structured Actor Head
+
+This is the MA-AC-MPC-style version of the same high-level idea, but it keeps
+the existing self-play stack and changes only the action-generation path.
+
+Instead of:
+
+```text
+observation -> neural actor -> body-rate/thrust action
+```
+
+the actor becomes:
+
+```text
+observation -> neural cost/reference network -> MPC -> body-rate/thrust action
+```
+
+The neural network output is not an undefined latent vector. It should have an
+explicit controller meaning, for example:
+
+```text
+theta_mpc = [
+    state_tracking_weights,
+    control_effort_weights,
+    state_reference,
+    control_reference,
+]
+```
+
+The MPC then solves a short-horizon optimal-control problem using the current
+raw physical state:
+
+```text
+minimize tracking_error(theta_mpc) + control_effort(theta_mpc)
+subject to drone dynamics, action limits, and optional safety constraints
+execute only the first action
+```
+
+What is learned:
+
+- the neural network mapping observations to `theta_mpc`,
+- the policy exploration scale if the final action distribution is Gaussian,
+- the critic/value function used by MAPPO.
+
+What is not learned in the first version:
+
+- the MPC solver,
+- the short-horizon dynamics model,
+- action bounds,
+- safety constraints,
+- the self-play and opponent-pool logic.
+
+Why this is attractive:
+
+- RL learns the game-level local objective,
+- MPC handles short-horizon feasible flight,
+- the resulting actions should be smoother and easier to transfer,
+- the self-play/curriculum machinery can remain the main contribution.
+
+Why this is risky:
+
+- solver latency can dominate training and inference,
+- PPO log-prob handling becomes more delicate,
+- raw MPC state must bypass observation normalization,
+- a weak MPC model can limit what the actor can express,
+- comparing against the direct actor requires strict ablation control.
+
+The clean project framing is:
+
+```text
+Keep: MAPPO, self-play, hysteresis, opponent pool, cross-play evaluation.
+Change: direct Gaussian action head -> MPC-structured action head.
+Question: does structured local control improve robustness and transfer?
+```

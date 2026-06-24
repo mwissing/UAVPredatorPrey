@@ -1,0 +1,79 @@
+seed: 42
+
+
+# MAPPO config with recurrent entity-attention models:
+# - actor: entity attention -> GRU -> Gaussian action head
+# - critic: centralized entity attention -> GRU -> value head
+# The GRU is trained with rollout sequences by the repo-local RecurrentMAPPO
+# wrapper registered through attention_models.patch_skrl_runner.
+models:
+  separate: True
+  policy:
+    class: RecurrentPredatorPreyAttentionGaussianMixin
+    clip_actions: False
+    clip_log_std: True
+    min_log_std: -2.0
+    max_log_std: 0.0
+    initial_log_std: -0.5
+    hidden_size: 256
+    attention_size: 128
+    rnn_hidden_size: 256
+    rnn_sequence_length: 24
+    fallback_layers: [512, 256, 128]
+    fallback_activation: elu
+    attention_min_predators: 2
+    prey_attention_min_predators: 2
+  value:
+    class: RecurrentEntityAttentionCentralizedValueMixin
+    clip_actions: False
+    hidden_size: 128
+    attention_size: 64
+    rnn_hidden_size: 64
+    rnn_sequence_length: 24
+    fallback_layers: [256, 128, 64]
+    fallback_activation: elu
+
+
+memory:
+  class: RandomMemory
+  memory_size: -1
+
+
+agent:
+  class: MAPPO
+  rollouts: 24
+  learning_epochs: 3
+  mini_batches: 2
+  discount_factor: 0.99
+  lambda: 0.95
+  learning_rate: 1.0e-04
+  learning_rate_scheduler: null
+  learning_rate_scheduler_kwargs: null
+  state_preprocessor: RunningStandardScaler
+  state_preprocessor_kwargs: null
+  shared_state_preprocessor: RunningStandardScaler
+  shared_state_preprocessor_kwargs: null
+  value_preprocessor: RunningStandardScaler
+  value_preprocessor_kwargs: null
+  random_timesteps: 0
+  learning_starts: 0
+  grad_norm_clip: 1.0
+  ratio_clip: 0.2
+  value_clip: 0.2
+  clip_predicted_values: True
+  entropy_loss_scale: 0.005
+  value_loss_scale: 2.0
+  kl_threshold: 0.0
+  rewards_shaper_scale: 1.0
+  time_limit_bootstrap: False
+  experiment:
+    directory: "uav_3v1_direct"
+    experiment_name: "attention_critic_prey_attention_large_gru"
+    write_interval: auto
+    checkpoint_interval: auto
+
+
+trainer:
+  class: SequentialTrainer
+  timesteps: 480000
+  environment_info: log

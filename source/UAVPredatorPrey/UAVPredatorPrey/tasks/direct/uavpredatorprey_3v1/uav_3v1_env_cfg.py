@@ -110,9 +110,10 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     assist_distance = 1.5                  # [m] must be this close to get assist reward
     prey_alive_bonus = 2.0
     prey_evasion_reward_scale = 5.0       # reward for distance from nearest predator (mirrors predator proximity)
+    prey_evasion_vertical_weight = 0.5
     prey_caught_penalty = -200.0
     prey_low_altitude_penalty_scale = 0.0
-    prey_low_altitude_margin = 1.0
+    prey_low_altitude_margin = 1.2
     prey_distance_progress_reward_scale = 0.0
     prey_distance_progress_reward_clip = 0.08
     prey_boundary_progress_reward_scale = 0.0
@@ -121,11 +122,15 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
 
     # Action/velocity penalties (prevent wild oscillations)
     lin_vel_penalty = -0.05
-    ang_vel_penalty = -0.01
+    ang_vel_penalty = -0.01              # legacy default; kept for older configs/tools
+    predator_ang_vel_penalty = -0.01
+    prey_ang_vel_penalty = -0.03
     action_penalty = -0.05                 # NEW: penalizes large actions
 
-    # OOB penalty
-    oob_penalty = -200.0
+    # OOB penalties
+    oob_penalty = -200.0  # legacy default; kept for older configs/tools
+    predator_oob_penalty = -200.0
+    prey_oob_penalty = -200.0
     soft_arena_boundary = False
     soft_arena_radius = 5.0
     soft_arena_penalty_scale = 0.0
@@ -194,7 +199,7 @@ class Uav1v1SurvivalSoftOobEnvCfg(Uav1v1SurvivalEasyEnvCfg):
     soft_arena_radius = 5.0
     soft_arena_penalty_scale = 200.0
     prey_low_altitude_penalty_scale = 80.0
-    prey_low_altitude_margin = 1.0
+    prey_low_altitude_margin = 1.2
 
 
 @configclass
@@ -268,7 +273,7 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg(Uav3v1SurvivalSoftOobTea
 
     random_arena_spawn = True
     random_spawn_radius_fraction = 0.85
-    random_spawn_z_min = 0.7
+    random_spawn_z_min = 1.2
     random_spawn_z_max = 2.3
     random_spawn_min_prey_predator_distance = 1.0
     random_spawn_min_predator_distance = 0.8

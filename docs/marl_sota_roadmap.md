@@ -35,6 +35,24 @@ The roadmap should therefore progress in controlled steps:
 6. JEPA-style or other world-model representation learning for predictive
    latent scene understanding.
 
+The closest current external reference for this direction is Chen et al.,
+"Multi-UAV Pursuit-Evasion with Online Planning in Unknown Environments by Deep
+Reinforcement Learning" (OPEN). It should be treated as the main domain
+comparator for obstacle-aware, partially observable, 3D UAV pursuit-evasion:
+
+- MAPPO trained in a GPU-parallel UAV simulator,
+- collective thrust and body-rate commands as the policy output,
+- attention-based observation encoder,
+- LSTM evader-prediction module for partial observability,
+- adaptive environment generator for curriculum and generalization,
+- two-stage reward refinement for smoother deployment behavior,
+- zero-shot transfer to real quadrotors after dynamics calibration.
+
+Project implication: our self-play, opponent-pool, and cross-play stack is a
+different strength than OPEN, but the missing OPEN-style pieces are clear:
+evader prediction, adaptive scenario generation, obstacle/occlusion
+generalization, and deployment-oriented reward/control refinement.
+
 JEPA-style world models are not the immediate next step, but they are a
 candidate research module once partial observability and visual perception
 become the bottleneck. The likely role is representation learning or auxiliary
@@ -62,6 +80,16 @@ training backbone.
     research-level extension,
   - xLSTM as another modern recurrent-memory research option.
 - Gaussian continuous-action head.
+- Optional late-stage model-based actor:
+  - keep MAPPO/self-play/league training as the outer learning loop,
+  - replace only the low-level action head with an MPC-structured action
+    layer after strong direct-action baselines exist,
+  - let the neural actor output physically meaningful MPC cost parameters or
+    local references rather than raw body-rate/thrust commands,
+  - use MPC to enforce short-horizon dynamics, action limits, smoothness, and
+    safety constraints,
+  - compare against the direct Gaussian body-rate/thrust actor under the same
+    self-play, cross-play, and robustness evaluation protocol.
 
 ### Critic
 
@@ -130,9 +158,16 @@ training backbone.
 - Soft OOB arena penalties.
 - 1v1 and 2v1 survival curriculum tasks.
 - First shared per-predator attention actor for predator teams.
+- Prey-side entity-attention actor over predator entities.
 - Gaussian action policy.
 - Centralized MAPPO state input.
 - Experimental entity-attention centralized critic config.
+- Larger symmetric predator/prey entity-attention actor configuration.
+- GRU recurrent actor/critic configuration for the large entity-attention
+  setup.
+- Recurrent MAPPO wrapper for GRU rollouts and sequence-based PPO updates.
+- Recurrent-state reset/commit handling in evaluation and play scripts.
+- Random-spawn 3v1 task variant with minimum-separation constraints.
 
 ### Partially Implemented
 
@@ -140,13 +175,14 @@ training backbone.
   - implemented inside the current team-agent interface,
   - not yet a fully separate per-UAV external MARL interface.
 - Entity attention:
-  - currently in the predator policy,
+  - currently in both predator and prey policies,
   - currently over prey + teammate entities for predators,
-  - prey policy still falls back to a flat MLP,
+  - currently over predator entities for prey,
   - not yet over obstacles or line-of-sight filtered entities.
 - Centralized critic:
   - entity-attention critic implementation exists,
-  - currently under validation against the flat centralized critic baseline.
+  - currently used in the attention-critic configurations,
+  - still needs systematic ablations against flat centralized critics.
 - League training:
   - implemented as explicit checkpoint pools,
   - supports run-local auto-pool promotion,
@@ -156,24 +192,103 @@ training backbone.
   - not yet a full AlphaStar-style league with main agents, exploiters,
     automatic role assignment, and population-level promotion rules.
 - Domain randomization:
-  - basic spawn/randomization exists,
-  - not yet systematic mixed/random arena spawn curriculum,
+  - random-spawn 3v1 task exists,
+  - not yet a staged mixed-to-random curriculum,
   - not yet systematic initial velocity randomization,
   - not yet systematic dynamics/sensor randomization.
+- Recurrent memory:
+  - GRU actor/critic path exists,
+  - GRU evaluation/play state handling has been fixed and validated,
+  - still needs robust league training and ablation against the feedforward
+    large attention baseline.
 
 ### Missing
 
-- Prey-side entity-attention actor over predator entities.
-- Recurrent actor/critic memory.
 - Neural belief-state estimator for occluded prey position, velocity, and
   uncertainty.
 - Obstacle-aware attention.
 - Partial observability / line-of-sight masking.
-- 3v1 shared-attention validation.
+- Locked 3v1 GRU league baseline with seed/cross-play robustness evidence.
+- MPC-structured actor or local controller interface as a late-stage
+  architecture experiment.
 - HAPPO/HATRPO experiments.
 - Full automated league population scoring, pruning, and role assignment.
-- Mixed/random spawn curriculum.
 - Initial velocity randomization curriculum.
+
+## Current Active Status: 3v1 Large GRU League
+
+Current focus:
+
+- task: `3v1-survival-soft-oob-teammate-vel-random-spawn-v0`
+- agent: `skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point`
+- architecture:
+  - shared per-predator entity-attention actor,
+  - prey entity-attention actor,
+  - entity-attention centralized critic,
+  - GRU memory in actor/critic,
+  - Gaussian continuous-action heads.
+- reward configuration:
+  - proximity reward disabled to reduce predator clustering,
+  - catch and distance-progress remain the main predator pursuit signals,
+  - prey has alive/evasion/distance and stability penalties.
+- training setup:
+  - MAPPO,
+  - hysteresis freeze phases,
+  - per-env opponent-pool mixing during freeze phases,
+  - run-local auto-pool promotion,
+  - cross-play and PFSP-style weight updates.
+
+Important implementation note:
+
+- GRU evaluation/play originally did not commit recurrent hidden states between
+  inference steps.
+- This caused deterministic eval to behave almost memoryless and produced
+  misleading prey-OOB collapses.
+- The eval/play recurrent-state path now:
+  - keeps the new hidden state for continuing envs,
+  - zeros hidden state for terminated/truncated envs.
+- After the fix, `agent_576000.pt` from the joint GRU run changed from
+  `prey_oob_rate ~= 0.955` in eval to `prey_oob_rate ~= 0.012`, matching the
+  TensorBoard rollout behavior much more closely.
+
+Current reference checkpoint under investigation:
+
+```text
+C:\RL\UAVPredatorPrey\logs\skrl\uav_3v1_direct\2026-06-20_00-52-48_mappo_attention_critic_prey_attention_large_gru_torch_attention_critic_prey_attention_large_gru\checkpoints\agent_576000.pt
+```
+
+Post-fix evaluation snapshot:
+
+```text
+catch_rate:             0.219
+clean_catch_rate:       0.219
+predator_success_rate:  0.219
+predator_oob_rate:      0.004
+prey_oob_rate:          0.012
+episode_length:         406
+episode_closest_approach: 0.726
+forced_prey_oob_rate:   0.000
+```
+
+Interpretation:
+
+- Flight stability is acceptable.
+- Prey is robust and not simply winning through OOB.
+- Predator is stable but currently weak against the trained prey.
+- The right next pressure is continued GRU hysteresis/league training, not a
+  new architecture change.
+
+Fresh GRU pool policy:
+
+- Do not seed GRU league training with old non-GRU pool checkpoints unless the
+  goal is diagnostic migration testing.
+- Old feedforward checkpoints can load partially, but the GRU weights are new;
+  this makes them poor league opponents.
+- Start GRU league runs from an empty or GRU-only pool and let
+  `opponent_pool_auto.json` build compatible predator/prey entries.
+- In the first few phases of a fresh pool, per-env opponent mixing may be
+  disabled because the only pool entry is the same as the current frozen
+  opponent. This is expected.
 
 ## Recommended Implementation Order
 
@@ -226,6 +341,8 @@ Control at least:
 Goal: prove that the shared-attention actor can learn stable coordinated
 predator behavior and robust prey evasions.
 
+Status: completed as a stepping stone. The project has moved to 3v1.
+
 Metrics:
 
 - predator catch-rate cycles should become less extreme over pool runs,
@@ -236,7 +353,11 @@ Metrics:
 
 ### Stage 2: Add an Entity-Attention Centralized Critic
 
-This is the next serious architecture upgrade.
+This was the first serious architecture upgrade beyond a flat centralized
+critic.
+
+Status: implemented and used in the active attention-critic configurations.
+Still needs clean ablations against the flat centralized critic.
 
 Reason:
 
@@ -256,6 +377,9 @@ Expected benefit:
 Goal: check whether the shared actor actually scales better than the old flat
 team policy.
 
+Status: in progress. 3v1 behavior exists, but the active target is now a robust
+large GRU league baseline under random spawn.
+
 Key failure modes to watch:
 
 - all predators collapse into the same role,
@@ -266,7 +390,11 @@ Key failure modes to watch:
 ### Stage 4: Add Prey-Side Entity Attention
 
 Goal: give the prey the same relational inductive bias that the predator team
-already has, instead of using the current flat MLP fallback.
+already has, instead of relying on the older flat MLP fallback.
+
+Status: implemented in the current prey-attention and large-GRU configurations.
+Needs ablation against the earlier flat-prey baseline if the improvement must be
+claimed rigorously.
 
 Priority:
 
@@ -300,6 +428,9 @@ Implementation direction:
 
 Goal: prevent both sides from learning opening-book strategies that only work
 from the current symmetric spawn geometry.
+
+Status: random-spawn task exists and is the active 3v1 training task. A staged
+mixed-to-random curriculum and initial velocity curriculum are still missing.
 
 Reason:
 
@@ -342,6 +473,10 @@ Metrics to watch:
 Goal: turn per-env pooling from a useful anti-overfitting mechanism into a
 reliable training distribution.
 
+Status: in progress. Per-env pooling, auto-promotion, cross-play, PFSP weights,
+and run-local pools exist. The current GRU league is being built from a fresh
+GRU-compatible pool.
+
 Current mechanism:
 
 - single-agent phases can mix latest frozen opponent and pool opponents across
@@ -368,14 +503,47 @@ Next upgrades:
   - exploiters,
   - historical reference policies.
 
-Practical default:
+Practical default for the current GRU league:
 
 - keep phase-level pool composition disabled while validating per-env mixing,
 - use per-env pool mixing only during single-agent freeze phases,
-- start with about 25% pool envs and tune only after comparing videos and
-  cross-play matrices.
+- use a GRU-only pool,
+- start lower while the pool is tiny and increase once several compatible
+  predator/prey entries exist,
+- compare latest-vs-latest, pool cross-play, and videos before changing pool
+  probability.
 
-### Stage 7: Add Obstacles as Entities
+### Stage 7: Lock A 3v1 GRU Baseline
+
+Goal: freeze one defensible obstacle-free 3v1 baseline before adding obstacles
+or perception.
+
+Required evidence:
+
+- one named checkpoint or checkpoint pair,
+- exact training command and pool file,
+- 5-seed deterministic eval,
+- latest-vs-latest eval,
+- predator-vs-prey pool cross-play matrix,
+- representative videos,
+- brief behavior notes:
+  - pursuit behavior,
+  - intercept behavior,
+  - prey evasive behavior,
+  - failure modes.
+
+Suggested baseline gate:
+
+```text
+clean_catch_rate:        high enough to show predator competence
+predator_oob_rate:       below 5-10%
+prey_oob_rate:           below 5-10%
+forced_prey_oob_rate:    low
+worst-case cross-play:   no catastrophic opponent hole
+videos:                  visible pursuit/intercept/evasion, not only instant catches
+```
+
+### Stage 8: Add Obstacles as Entities
 
 Goal: extend the entity set from agents only to agents + obstacles.
 
@@ -386,9 +554,11 @@ Observation direction:
 - optionally line-of-sight or occlusion flags,
 - nearest-k or attention over all visible obstacles.
 
-### Stage 8: Add Partial Observability and Memory
+### Stage 9: Add Partial Observability and Memory
 
-Only add memory when it solves a real missing-information problem.
+Memory is now available as a GRU baseline earlier than originally planned. The
+next use case should be partial observability, where memory solves a real
+missing-information problem rather than acting only as extra capacity.
 
 Use memory when:
 
@@ -399,7 +569,7 @@ Use memory when:
 
 Initial memory choice:
 
-- GRU first.
+- GRU first. This is now implemented and should be the baseline memory model.
 
 Research memory choices:
 
@@ -466,6 +636,73 @@ Neural belief-state estimator option:
   - last-seen prey position,
   - constant-velocity extrapolation,
   - uncertainty increasing with time since last seen.
+
+### Stage 10: Investigate MPC-Structured Actors
+
+Goal: test whether model-based local control improves physical robustness
+without replacing the self-play and league stack.
+
+This is a final-stage research topic, not a near-term replacement for the
+active GRU league. It should only be tested after there is a strong direct
+body-rate/thrust baseline under random spawns, obstacles, and cross-play.
+
+Core idea:
+
+```text
+observation -> neural actor -> MPC parameters/references -> MPC -> action
+```
+
+The most relevant variant is an MA-AC-MPC-style actor:
+
+- the neural policy observes the same local entity/state features as the
+  direct actor,
+- the network outputs structured MPC parameters such as:
+  - state tracking weights,
+  - control effort weights,
+  - local state/reference targets,
+  - control references,
+- a short-horizon MPC layer produces the actual body-rate/thrust command,
+- PPO/MAPPO still trains the actor/critic using the same opponent-pool and
+  cross-play machinery,
+- raw MPC state must bypass observation normalization so the controller sees
+  physically meaningful positions, velocities, attitude, and rates.
+
+Questions to answer before implementation:
+
+- Does the actor output local references, MPC cost weights, or both?
+- Does the MPC run as a differentiable actor layer or as a non-differentiable
+  environment-side controller wrapper?
+- Is the policy distribution placed over final low-level actions or over the
+  MPC parameter vector?
+- What raw state is required by the MPC, and how is it kept consistent between
+  Crazyflow/JAX and Isaac Lab?
+- Does the method still work when both predator and prey are co-adapting
+  through self-play, not only against fixed scripted opponents?
+
+First useful ablation:
+
+```text
+direct Gaussian actor
+vs.
+same architecture + MPC-structured action head
+```
+
+Keep fixed:
+
+- reward terms,
+- observation layout,
+- self-play schedule,
+- pool/cross-play evaluation,
+- random spawn distribution,
+- number of environment steps and seeds.
+
+Success criteria:
+
+- equal or better catch/survival performance under latest-vs-latest,
+- no worse worst-case pool cross-play,
+- smoother and more physically plausible actions,
+- lower OOB/collision or control-saturation rates,
+- better transfer from Crazyflow/JAX to Isaac Lab fine-tuning.
 
 ## Reading Map
 
@@ -538,27 +775,67 @@ Neural belief-state estimator option:
   - UAV-relevant Mamba example for real-time visual tracking rather than control.
   - https://arxiv.org/abs/2507.01535
 
+### UAV Pursuit-Evasion and Online Planning
+
+- Chen et al., "Multi-UAV Pursuit-Evasion with Online Planning in Unknown
+  Environments by Deep Reinforcement Learning"
+  - Closest current domain comparator for this project.
+  - Combines MAPPO, calibrated UAV dynamics, collective thrust/body-rate
+    actions, an attention-based observation encoder, an LSTM evader-prediction
+    module, adaptive environment generation, and reward refinement for
+    zero-shot real-world deployment.
+  - Project connection: compare our current GRU self-play league against their
+    prediction-and-curriculum route. Their strongest lesson is not "replace
+    MAPPO"; it is to add explicit prey-belief prediction, hard-scenario
+    generation, and deployment-oriented action/reward refinement around MAPPO.
+  - https://arxiv.org/abs/2409.15866
+  - https://sites.google.com/view/pursuit-evasion-rl
+
+### Model-Based Control and MPC-Structured Actors
+
+- Llanes et al., "Merging model-based control with multi-agent reinforcement
+  learning for multi-agent cooperative teaming strategies"
+  - Direct reference for an MA-AC-MPC-style actor where a neural cost network
+    outputs MPC parameters and the MPC layer returns feasible low-level
+    actions.
+  - Project connection: late-stage comparison against the current direct
+    Gaussian body-rate/thrust actor while keeping the self-play and opponent
+    pool stack intact.
+  - https://arxiv.org/abs/2606.06011
+
 ## Near-Term Rule
 
 Do not add all SOTA components at once.
 
-The current near-term sequence after the 3v1 attention-critic per-env-pooling
-run is:
+The current near-term sequence after the GRU recurrent-state evaluation fix is:
 
-1. validate per-env pooling against latest-vs-latest, pool cross-play, and
-   phase videos,
-2. if the run is stable, use per-env pooling as the default self-play
-   curriculum mechanism,
-3. run at least one empty-start-pool experiment to check whether the league can
-   build useful opponents without seeded historical policies,
-4. harden league logic with promotion gates, stale-entry pruning, and explicit
-   cross-play matrices,
-5. add mixed spawn and later random arena spawn as the next robustness
-   curriculum,
-6. add initial velocity randomization only after position randomization is
-   stable,
-7. add prey-side entity attention if prey behavior remains slot/order sensitive
-   or brittle under randomized spawns,
-8. add obstacles as entities,
-9. add recurrent memory only when partial observability or occlusion makes the
-   current state insufficient.
+1. Continue the fresh GRU hysteresis run with a GRU-only run-local
+   `opponent_pool_auto.json`.
+2. Allow the first few phases to populate compatible predator and prey entries;
+   per-env pooling may be skipped until there is an older compatible opponent
+   for the frozen role.
+3. Once the GRU pool contains multiple predator and prey policies, evaluate:
+   - latest predator vs latest prey,
+   - latest predator vs all prey pool entries,
+   - latest prey vs all predator pool entries,
+   - selected pool predator/prey cross-play pairs.
+4. If behavior is visibly good, freeze a named 3v1 GRU baseline:
+   - checkpoint,
+   - pool file,
+   - command,
+   - commit,
+   - eval JSONs,
+   - representative videos.
+5. Run robustness diagnostics:
+   - seeds 42, 43, 44, 45, 46,
+   - deterministic eval,
+   - pool cross-play,
+   - visual review of representative successes and failures.
+6. If the baseline is robust, document it as the obstacle-free reference.
+7. Only then add obstacles as entities under full observability.
+8. After obstacle-aware full-state pursuit works, add line-of-sight masking and
+   partial observability.
+9. Use the GRU baseline as the first memory model for occluded pursuit; compare
+   Mamba/Mamba-2/xLSTM-style memory only after GRU shows a clear bottleneck.
+10. Treat MPC-structured actors as a later research branch after the direct
+    GRU/attention stack has a defensible obstacle-aware baseline.

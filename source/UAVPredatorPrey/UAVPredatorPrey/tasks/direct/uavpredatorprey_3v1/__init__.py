@@ -23,6 +23,7 @@ gym.register(
         "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_cfg.yaml",
+        "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_cfg.yaml",
     },
 )
 
@@ -63,6 +64,7 @@ gym.register(
         "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_cfg.yaml",
+        "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_cfg.yaml",
     },
 )
 
@@ -79,6 +81,7 @@ gym.register(
         "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_cfg.yaml",
+        "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_cfg.yaml",
     },
 )
 
@@ -95,6 +98,7 @@ gym.register(
         "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_cfg.yaml",
+        "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_cfg.yaml",
     },
 )
 
@@ -111,6 +115,7 @@ gym.register(
         "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_cfg.yaml",
+        "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_cfg.yaml",
     },
 )
 
@@ -122,6 +127,7 @@ gym.register(
         "env_cfg_entry_point": f"{__name__}.uav_3v1_env_cfg:Uav3v1FlightBootstrapTeammateVelEnvCfg",
         "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_large_bootstrap_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_bootstrap_cfg.yaml",
+        "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_cfg.yaml",
     },
 )
 
@@ -139,6 +145,7 @@ gym.register(
         "skrl_mappo_attention_critic_prey_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_cfg.yaml",
         "skrl_mappo_attention_critic_prey_attention_large_bootstrap_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_bootstrap_cfg.yaml",
+        "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_cfg.yaml",
     },
 )
 

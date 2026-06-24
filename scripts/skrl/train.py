@@ -97,6 +97,16 @@ parser.add_argument(
     default=None,
     help="Seed for per-env opponent assignment. Defaults to --seed.",
 )
+parser.add_argument(
+    "--per-env-opponent-pool-exclude-checkpoint",
+    action="append",
+    default=[],
+    metavar="CHECKPOINT",
+    help=(
+        "Checkpoint path to exclude from the per-env opponent pool. Can be passed multiple times. "
+        "Useful when the current full checkpoint differs from the frozen role's source checkpoint."
+    ),
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -277,7 +287,7 @@ def _load_pool_entries(
     path: str | None,
     role: str,
     max_policies: int,
-    exclude_checkpoint: str | None = None,
+    exclude_checkpoints: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     if path is None:
         return []
@@ -286,7 +296,11 @@ def _load_pool_entries(
     if not pool_path.exists():
         raise FileNotFoundError(f"Per-env opponent pool not found: {pool_path}")
 
-    exclude_path = Path(exclude_checkpoint).expanduser().resolve() if exclude_checkpoint else None
+    exclude_paths = {
+        Path(checkpoint).expanduser().resolve()
+        for checkpoint in (exclude_checkpoints or [])
+        if checkpoint
+    }
     data = json.loads(pool_path.read_text(encoding="utf-8-sig"))
     raw_entries = data.get(role, [])
     entries: list[dict[str, Any]] = []
@@ -310,7 +324,7 @@ def _load_pool_entries(
         checkpoint = Path(str(entry["checkpoint"])).expanduser().resolve()
         if not checkpoint.exists():
             raise FileNotFoundError(f"Pool entry '{entry['name']}' checkpoint does not exist: {checkpoint}")
-        if exclude_path is not None and checkpoint == exclude_path:
+        if checkpoint in exclude_paths:
             skipped_current += 1
             continue
 
@@ -349,16 +363,53 @@ class _PoolPolicy:
         self.role = role
         self.policy = policy
         self.state_preprocessor = state_preprocessor
+        self._rnn_states: list[torch.Tensor] = []
         self.policy.eval()
         if hasattr(self.state_preprocessor, "eval"):
             self.state_preprocessor.eval()
 
+    def _rnn_sizes(self) -> list[tuple[int, ...]]:
+        if not hasattr(self.policy, "get_specification"):
+            return []
+        specification = self.policy.get_specification()
+        if not isinstance(specification, Mapping):
+            return []
+        rnn_spec = specification.get("rnn", {})
+        if not isinstance(rnn_spec, Mapping):
+            return []
+        sizes = rnn_spec.get("sizes", [])
+        return [tuple(int(dim) for dim in size) for size in sizes]
+
+    def reset(self, num_envs: int, *, device: torch.device, dtype: torch.dtype) -> None:
+        self._rnn_states = []
+        for size in self._rnn_sizes():
+            shape = tuple(num_envs if dim == 0 else dim for dim in size)
+            self._rnn_states.append(torch.zeros(shape, device=device, dtype=dtype))
+
+    def reset_done(self, done: torch.Tensor) -> None:
+        if not self._rnn_states:
+            return
+        done = done.reshape(-1).bool()
+        if not torch.any(done):
+            return
+        for state in self._rnn_states:
+            state[:, done] = 0
+
     @torch.no_grad()
-    def act(self, observations: torch.Tensor) -> torch.Tensor:
-        states = observations
+    def act(self, observations: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        mask = mask.reshape(-1).bool()
+        states = observations[mask]
         if self.state_preprocessor is not None:
             states = self.state_preprocessor(states)
-        actions, _, _ = self.policy.act({"states": states}, role="policy")
+
+        inputs: dict[str, Any] = {"states": states}
+        if self._rnn_states:
+            inputs["rnn"] = [state[:, mask].contiguous() for state in self._rnn_states]
+        actions, _, outputs = self.policy.act(inputs, role="policy")
+        next_states = outputs.get("rnn", []) if isinstance(outputs, Mapping) else []
+        if next_states:
+            for index, state in enumerate(next_states):
+                self._rnn_states[index][:, mask] = state.detach()
         return actions
 
 
@@ -494,6 +545,12 @@ class _PerEnvOpponentPoolWrapper:
         observations, infos = self._env.reset()
         self._last_observations = observations
         self._sample_assignment()
+        for policy in self.pool_policies:
+            policy.reset(
+                int(self._env.num_envs),
+                device=self._device,
+                dtype=observations[self.frozen_role].dtype,
+            )
         return observations, infos
 
     def _done_mask(
@@ -550,6 +607,7 @@ class _PerEnvOpponentPoolWrapper:
             "episode_length": "episode_length",
             "closest_approach": "closest_approach",
             "predator_min_height": "predator_min_height",
+            "prey_min_height": "prey_min_height",
             "teammate_min_distance": "teammate_min_distance",
             "teammate_close_rate": "teammate_close_rate",
         }
@@ -585,12 +643,16 @@ class _PerEnvOpponentPoolWrapper:
         for source_index, policy in enumerate(self.pool_policies, start=1):
             mask = self._assignment == source_index
             if torch.any(mask):
-                pool_actions = policy.act(frozen_observations)
-                frozen_actions[mask] = pool_actions[mask]
+                pool_actions = policy.act(frozen_observations, mask)
+                frozen_actions[mask] = pool_actions
         mixed_actions[self.frozen_role] = frozen_actions
 
         next_observations, rewards, terminated, truncated, infos = self._env.step(mixed_actions)
         self._last_observations = next_observations
+
+        done = self._done_mask(terminated, truncated)
+        for policy in self.pool_policies:
+            policy.reset_done(done)
 
         self._write_pool_logs(infos, terminated, truncated)
 
@@ -613,7 +675,10 @@ def _wrap_per_env_opponent_pool(env: Any, runner: Runner, freeze_agents: set[str
         args_cli.per_env_opponent_pool,
         frozen_role,
         int(args_cli.per_env_pool_max_policies),
-        exclude_checkpoint=args_cli.checkpoint,
+        exclude_checkpoints=[
+            *(args_cli.per_env_opponent_pool_exclude_checkpoint or []),
+            *([args_cli.checkpoint] if args_cli.checkpoint else []),
+        ],
     )
     if not entries:
         print(f"[WARNING] Per-env opponent pool has no entries for frozen role '{frozen_role}'. Disabling.")
