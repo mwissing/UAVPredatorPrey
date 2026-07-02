@@ -515,7 +515,16 @@ class RecurrentPredatorPreyAttentionGaussianModel(GaussianMixin, Model):
         return {"rnn": {"sizes": [(1, 0, hidden_size)], "sequence_length": self.rnn_sequence_length}}
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
-        return _strict_load_allow_missing_prefixes(self, state_dict, ("gru.",), strict=strict, assign=assign)
+        result = _strict_load_allow_missing_prefixes(self, state_dict, ("gru.",), strict=strict, assign=assign)
+        self.project_log_std_parameter_()
+        return result
+
+    def project_log_std_parameter_(self) -> None:
+        """Keep the learnable Gaussian scale inside the mixin's differentiable range."""
+
+        if self._g_clip_log_std:
+            with torch.no_grad():
+                self.log_std_parameter.clamp_(self._g_log_std_min, self._g_log_std_max)
 
     def _predator_features(self, states: torch.Tensor) -> torch.Tensor:
         batch_size = states.shape[0]

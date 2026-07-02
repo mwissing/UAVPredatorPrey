@@ -282,6 +282,13 @@ class RecurrentMAPPO(MAPPO):
             cumulative_policy_loss = 0.0
             cumulative_entropy_loss = 0.0
             cumulative_value_loss = 0.0
+            cumulative_approx_kl = 0.0
+            cumulative_mean_ratio_deviation = 0.0
+            maximum_ratio_deviation = 0.0
+            cumulative_ratio_clip_fraction = 0.0
+            cumulative_policy_entropy = 0.0
+            cumulative_gradient_norm = 0.0
+            gradient_norm_count = 0
             update_count = 0
 
             for epoch in range(self._learning_epochs[uid]):
@@ -336,15 +343,24 @@ class RecurrentMAPPO(MAPPO):
                         )
 
                         with torch.no_grad():
-                            ratio = next_log_prob - sampled_log_prob
-                            kl_divergence = ((torch.exp(ratio) - 1) - ratio).mean()
+                            log_ratio = next_log_prob - sampled_log_prob
+                            diagnostic_ratio = torch.exp(log_ratio)
+                            ratio_deviation = torch.abs(diagnostic_ratio - 1.0)
+                            kl_divergence = ((diagnostic_ratio - 1.0) - log_ratio).mean()
+                            mean_ratio_deviation = ratio_deviation.mean()
+                            max_ratio_deviation = ratio_deviation.max()
+                            ratio_clip_fraction = (
+                                (diagnostic_ratio < 1.0 - self._ratio_clip[uid])
+                                | (diagnostic_ratio > 1.0 + self._ratio_clip[uid])
+                            ).float().mean()
                             kl_divergences.append(kl_divergence)
 
                         if self._kl_threshold[uid] and kl_divergence > self._kl_threshold[uid]:
                             break
 
+                        policy_entropy = policy.get_entropy(role="policy").mean()
                         if self._entropy_loss_scale[uid]:
-                            entropy_loss = -self._entropy_loss_scale[uid] * policy.get_entropy(role="policy").mean()
+                            entropy_loss = -self._entropy_loss_scale[uid] * policy_entropy
                         else:
                             entropy_loss = 0
 
@@ -377,22 +393,36 @@ class RecurrentMAPPO(MAPPO):
                         if policy is not value:
                             value.reduce_parameters()
 
+                    gradient_norm = None
                     if self._grad_norm_clip[uid] > 0:
                         self.scaler.unscale_(self.optimizers[uid])
                         if policy is value:
-                            nn.utils.clip_grad_norm_(policy.parameters(), self._grad_norm_clip[uid])
+                            gradient_norm = nn.utils.clip_grad_norm_(
+                                policy.parameters(), self._grad_norm_clip[uid]
+                            )
                         else:
-                            nn.utils.clip_grad_norm_(
+                            gradient_norm = nn.utils.clip_grad_norm_(
                                 itertools.chain(policy.parameters(), value.parameters()), self._grad_norm_clip[uid]
                             )
 
                     self.scaler.step(self.optimizers[uid])
                     self.scaler.update()
+                    project_log_std = getattr(policy, "project_log_std_parameter_", None)
+                    if callable(project_log_std):
+                        project_log_std()
 
                     cumulative_policy_loss += float(policy_loss.item())
                     cumulative_value_loss += float(value_loss.item())
                     if self._entropy_loss_scale[uid]:
                         cumulative_entropy_loss += float(entropy_loss.item())
+                    cumulative_approx_kl += float(kl_divergence.item())
+                    cumulative_mean_ratio_deviation += float(mean_ratio_deviation.item())
+                    maximum_ratio_deviation = max(maximum_ratio_deviation, float(max_ratio_deviation.item()))
+                    cumulative_ratio_clip_fraction += float(ratio_clip_fraction.item())
+                    cumulative_policy_entropy += float(policy_entropy.item())
+                    if gradient_norm is not None:
+                        cumulative_gradient_norm += float(gradient_norm.item())
+                        gradient_norm_count += 1
                     update_count += 1
 
                 if self._learning_rate_scheduler[uid]:
@@ -410,6 +440,32 @@ class RecurrentMAPPO(MAPPO):
             self.track_data(f"Loss / Value loss ({uid})", cumulative_value_loss / denominator)
             if self._entropy_loss_scale:
                 self.track_data(f"Loss / Entropy loss ({uid})", cumulative_entropy_loss / denominator)
+            self.track_data(f"Diagnostics / Approximate KL ({uid})", cumulative_approx_kl / denominator)
+            self.track_data(
+                f"Diagnostics / Mean ratio deviation ({uid})",
+                cumulative_mean_ratio_deviation / denominator,
+            )
+            self.track_data(f"Diagnostics / Max ratio deviation ({uid})", maximum_ratio_deviation)
+            self.track_data(
+                f"Diagnostics / Ratio clip fraction ({uid})",
+                cumulative_ratio_clip_fraction / denominator,
+            )
+            self.track_data(f"Diagnostics / Policy entropy ({uid})", cumulative_policy_entropy / denominator)
+            if gradient_norm_count:
+                self.track_data(
+                    f"Diagnostics / Combined gradient norm before clipping ({uid})",
+                    cumulative_gradient_norm / gradient_norm_count,
+                )
+            log_std_parameter = getattr(policy, "log_std_parameter", None)
+            if isinstance(log_std_parameter, torch.Tensor):
+                self.track_data(
+                    f"Diagnostics / Raw log std minimum ({uid})",
+                    float(log_std_parameter.detach().min().item()),
+                )
+                self.track_data(
+                    f"Diagnostics / Raw log std maximum ({uid})",
+                    float(log_std_parameter.detach().max().item()),
+                )
             self.track_data(
                 f"Policy / Standard deviation ({uid})",
                 policy.distribution(role="policy").stddev.mean().item(),
