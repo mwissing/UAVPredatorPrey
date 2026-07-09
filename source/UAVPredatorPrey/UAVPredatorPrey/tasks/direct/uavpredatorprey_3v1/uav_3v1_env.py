@@ -47,10 +47,14 @@ class Uav3v1Env(DirectMARLEnv):
         self._pred_action_clip_mean_abs = torch.zeros((), device=self.device)
         self._pred_action_clip_max_abs = torch.zeros((), device=self.device)
         self._pred_action_raw_abs_max = torch.zeros((), device=self.device)
+        self._pred_action_near_limit_fraction = torch.zeros((), device=self.device)
+        self._pred_action_bounded_abs_mean = torch.zeros((), device=self.device)
         self._prey_action_outside_fraction = torch.zeros((), device=self.device)
         self._prey_action_clip_mean_abs = torch.zeros((), device=self.device)
         self._prey_action_clip_max_abs = torch.zeros((), device=self.device)
         self._prey_action_raw_abs_max = torch.zeros((), device=self.device)
+        self._prey_action_near_limit_fraction = torch.zeros((), device=self.device)
+        self._prey_action_bounded_abs_mean = torch.zeros((), device=self.device)
 
         # Body IDs
         self._pred_body_ids = [pred.find_bodies("body")[0] for pred in self._predators]
@@ -248,6 +252,8 @@ class Uav3v1Env(DirectMARLEnv):
         self._pred_action_clip_mean_abs.copy_(pred_clip_delta.mean())
         self._pred_action_clip_max_abs.copy_(pred_clip_delta.max())
         self._pred_action_raw_abs_max.copy_(torch.abs(pred_raw_actions).max())
+        self._pred_action_near_limit_fraction.copy_((torch.abs(pred_clipped_actions) > 0.95).float().mean())
+        self._pred_action_bounded_abs_mean.copy_(torch.abs(pred_clipped_actions).mean())
         self._pred_actions[:] = pred_clipped_actions
         self._pred_actions *= self._pred_alive.unsqueeze(-1).float()
         self._pred_thrust[:, :, 0, 2] = (
@@ -266,6 +272,8 @@ class Uav3v1Env(DirectMARLEnv):
         self._prey_action_clip_mean_abs.copy_(prey_clip_delta.mean())
         self._prey_action_clip_max_abs.copy_(prey_clip_delta.max())
         self._prey_action_raw_abs_max.copy_(torch.abs(prey_raw_actions).max())
+        self._prey_action_near_limit_fraction.copy_((torch.abs(prey_clipped_actions) > 0.95).float().mean())
+        self._prey_action_bounded_abs_mean.copy_(torch.abs(prey_clipped_actions).mean())
         self._prey_actions[:] = prey_clipped_actions
         self._prey_thrust[:, 0, 2] = (
             self.cfg.prey_thrust_to_weight * self._robot_weight * (self._prey_actions[:, 0] + 1.0) / 2.0
@@ -707,10 +715,16 @@ class Uav3v1Env(DirectMARLEnv):
         self.extras["log"]["Diagnostics/predator_action_clip_mean_abs"] = self._pred_action_clip_mean_abs
         self.extras["log"]["Diagnostics/predator_action_clip_max_abs"] = self._pred_action_clip_max_abs
         self.extras["log"]["Diagnostics/predator_action_raw_abs_max"] = self._pred_action_raw_abs_max
+        self.extras["log"]["Diagnostics/predator_action_near_limit_fraction"] = (
+            self._pred_action_near_limit_fraction
+        )
+        self.extras["log"]["Diagnostics/predator_action_bounded_abs_mean"] = self._pred_action_bounded_abs_mean
         self.extras["log"]["Diagnostics/prey_action_outside_fraction"] = self._prey_action_outside_fraction
         self.extras["log"]["Diagnostics/prey_action_clip_mean_abs"] = self._prey_action_clip_mean_abs
         self.extras["log"]["Diagnostics/prey_action_clip_max_abs"] = self._prey_action_clip_max_abs
         self.extras["log"]["Diagnostics/prey_action_raw_abs_max"] = self._prey_action_raw_abs_max
+        self.extras["log"]["Diagnostics/prey_action_near_limit_fraction"] = self._prey_action_near_limit_fraction
+        self.extras["log"]["Diagnostics/prey_action_bounded_abs_mean"] = self._prey_action_bounded_abs_mean
 
         # Episode tracking
         self._episode_catches += caught_f

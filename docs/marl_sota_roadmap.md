@@ -315,10 +315,16 @@ than as one large training-stack rewrite:
    and clipping magnitude first. If clipping is material, make the sampled
    action used by PPO/log-probabilities match the bounded action executed by the
    environment, then run a controlled bounded-policy ablation.
-   Status: diagnostics implemented. A deterministic smoke evaluation found
-   roughly `0.289` predator and `0.530` prey action components outside
-   `[-1, 1]`, with mean clipping magnitudes around `1.55` and `6.78`. The
-   bounded-policy correction is therefore required but remains pending.
+   Status: implemented and smoke-verified. The actor now samples a latent
+   Gaussian action `u`, executes and stores `a = tanh(u)`, and evaluates PPO
+   with the tanh change-of-variables correction. Recurrent rollouts also store
+   `u` as an auxiliary value so old and new log-probabilities refer to exactly
+   the same bounded action without numerically inverting saturated float32
+   values. Existing GRU checkpoints load without parameter migration. A
+   deterministic checkpoint smoke evaluation reported zero environment
+   clipping for both roles; `22.6%` of predator and `40.5%` of prey action
+   components were still near a limit (`|a| > 0.95`), so a short controlled
+   recovery run must precede the next long league run.
 4. **Episode-level arena safety metrics.** Accumulate soft-arena outside mean,
    maximum, and step fraction per environment. Reset these accumulators with the
    episode and use the completed-episode values for evaluation and promotion
@@ -333,8 +339,9 @@ than as one large training-stack rewrite:
    reset, exact freezing, vectorized episode accounting, GAE/returns, PFSP and
    promotion/pruning, and role-wise checkpoint composition. Stop ignoring the
    project test directory and run the suite before long training jobs.
-   Status: in progress; the first ten freeze, recurrent-state, fingerprint, and
-   episode-accounting tests pass.
+   Status: implemented; 24 freeze, recurrent-state, fingerprint,
+   episode-accounting, squashed-action/log-probability, GAE, PFSP,
+   promotion/pruning, and checkpoint-composition tests pass.
 
 Acceptance rule:
 

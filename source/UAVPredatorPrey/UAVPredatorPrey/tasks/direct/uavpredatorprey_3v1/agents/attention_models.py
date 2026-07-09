@@ -14,8 +14,10 @@ from typing import Any, Mapping
 import torch
 import torch.nn as nn
 
-from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
+from skrl.models.torch import DeterministicMixin, Model
 from skrl.utils.spaces.torch import unflatten_tensorized_space
+
+from .squashed_gaussian import TanhGaussianMixin
 
 
 def _activation(name: str) -> nn.Module:
@@ -147,7 +149,7 @@ def _infer_prey_layout(num_observations: int, num_actions: int, min_predators: i
     return num_predators
 
 
-class SharedPredatorAttentionGaussianModel(GaussianMixin, Model):
+class SharedPredatorAttentionGaussianModel(TanhGaussianMixin, Model):
     """Gaussian policy with shared per-predator actor and entity attention.
 
     The model keeps the current environment contract: the predator team is still
@@ -178,7 +180,7 @@ class SharedPredatorAttentionGaussianModel(GaussianMixin, Model):
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(
+        TanhGaussianMixin.__init__(
             self,
             clip_actions=clip_actions,
             clip_log_std=clip_log_std,
@@ -263,12 +265,12 @@ def shared_predator_attention_gaussian_model(
     if return_source:
         return (
             "SharedPredatorAttentionGaussianModel("
-            "shared per-predator actor; attention over prey and teammates; flat MLP fallback)"
+            "shared per-predator actor; attention; tanh-squashed Gaussian; flat MLP fallback)"
         )
     return SharedPredatorAttentionGaussianModel(observation_space, action_space, device=device, **kwargs)
 
 
-class PredatorPreyAttentionGaussianModel(GaussianMixin, Model):
+class PredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
     """Gaussian policy with predator-team attention and prey attention.
 
     Predator observations keep the shared per-predator actor used by
@@ -299,7 +301,7 @@ class PredatorPreyAttentionGaussianModel(GaussianMixin, Model):
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(
+        TanhGaussianMixin.__init__(
             self,
             clip_actions=clip_actions,
             clip_log_std=clip_log_std,
@@ -419,12 +421,12 @@ def predator_prey_attention_gaussian_model(
     if return_source:
         return (
             "PredatorPreyAttentionGaussianModel("
-            "predator shared attention actor; prey attention over predator entities; flat MLP fallback)"
+            "predator/prey entity attention; tanh-squashed Gaussian; flat MLP fallback)"
         )
     return PredatorPreyAttentionGaussianModel(observation_space, action_space, device=device, **kwargs)
 
 
-class RecurrentPredatorPreyAttentionGaussianModel(GaussianMixin, Model):
+class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
     """Entity-attention Gaussian actor with a GRU over attended features."""
 
     def __init__(
@@ -450,7 +452,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(GaussianMixin, Model):
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
-        GaussianMixin.__init__(
+        TanhGaussianMixin.__init__(
             self,
             clip_actions=clip_actions,
             clip_log_std=clip_log_std,
@@ -661,7 +663,7 @@ def recurrent_predator_prey_attention_gaussian_model(
     if return_source:
         return (
             "RecurrentPredatorPreyAttentionGaussianModel("
-            "entity attention -> GRU -> Gaussian action head; compatible flat fallback)"
+            "entity attention -> GRU -> tanh-squashed Gaussian; compatible flat fallback)"
         )
     return RecurrentPredatorPreyAttentionGaussianModel(observation_space, action_space, device=device, **kwargs)
 

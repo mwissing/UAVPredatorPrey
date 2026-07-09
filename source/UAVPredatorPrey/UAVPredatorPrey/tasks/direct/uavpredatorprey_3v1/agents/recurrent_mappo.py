@@ -16,6 +16,32 @@ from skrl.multi_agents.torch.mappo import MAPPO
 from skrl.resources.schedulers.torch import KLAdaptiveLR
 
 
+def _compute_gae(
+    rewards: torch.Tensor,
+    dones: torch.Tensor,
+    values: torch.Tensor,
+    last_values: torch.Tensor,
+    discount_factor: float,
+    lambda_coefficient: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute bootstrapped returns and normalized generalized advantages."""
+    advantage = 0
+    advantages = torch.zeros_like(rewards)
+    not_dones = dones.logical_not()
+    memory_size = rewards.shape[0]
+
+    for index in reversed(range(memory_size)):
+        next_values = values[index + 1] if index < memory_size - 1 else last_values
+        advantage = rewards[index] - values[index] + discount_factor * not_dones[index] * (
+            next_values + lambda_coefficient * advantage
+        )
+        advantages[index] = advantage
+
+    returns = advantages + values
+    normalized_advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+    return returns, normalized_advantages
+
+
 class RecurrentMAPPO(MAPPO):
     """MAPPO variant that preserves rollout sequences for recurrent models.
 
@@ -34,6 +60,8 @@ class RecurrentMAPPO(MAPPO):
         self._rnn_initial_states: dict[str, dict[str, list[torch.Tensor]]] = {}
         self._rnn_final_states: dict[str, dict[str, list[torch.Tensor]]] = {}
         self._frozen_agents: set[str] = set()
+        self._uid_squashed: dict[str, bool] = {}
+        self._current_pre_tanh_actions: dict[str, torch.Tensor] = {}
 
         for uid in self.possible_agents:
             memory = self.memories[uid]
@@ -76,6 +104,17 @@ class RecurrentMAPPO(MAPPO):
                     self._rnn_initial_states[uid]["value"].append(
                         torch.zeros(layers, memory.num_envs, state_size, dtype=torch.float32, device=self.device)
                     )
+
+            self._uid_squashed[uid] = self._uid_rnn[uid] and hasattr(
+                self.policies[uid],
+                "_sg_inverse_epsilon",
+            )
+            if self._uid_squashed[uid]:
+                memory.create_tensor(
+                    name="pre_tanh_actions",
+                    size=self.policies[uid].num_actions,
+                    dtype=torch.float32,
+                )
 
     def set_frozen_agents(self, agent_names: set[str]) -> None:
         """Exclude roles from learning while preserving policy inference state."""
@@ -129,6 +168,11 @@ class RecurrentMAPPO(MAPPO):
         for uid in self.possible_agents:
             if self._uid_rnn[uid]:
                 self._rnn_final_states[uid]["policy"] = outputs[uid].get("rnn", [])
+            if self._uid_squashed.get(uid, False):
+                pre_tanh_actions = outputs[uid].get("pre_tanh_actions")
+                if pre_tanh_actions is None:
+                    raise RuntimeError(f"Squashed policy '{uid}' did not return pre_tanh_actions")
+                self._current_pre_tanh_actions[uid] = pre_tanh_actions
 
         return actions, log_prob, outputs
 
@@ -229,6 +273,11 @@ class RecurrentMAPPO(MAPPO):
                     log_prob=self._current_log_prob[uid],
                     values=values,
                     shared_states=shared_states,
+                    **(
+                        {"pre_tanh_actions": self._current_pre_tanh_actions[uid]}
+                        if self._uid_squashed.get(uid, False)
+                        else {}
+                    ),
                     **rnn_states,
                 )
 
@@ -261,30 +310,6 @@ class RecurrentMAPPO(MAPPO):
             finally:
                 self.possible_agents = possible_agents
 
-        def compute_gae(
-            rewards: torch.Tensor,
-            dones: torch.Tensor,
-            values: torch.Tensor,
-            last_values: torch.Tensor,
-            discount_factor: float,
-            lambda_coefficient: float,
-        ) -> tuple[torch.Tensor, torch.Tensor]:
-            advantage = 0
-            advantages = torch.zeros_like(rewards)
-            not_dones = dones.logical_not()
-            memory_size = rewards.shape[0]
-
-            for index in reversed(range(memory_size)):
-                next_values = values[index + 1] if index < memory_size - 1 else last_values
-                advantage = rewards[index] - values[index] + discount_factor * not_dones[index] * (
-                    next_values + lambda_coefficient * advantage
-                )
-                advantages[index] = advantage
-
-            returns = advantages + values
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-            return returns, advantages
-
         for uid in self._trainable_agents():
             policy = self.policies[uid]
             value = self.values[uid]
@@ -304,7 +329,7 @@ class RecurrentMAPPO(MAPPO):
             last_values = self._value_preprocessor[uid](last_values, inverse=True)
 
             values = memory.get_tensor_by_name("values")
-            returns, advantages = compute_gae(
+            returns, advantages = _compute_gae(
                 rewards=memory.get_tensor_by_name("rewards"),
                 dones=memory.get_tensor_by_name("terminated") | memory.get_tensor_by_name("truncated"),
                 values=values,
@@ -316,6 +341,22 @@ class RecurrentMAPPO(MAPPO):
             memory.set_tensor_by_name("values", self._value_preprocessor[uid](values, train=True))
             memory.set_tensor_by_name("returns", self._value_preprocessor[uid](returns, train=True))
             memory.set_tensor_by_name("advantages", advantages)
+
+            if self._uid_squashed.get(uid, False):
+                rollout_actions = memory.get_tensor_by_name("actions")
+                rollout_pre_tanh = memory.get_tensor_by_name("pre_tanh_actions")
+                self.track_data(
+                    f"Diagnostics / Bounded action near-limit fraction ({uid})",
+                    float((torch.abs(rollout_actions) > 0.95).float().mean().item()),
+                )
+                self.track_data(
+                    f"Diagnostics / Pre-tanh action absolute mean ({uid})",
+                    float(torch.abs(rollout_pre_tanh).mean().item()),
+                )
+                self.track_data(
+                    f"Diagnostics / Pre-tanh action absolute maximum ({uid})",
+                    float(torch.abs(rollout_pre_tanh).max().item()),
+                )
 
             env_indices = torch.randperm(memory.num_envs, device=self.device)
             env_batches = torch.chunk(env_indices, self._mini_batches[uid])
@@ -351,6 +392,12 @@ class RecurrentMAPPO(MAPPO):
                     sampled_values = memory.get_tensor_by_name("values")[:, env_batch].reshape(-1, 1)
                     sampled_returns = memory.get_tensor_by_name("returns")[:, env_batch].reshape(-1, 1)
                     sampled_advantages = memory.get_tensor_by_name("advantages")[:, env_batch].reshape(-1, 1)
+                    sampled_pre_tanh_actions = None
+                    if self._uid_squashed.get(uid, False):
+                        sampled_pre_tanh_actions = memory.get_tensor_by_name("pre_tanh_actions")[:, env_batch].reshape(
+                            -1,
+                            policy.num_actions,
+                        )
 
                     rnn_policy = {}
                     rnn_value = {}
@@ -378,10 +425,14 @@ class RecurrentMAPPO(MAPPO):
                             sampled_shared_states, train=not epoch
                         )
 
-                        _, next_log_prob, _ = policy.act(
-                            {"states": sampled_states, "taken_actions": sampled_actions, **rnn_policy},
-                            role="policy",
-                        )
+                        policy_inputs = {
+                            "states": sampled_states,
+                            "taken_actions": sampled_actions,
+                            **rnn_policy,
+                        }
+                        if sampled_pre_tanh_actions is not None:
+                            policy_inputs["pre_tanh_actions"] = sampled_pre_tanh_actions
+                        _, next_log_prob, _ = policy.act(policy_inputs, role="policy")
 
                         with torch.no_grad():
                             log_ratio = next_log_prob - sampled_log_prob
