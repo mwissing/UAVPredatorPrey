@@ -291,6 +291,59 @@ Current GRU league status:
   - keep safe non-promoted policies in a recent pool so useful recovery
     checkpoints are not lost.
 
+## Correctness Gate Before the Next Long League Run
+
+Baseline before this audit: commit `ceef347`.
+
+The following items should be implemented as separate, testable changes rather
+than as one large training-stack rewrite:
+
+1. **Exact frozen-role semantics.** Skip loss construction, backward passes,
+   optimizer/scheduler work, and running-preprocessor updates for the frozen
+   role. Policy/value parameters and normalization statistics must remain
+   bitwise unchanged. GRU hidden state must still advance during an episode and
+   reset on termination/truncation.
+   Status: implemented and verified for latest-only and per-env-pool training;
+   each frozen run now performs a before/after state fingerprint check.
+2. **Unbiased vectorized evaluation.** Do not let fast auto-reset environments
+   contribute repeated episodes while slow initial episodes contribute none.
+   Aggregate a fixed episode quota per environment from per-env episode data and
+   test the accounting with deliberately different episode lengths.
+   Status: implemented and verified in a headless Isaac evaluation reporting
+   `episode_accounting: balanced_per_env`.
+3. **Actor/environment action contract.** Log raw-action saturation fraction
+   and clipping magnitude first. If clipping is material, make the sampled
+   action used by PPO/log-probabilities match the bounded action executed by the
+   environment, then run a controlled bounded-policy ablation.
+   Status: diagnostics implemented. A deterministic smoke evaluation found
+   roughly `0.289` predator and `0.530` prey action components outside
+   `[-1, 1]`, with mean clipping magnitudes around `1.55` and `6.78`. The
+   bounded-policy correction is therefore required but remains pending.
+4. **Episode-level arena safety metrics.** Accumulate soft-arena outside mean,
+   maximum, and step fraction per environment. Reset these accumulators with the
+   episode and use the completed-episode values for evaluation and promotion
+   gates.
+   Status: implemented and present in balanced evaluation summaries.
+5. **Predator crash-cost semantics.** Replace an unintended persistent
+   per-step penalty for an already inactive predator with the explicitly chosen
+   crash-event cost. Verify the one-predator-sacrifice case and all-predators-OOB
+   termination independently.
+   Status: pending.
+6. **RL-core regression suite.** Add deterministic tests for recurrent-state
+   reset, exact freezing, vectorized episode accounting, GAE/returns, PFSP and
+   promotion/pruning, and role-wise checkpoint composition. Stop ignoring the
+   project test directory and run the suite before long training jobs.
+   Status: in progress; the first ten freeze, recurrent-state, fingerprint, and
+   episode-accounting tests pass.
+
+Acceptance rule:
+
+- do not launch another 10-15 hour league run until items 1, 2, and 4 have
+  passing regression tests,
+- treat items 3 and 5 as controlled behavior-changing ablations,
+- record throughput before and after item 1 so the speed effect is measured
+  rather than inferred.
+
 ## Recommended Implementation Order
 
 ### Stage 0: Establish Evaluation Anchors

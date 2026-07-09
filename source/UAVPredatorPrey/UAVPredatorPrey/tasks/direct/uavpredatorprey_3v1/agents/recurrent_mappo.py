@@ -33,6 +33,7 @@ class RecurrentMAPPO(MAPPO):
         self._rnn_tensors_names: dict[str, list[str]] = {}
         self._rnn_initial_states: dict[str, dict[str, list[torch.Tensor]]] = {}
         self._rnn_final_states: dict[str, dict[str, list[torch.Tensor]]] = {}
+        self._frozen_agents: set[str] = set()
 
         for uid in self.possible_agents:
             memory = self.memories[uid]
@@ -75,6 +76,35 @@ class RecurrentMAPPO(MAPPO):
                     self._rnn_initial_states[uid]["value"].append(
                         torch.zeros(layers, memory.num_envs, state_size, dtype=torch.float32, device=self.device)
                     )
+
+    def set_frozen_agents(self, agent_names: set[str]) -> None:
+        """Exclude roles from learning while preserving policy inference state."""
+        unknown = set(agent_names) - set(self.possible_agents)
+        if unknown:
+            raise ValueError(f"Unknown frozen agents: {sorted(unknown)}")
+        self._frozen_agents = set(agent_names)
+
+    def _trainable_agents(self) -> list[str]:
+        return [uid for uid in self.possible_agents if uid not in self._frozen_agents]
+
+    def _commit_frozen_policy_state(self, uid: str, done: torch.Tensor) -> None:
+        """Advance a frozen policy's GRU state and reset completed env slots."""
+        if not self._uid_rnn[uid]:
+            return
+
+        final_states = self._rnn_final_states[uid]["policy"]
+        finished = done.reshape(-1).nonzero(as_tuple=False).reshape(-1)
+        if final_states:
+            if finished.numel():
+                for state in final_states:
+                    state[:, finished] = 0
+            policy_states = [state.detach() for state in final_states]
+            self._rnn_initial_states[uid]["policy"] = policy_states
+            if self.policies[uid] is self.values[uid]:
+                self._rnn_initial_states[uid]["value"] = policy_states
+        elif finished.numel():
+            for state in self._rnn_initial_states[uid]["policy"]:
+                state[:, finished] = 0
 
     def act(self, states: Mapping[str, torch.Tensor], timestep: int, timesteps: int) -> torch.Tensor:
         if not self._rnn:
@@ -155,6 +185,10 @@ class RecurrentMAPPO(MAPPO):
             self._current_shared_next_states = infos["shared_next_states"]
 
             for uid in self.possible_agents:
+                if uid in self._frozen_agents:
+                    self._commit_frozen_policy_state(uid, terminated[uid] | truncated[uid])
+                    continue
+
                 if self._rewards_shaper is not None:
                     rewards[uid] = self._rewards_shaper(rewards[uid], timestep, timesteps)
 
@@ -218,7 +252,14 @@ class RecurrentMAPPO(MAPPO):
 
     def _update(self, timestep: int, timesteps: int) -> None:
         if not self._rnn:
-            return super()._update(timestep, timesteps)
+            if not self._frozen_agents:
+                return super()._update(timestep, timesteps)
+            possible_agents = self.possible_agents
+            self.possible_agents = self._trainable_agents()
+            try:
+                return super()._update(timestep, timesteps)
+            finally:
+                self.possible_agents = possible_agents
 
         def compute_gae(
             rewards: torch.Tensor,
@@ -244,7 +285,7 @@ class RecurrentMAPPO(MAPPO):
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             return returns, advantages
 
-        for uid in self.possible_agents:
+        for uid in self._trainable_agents():
             policy = self.policies[uid]
             value = self.values[uid]
             memory = self.memories[uid]

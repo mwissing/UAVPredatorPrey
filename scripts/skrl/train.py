@@ -140,6 +140,8 @@ import skrl
 import torch
 from packaging import version
 
+from frozen_agents import capture_frozen_fingerprints, freeze_agent_training, verify_frozen_fingerprints
+
 # check for minimum supported skrl version
 SKRL_VERSION = "1.4.3"
 if version.parse(skrl.__version__) < version.parse(SKRL_VERSION):
@@ -187,100 +189,6 @@ if args_cli.agent is None:
 else:
     agent_cfg_entry_point = args_cli.agent
     algorithm = agent_cfg_entry_point.split("_cfg")[0].split("skrl_")[-1].lower()
-
-
-class _FrozenAgentOptimizer(torch.optim.Optimizer):
-    """No-op optimizer used to keep frozen SKRL agents out of Adam state updates."""
-
-    def __init__(self, params):
-        super().__init__(list(params), defaults={})
-
-    def step(self, closure=None):
-        if closure is not None:
-            with torch.enable_grad():
-                return closure()
-        return None
-
-    def zero_grad(self, set_to_none: bool = True):
-        for group in self.param_groups:
-            for param in group["params"]:
-                if set_to_none:
-                    param.grad = None
-                elif param.grad is not None:
-                    param.grad.detach_()
-                    param.grad.zero_()
-
-
-def _agent_parameters(agent, agent_name: str) -> list[torch.nn.Parameter]:
-    """Return unique policy/value parameters for one SKRL multi-agent uid."""
-    modules = []
-    for attr_name in ("policies", "values"):
-        mapping = getattr(agent, attr_name, {})
-        if isinstance(mapping, dict):
-            module = mapping.get(agent_name)
-            if module is not None and module not in modules:
-                modules.append(module)
-
-    if not modules:
-        models = getattr(agent, "models", {})
-        agent_models = models.get(agent_name, {}) if isinstance(models, dict) else {}
-        if isinstance(agent_models, dict):
-            for module in agent_models.values():
-                if module is not None and module not in modules:
-                    modules.append(module)
-
-    params = []
-    seen = set()
-    for module in modules:
-        for param in module.parameters():
-            if id(param) not in seen:
-                params.append(param)
-                seen.add(id(param))
-    return params
-
-
-def _freeze_agent_training(agent, agent_names: set[str]) -> None:
-    """Freeze selected SKRL multi-agent policies without breaking the shared backward pass."""
-    if not agent_names:
-        return
-
-    optimizers = getattr(agent, "optimizers", {})
-    schedulers = getattr(agent, "schedulers", {})
-    lr_schedulers_enabled = getattr(agent, "_learning_rate_scheduler", {})
-    available_agents = set(optimizers.keys()) if isinstance(optimizers, dict) else set()
-
-    for agent_name in sorted(agent_names):
-        if agent_name not in available_agents:
-            print(
-                f"[WARNING] Cannot freeze agent '{agent_name}': optimizer not found. "
-                f"Available optimizer keys: {sorted(available_agents)}"
-            )
-            continue
-
-        params = _agent_parameters(agent, agent_name)
-        if not params:
-            print(f"[WARNING] Cannot freeze agent '{agent_name}': no policy/value parameters found.")
-            continue
-
-        for param in params:
-            param.grad = None
-
-        old_optimizer = optimizers[agent_name]
-        old_optimizer.state.clear()
-        optimizers[agent_name] = _FrozenAgentOptimizer(params)
-        checkpoint_modules = getattr(agent, "checkpoint_modules", {})
-        if isinstance(checkpoint_modules, dict) and agent_name in checkpoint_modules:
-            checkpoint_modules[agent_name].pop("optimizer", None)
-        print(
-            f"[INFO] Agent '{agent_name}' optimizer replaced by no-op freeze optimizer; "
-            "optimizer state will not be saved."
-        )
-
-        if isinstance(lr_schedulers_enabled, dict) and agent_name in lr_schedulers_enabled:
-            lr_schedulers_enabled[agent_name] = None
-            print(f"[INFO] Agent '{agent_name}' learning rate scheduler disabled.")
-        elif isinstance(schedulers, dict) and agent_name in schedulers:
-            print(f"[INFO] Agent '{agent_name}' scheduler left unused because learning rate is 0.0.")
 
 
 def _load_pool_entries(
@@ -610,6 +518,12 @@ class _PerEnvOpponentPoolWrapper:
             "prey_min_height": "prey_min_height",
             "teammate_min_distance": "teammate_min_distance",
             "teammate_close_rate": "teammate_close_rate",
+            "predator_soft_arena_outside": "predator_soft_arena_outside",
+            "predator_soft_arena_outside_max": "predator_soft_arena_outside_max",
+            "predator_soft_arena_outside_fraction": "predator_soft_arena_outside_fraction",
+            "prey_soft_arena_outside": "prey_soft_arena_outside",
+            "prey_soft_arena_outside_max": "prey_soft_arena_outside_max",
+            "prey_soft_arena_outside_fraction": "prey_soft_arena_outside_fraction",
         }
         for source_index, token in enumerate(self._source_tokens):
             source_mask = episode_assignment == source_index
@@ -810,12 +724,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         freeze_agents.add("predator")
     if freeze_agents:
         print(f"[INFO] Freezing agents during training: {', '.join(sorted(freeze_agents))}")
-        _freeze_agent_training(runner.agent, freeze_agents)
+        freeze_agents = freeze_agent_training(runner.agent, freeze_agents)
+    frozen_fingerprints = capture_frozen_fingerprints(runner.agent, freeze_agents)
 
     runner._trainer.env = _wrap_per_env_opponent_pool(env, runner, freeze_agents)
 
     # run training
-    runner.run()
+    try:
+        runner.run()
+    finally:
+        verify_frozen_fingerprints(runner.agent, frozen_fingerprints)
 
     print(f"Training time: {round(time.time() - start_time, 2)} seconds")
 

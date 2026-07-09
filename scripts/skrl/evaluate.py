@@ -112,6 +112,8 @@ import skrl
 import torch
 from packaging import version
 
+from evaluation_accounting import BalancedEpisodeSelector, accepted_payload_rows, payload_metric_name
+
 # check for minimum supported skrl version
 SKRL_VERSION = "1.4.3"
 if version.parse(skrl.__version__) < version.parse(SKRL_VERSION):
@@ -312,11 +314,40 @@ def _collect_logs(log: dict[str, Any], stats: WeightedMeans, *, weight: float, p
             stats.add(key, scalar, weight)
 
 
+def _payload_row_float(value: Any, row: int) -> float | None:
+    """Read one scalar row from a per-environment episode payload."""
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "reshape"):
+        value = value.reshape(-1)
+    try:
+        value = value[row]
+    except (IndexError, KeyError, TypeError):
+        return None
+    return _scalar_float(value)
+
+
+def _collect_episode_payload(
+    payload: dict[str, Any],
+    accepted_rows: list[int],
+    stats: WeightedMeans,
+) -> None:
+    for payload_name, values in payload.items():
+        metric_name = payload_metric_name(payload_name)
+        if metric_name is None:
+            continue
+        for row in accepted_rows:
+            scalar = _payload_row_float(values, row)
+            if scalar is not None:
+                stats.add(metric_name, scalar)
+
+
 def _print_summary(summary: dict[str, Any]) -> None:
     print("\n[INFO] Evaluation summary")
     print(f"checkpoint: {summary['checkpoint']}")
     print(f"task: {summary['task']}")
     print(f"episodes_completed: {summary['episodes_completed']}")
+    print(f"episode_accounting: {summary['episode_accounting']}")
     print(f"vector_steps: {summary['vector_steps']}")
 
     episode_metrics = summary["episode_metrics"]
@@ -334,6 +365,12 @@ def _print_summary(summary: dict[str, Any]) -> None:
     if step_rewards:
         print("\nStep reward/log means:")
         for key, value in step_rewards.items():
+            print(f"  {key}: {value:.6g}")
+
+    step_diagnostics = summary.get("step_diagnostics", {})
+    if step_diagnostics:
+        print("\nStep diagnostics:")
+        for key, value in step_diagnostics.items():
             print(f"  {key}: {value:.6g}")
 
 
@@ -390,9 +427,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
     num_envs = env.unwrapped.num_envs
     max_episode_length = getattr(env.unwrapped, "max_episode_length", 1)
+    episode_selector = BalancedEpisodeSelector(
+        num_envs=num_envs,
+        requested_episodes=args_cli.episodes,
+        seed=int(experiment_cfg["seed"] or 0),
+    )
     max_steps = args_cli.max_steps
     if max_steps is None:
-        max_steps = max_episode_length * (math.ceil(args_cli.episodes / max(num_envs, 1)) + 2)
+        max_steps = max_episode_length * (episode_selector.required_rounds + 2)
 
     env = SkrlVecEnvWrapper(env, ml_framework=args_cli.ml_framework)
 
@@ -407,8 +449,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
     episode_stats = WeightedMeans()
     step_reward_stats = WeightedMeans()
+    step_diagnostic_stats = WeightedMeans()
     completed_episodes = 0
     vector_steps = 0
+    episode_accounting: str | None = None
     obs, _ = env.reset()
 
     try:
@@ -423,6 +467,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             vector_steps += 1
             log = extras.get("log", {}) if isinstance(extras, dict) else {}
             _collect_logs(log, step_reward_stats, weight=1.0, prefixes=("Reward/",))
+            _collect_logs(log, step_diagnostic_stats, weight=1.0, prefixes=("Diagnostics/",))
 
             done = _done_mask(terminated) | _done_mask(truncated)
             if hasattr(runner.agent, "reset_recurrent_states"):
@@ -431,10 +476,32 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             if done_count <= 0:
                 continue
 
-            remaining = args_cli.episodes - completed_episodes
-            weight = float(min(done_count, remaining))
-            _collect_logs(log, episode_stats, weight=weight, prefixes=("Metrics/",))
-            completed_episodes += done_count
+            episode_payload = extras.get("pool_episode") if isinstance(extras, dict) else None
+            if isinstance(episode_payload, dict) and "env_ids" in episode_payload:
+                if episode_accounting == "legacy_completion_events":
+                    raise RuntimeError("Evaluation changed episode-accounting mode during one run.")
+                episode_accounting = "balanced_per_env"
+
+                accepted_rows = accepted_payload_rows(
+                    episode_selector,
+                    episode_payload["env_ids"],
+                    done,
+                )
+                _collect_episode_payload(episode_payload, accepted_rows, episode_stats)
+                completed_episodes = episode_selector.completed_episodes
+            else:
+                if episode_accounting == "balanced_per_env":
+                    raise RuntimeError("Per-environment episode payload disappeared during evaluation.")
+                if episode_accounting is None:
+                    episode_accounting = "legacy_completion_events"
+                    print(
+                        "[WARNING] Environment does not expose per-env 'pool_episode' data. "
+                        "Falling back to completion-event accounting, which can favor short episodes."
+                    )
+                remaining = args_cli.episodes - completed_episodes
+                weight = float(min(done_count, remaining))
+                _collect_logs(log, episode_stats, weight=weight, prefixes=("Metrics/",))
+                completed_episodes += done_count
     finally:
         env.close()
 
@@ -447,9 +514,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         "num_envs": num_envs,
         "max_steps": max_steps,
         "scripted_prey": args_cli.scripted_prey,
+        "episode_accounting": episode_accounting or "none",
         "episode_metrics": episode_stats.as_dict(),
         "step_rewards": step_reward_stats.as_dict(),
+        "step_diagnostics": step_diagnostic_stats.as_dict(),
     }
+    if completed_episodes < args_cli.episodes:
+        print(
+            f"[WARNING] Evaluation collected {completed_episodes}/{args_cli.episodes} episodes "
+            f"before the {max_steps}-step limit."
+        )
     _print_summary(summary)
 
     if args_cli.json:
