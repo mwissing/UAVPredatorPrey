@@ -324,7 +324,9 @@ than as one large training-stack rewrite:
    deterministic checkpoint smoke evaluation reported zero environment
    clipping for both roles; `22.6%` of predator and `40.5%` of prey action
    components were still near a limit (`|a| > 0.95`), so a short controlled
-   recovery run must precede the next long league run.
+   recovery run must precede the next long league run. PPO diagnostics now also
+   separate the first pre-optimizer replay KL/ratio values from mean and peak
+   minibatch KL, distinguishing rollout-replay mismatch from oversized updates.
 4. **Episode-level arena safety metrics.** Accumulate soft-arena outside mean,
    maximum, and step fraction per environment. Reset these accumulators with the
    episode and use the completed-episode values for evaluation and promotion

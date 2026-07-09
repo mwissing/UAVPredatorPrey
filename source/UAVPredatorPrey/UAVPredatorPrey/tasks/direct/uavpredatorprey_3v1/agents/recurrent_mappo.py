@@ -365,6 +365,7 @@ class RecurrentMAPPO(MAPPO):
             cumulative_entropy_loss = 0.0
             cumulative_value_loss = 0.0
             cumulative_approx_kl = 0.0
+            peak_minibatch_kl = 0.0
             cumulative_mean_ratio_deviation = 0.0
             maximum_ratio_deviation = 0.0
             cumulative_ratio_clip_fraction = 0.0
@@ -372,6 +373,10 @@ class RecurrentMAPPO(MAPPO):
             cumulative_gradient_norm = 0.0
             gradient_norm_count = 0
             update_count = 0
+            pre_update_replay_kl = None
+            pre_update_replay_mean_ratio_deviation = None
+            pre_update_replay_max_ratio_deviation = None
+            pre_update_replay_ratio_clip_fraction = None
 
             for epoch in range(self._learning_epochs[uid]):
                 kl_divergences = []
@@ -446,6 +451,17 @@ class RecurrentMAPPO(MAPPO):
                                 | (diagnostic_ratio > 1.0 + self._ratio_clip[uid])
                             ).float().mean()
                             kl_divergences.append(kl_divergence)
+
+                        # This is the first sampled minibatch before any optimizer
+                        # step. It detects rollout replay mismatches without an
+                        # extra forward pass or additional RNG consumption.
+                        if pre_update_replay_kl is None:
+                            pre_update_replay_kl = float(kl_divergence.item())
+                            pre_update_replay_mean_ratio_deviation = float(mean_ratio_deviation.item())
+                            pre_update_replay_max_ratio_deviation = float(max_ratio_deviation.item())
+                            pre_update_replay_ratio_clip_fraction = float(ratio_clip_fraction.item())
+
+                        peak_minibatch_kl = max(peak_minibatch_kl, float(kl_divergence.item()))
 
                         if self._kl_threshold[uid] and kl_divergence > self._kl_threshold[uid]:
                             break
@@ -533,6 +549,21 @@ class RecurrentMAPPO(MAPPO):
             if self._entropy_loss_scale:
                 self.track_data(f"Loss / Entropy loss ({uid})", cumulative_entropy_loss / denominator)
             self.track_data(f"Diagnostics / Approximate KL ({uid})", cumulative_approx_kl / denominator)
+            self.track_data(f"Diagnostics / Peak minibatch KL ({uid})", peak_minibatch_kl)
+            if pre_update_replay_kl is not None:
+                self.track_data(f"Diagnostics / Pre-update replay KL ({uid})", pre_update_replay_kl)
+                self.track_data(
+                    f"Diagnostics / Pre-update replay mean ratio deviation ({uid})",
+                    pre_update_replay_mean_ratio_deviation,
+                )
+                self.track_data(
+                    f"Diagnostics / Pre-update replay max ratio deviation ({uid})",
+                    pre_update_replay_max_ratio_deviation,
+                )
+                self.track_data(
+                    f"Diagnostics / Pre-update replay ratio clip fraction ({uid})",
+                    pre_update_replay_ratio_clip_fraction,
+                )
             self.track_data(
                 f"Diagnostics / Mean ratio deviation ({uid})",
                 cumulative_mean_ratio_deviation / denominator,
