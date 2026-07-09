@@ -334,12 +334,16 @@ than as one large training-stack rewrite:
    per-step penalty for an already inactive predator with the explicitly chosen
    crash-event cost. Verify the one-predator-sacrifice case and all-predators-OOB
    termination independently.
-   Status: pending.
+   Status: implemented and regression-tested. A newly inactive predator incurs
+   its configured per-drone cost once; already inactive predators add no later
+   reward cost. With the existing team mean, one crash contributes `-200 / 3`
+   to the 3v1 team reward. The episode continues while any predator remains
+   active and terminates independently when all predators are inactive.
 6. **RL-core regression suite.** Add deterministic tests for recurrent-state
    reset, exact freezing, vectorized episode accounting, GAE/returns, PFSP and
    promotion/pruning, and role-wise checkpoint composition. Stop ignoring the
    project test directory and run the suite before long training jobs.
-   Status: implemented; 24 freeze, recurrent-state, fingerprint,
+   Status: implemented; 26 freeze, recurrent-state, fingerprint,
    episode-accounting, squashed-action/log-probability, GAE, PFSP,
    promotion/pruning, and checkpoint-composition tests pass.
 

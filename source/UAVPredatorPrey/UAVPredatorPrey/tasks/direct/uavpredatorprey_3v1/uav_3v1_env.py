@@ -13,6 +13,7 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import DirectMARLEnv
 from isaaclab.utils.math import subtract_frame_transforms
 
+from .episode_semantics import all_predators_inactive, predator_crash_event_penalty
 from .uav_3v1_env_cfg import Uav3v1EnvCfg
 
 
@@ -565,7 +566,10 @@ class Uav3v1Env(DirectMARLEnv):
         # Boundary + OOB (P, N)
         horiz_t = self._pred_horiz.t()  # (P, N)
         boundary = torch.clamp(horiz_t - warn_radius, min=0.0) * self.cfg.boundary_penalty_scale * dt * pred_alive_reward_mask
-        oob_pen = self._pred_oob.t().float() * self.cfg.predator_oob_penalty
+        oob_pen = predator_crash_event_penalty(
+            self._pred_newly_oob,
+            self.cfg.predator_oob_penalty,
+        )
         pred_soft_arena_pen = (
             -torch.square(self._pred_soft_arena_outside.t())
             * self.cfg.soft_arena_penalty_scale
@@ -779,8 +783,8 @@ class Uav3v1Env(DirectMARLEnv):
             self._compute_intermediate_values()
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        all_predators_inactive = ~self._pred_alive.any(dim=1)
-        terminated = self._caught | all_predators_inactive | self._prey_oob | self._has_nan
+        no_active_predators = all_predators_inactive(self._pred_alive)
+        terminated = self._caught | no_active_predators | self._prey_oob | self._has_nan
         return (
             {"predator": terminated, "prey": terminated},
             {"predator": time_out, "prey": time_out},
