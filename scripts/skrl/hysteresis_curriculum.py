@@ -26,6 +26,8 @@ DEFAULT_ISAACLAB = Path(r"C:\RL\IsaacLab\isaaclab.bat")
 DEFAULT_RUN_ROOT = REPO_ROOT / "logs" / "skrl" / "uav_3v1_direct"
 AGENT_RE = re.compile(r"agent_(\d+)\.pt$")
 AGENTS = ("predator", "prey")
+POOL_TYPE_ELITE = "elite"
+POOL_TYPE_RECENT = "recent"
 PRESETS = {
     "3v1-attention-critic": {
         "task": "3v1-survival-soft-oob-teammate-vel-v0",
@@ -96,6 +98,7 @@ def _load_opponent_pool(path: Path | None) -> dict[str, list[dict[str, Any]]]:
                     "name": checkpoint.stem,
                     "checkpoint": str(checkpoint),
                     "weight": 1.0,
+                    "pool_type": POOL_TYPE_ELITE,
                     "notes": "",
                 }
             elif isinstance(raw_entry, dict):
@@ -106,6 +109,7 @@ def _load_opponent_pool(path: Path | None) -> dict[str, list[dict[str, Any]]]:
                 entry.setdefault("weight", 1.0)
                 entry.setdefault("base_weight", entry["weight"])
                 entry.setdefault("notes", "")
+                entry.setdefault("pool_type", POOL_TYPE_ELITE)
             else:
                 raise RuntimeError(f"Pool entry {agent}[{index}] must be a string or object.")
 
@@ -115,6 +119,7 @@ def _load_opponent_pool(path: Path | None) -> dict[str, list[dict[str, Any]]]:
             entry["checkpoint"] = str(checkpoint.resolve())
             entry["weight"] = float(entry["weight"])
             entry["base_weight"] = float(entry.get("base_weight", entry["weight"]))
+            entry["pool_type"] = str(entry.get("pool_type", POOL_TYPE_ELITE))
             if entry["weight"] > 0.0:
                 pool[agent].append(entry)
 
@@ -123,6 +128,7 @@ def _load_opponent_pool(path: Path | None) -> dict[str, list[dict[str, Any]]]:
 
 def _save_opponent_pool(path: Path, pool: dict[str, list[dict[str, Any]]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    _sort_pool_for_save(pool)
     path.write_text(json.dumps(pool, indent=2), encoding="utf-8")
     print(f"[INFO] Wrote opponent pool: {path}")
 
@@ -180,6 +186,14 @@ def _pool_entry_weight(
         win_rate = 0.5
 
     return base_weight * max(float(args.pfsp_min_weight), _pfsp_weight(win_rate, args.pfsp_weighting))
+
+
+def _pool_entries_by_type(entries: list[dict[str, Any]], pool_type: str) -> list[dict[str, Any]]:
+    return [
+        entry
+        for entry in entries
+        if str(entry.get("pool_type", POOL_TYPE_ELITE)) == pool_type
+    ]
 
 
 def _sample_pool_entry(
@@ -415,22 +429,60 @@ def _pool_entry_name(agent: str, checkpoint: Path, phase_index: int) -> str:
     return _safe_token(raw_name)
 
 
+def _recent_pool_entry_name(agent: str, checkpoint: Path, phase_index: int) -> str:
+    run_name = checkpoint.parents[1].name if len(checkpoint.parents) > 1 else checkpoint.parent.name
+    raw_name = f"recent_{agent}_phase_{phase_index:03d}_{run_name}_{checkpoint.stem}"
+    return _safe_token(raw_name)
+
+
 def _prune_pool(pool: dict[str, list[dict[str, Any]]], args: argparse.Namespace) -> None:
     max_entries = int(args.auto_pool_max_entries_per_role)
-    if max_entries <= 0:
-        return
+    max_recent_entries = int(args.recent_pool_max_entries_per_role)
     for agent in AGENTS:
         entries = pool.get(agent, [])
-        if len(entries) <= max_entries:
-            continue
-        entries.sort(
+
+        elite_entries = _pool_entries_by_type(entries, POOL_TYPE_ELITE)
+        recent_entries = _pool_entries_by_type(entries, POOL_TYPE_RECENT)
+        other_entries = [
+            entry
+            for entry in entries
+            if str(entry.get("pool_type", POOL_TYPE_ELITE)) not in {POOL_TYPE_ELITE, POOL_TYPE_RECENT}
+        ]
+
+        if max_entries > 0 and len(elite_entries) > max_entries:
+            elite_entries.sort(
+                key=lambda entry: (
+                    float(entry.get("auto_score", entry.get("weight", 1.0))),
+                    int(entry.get("added_phase_index", -1)),
+                ),
+                reverse=True,
+            )
+            elite_entries = elite_entries[:max_entries]
+
+        if max_recent_entries <= 0:
+            recent_entries = []
+        elif len(recent_entries) > max_recent_entries:
+            recent_entries.sort(
+                key=lambda entry: (
+                    int(entry.get("added_phase_index", -1)),
+                    str(entry.get("added_at", "")),
+                ),
+                reverse=True,
+            )
+            recent_entries = recent_entries[:max_recent_entries]
+
+        pool[agent] = elite_entries + recent_entries + other_entries
+
+
+def _sort_pool_for_save(pool: dict[str, list[dict[str, Any]]]) -> None:
+    for agent in AGENTS:
+        pool[agent].sort(
             key=lambda entry: (
-                float(entry.get("auto_score", entry.get("weight", 1.0))),
+                0 if str(entry.get("pool_type", POOL_TYPE_ELITE)) == POOL_TYPE_ELITE else 1,
                 int(entry.get("added_phase_index", -1)),
             ),
-            reverse=True,
+            reverse=False,
         )
-        del entries[max_entries:]
 
 
 def _maybe_promote_to_pool(
@@ -448,7 +500,10 @@ def _maybe_promote_to_pool(
 
     checkpoint = checkpoint.resolve()
     for entry in pool.get(agent, []):
-        if Path(str(entry["checkpoint"])).resolve() == checkpoint:
+        if (
+            str(entry.get("pool_type", POOL_TYPE_ELITE)) == POOL_TYPE_ELITE
+            and Path(str(entry["checkpoint"])).resolve() == checkpoint
+        ):
             print(f"[INFO] Auto-pool skip: {agent} checkpoint already exists in pool: {checkpoint}")
             return None
 
@@ -459,9 +514,15 @@ def _maybe_promote_to_pool(
 
     metrics = summary.get("episode_metrics", {})
     auto_score = _pool_score(agent, summary, cross_play_aggregate)
+    pool[agent] = [
+        entry
+        for entry in pool.get(agent, [])
+        if Path(str(entry["checkpoint"])).resolve() != checkpoint
+    ]
     entry = {
         "name": _pool_entry_name(agent, checkpoint, phase_index),
         "checkpoint": str(checkpoint),
+        "pool_type": POOL_TYPE_ELITE,
         "weight": 1.0,
         "base_weight": 1.0,
         "auto_score": auto_score,
@@ -478,6 +539,85 @@ def _maybe_promote_to_pool(
     return {"agent": agent, "promoted": True, "entry": entry, "reason": reason}
 
 
+def _recent_pool_gate(agent: str, summary: dict[str, Any], args: argparse.Namespace) -> tuple[bool, str]:
+    prey_oob = _metric(summary, "Metrics/prey_oob_rate")
+    predator_oob = _metric(summary, "Metrics/predator_oob_rate")
+    prey_soft = _metric(summary, "Metrics/prey_soft_arena_outside")
+    predator_soft = _metric(summary, "Metrics/predator_soft_arena_outside")
+
+    if agent == "predator":
+        checks = [
+            (predator_oob <= args.auto_pool_max_predator_oob, f"predator_oob={predator_oob:.3f}"),
+            (predator_soft <= args.auto_pool_max_predator_soft, f"predator_soft={predator_soft:.3f}"),
+            (prey_oob <= args.auto_pool_max_opponent_oob, f"prey_oob={prey_oob:.3f}"),
+            (prey_soft <= args.auto_pool_max_opponent_soft, f"prey_soft={prey_soft:.3f}"),
+        ]
+    elif agent == "prey":
+        checks = [
+            (prey_oob <= args.auto_pool_max_prey_oob, f"prey_oob={prey_oob:.3f}"),
+            (prey_soft <= args.auto_pool_max_prey_soft, f"prey_soft={prey_soft:.3f}"),
+            (predator_oob <= args.auto_pool_max_opponent_oob, f"predator_oob={predator_oob:.3f}"),
+            (predator_soft <= args.auto_pool_max_opponent_soft, f"predator_soft={predator_soft:.3f}"),
+        ]
+    else:
+        return False, f"recent pool only supports predator/prey phases, got {agent}"
+
+    details = ", ".join(detail for _, detail in checks)
+    failed = [detail for ok, detail in checks if not ok]
+    if failed:
+        return False, f"rejected recent {agent}: {', '.join(failed)}; metrics: {details}"
+    return True, f"accepted recent {agent}: {details}"
+
+
+def _maybe_add_recent_to_pool(
+    pool: dict[str, list[dict[str, Any]]],
+    *,
+    agent: str,
+    checkpoint: Path,
+    summary: dict[str, Any],
+    cross_play_aggregate: dict[str, Any] | None,
+    promotion: dict[str, Any] | None,
+    phase_index: int,
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    if not args.recent_pool or agent not in AGENTS:
+        return None
+    if promotion is not None and bool(promotion.get("promoted", False)):
+        return None
+
+    checkpoint = checkpoint.resolve()
+    for entry in pool.get(agent, []):
+        if Path(str(entry["checkpoint"])).resolve() == checkpoint:
+            print(f"[INFO] Recent-pool skip: {agent} checkpoint already exists in pool: {checkpoint}")
+            return None
+
+    accepted, reason = _recent_pool_gate(agent, summary, args)
+    if not accepted:
+        print(f"[INFO] Recent-pool {reason}")
+        return {"agent": agent, "added": False, "reason": reason, "checkpoint": str(checkpoint)}
+
+    metrics = summary.get("episode_metrics", {})
+    recent_score = _pool_score(agent, summary, cross_play_aggregate)
+    entry = {
+        "name": _recent_pool_entry_name(agent, checkpoint, phase_index),
+        "checkpoint": str(checkpoint),
+        "pool_type": POOL_TYPE_RECENT,
+        "weight": float(args.recent_pool_weight),
+        "base_weight": float(args.recent_pool_weight),
+        "recent_score": recent_score,
+        "added_phase_index": phase_index,
+        "added_at": datetime.now().isoformat(timespec="seconds"),
+        "metrics": metrics,
+        "notes": reason,
+    }
+    if cross_play_aggregate:
+        entry["cross_play_aggregate"] = cross_play_aggregate
+    pool[agent].append(entry)
+    _prune_pool(pool, args)
+    print(f"[INFO] Recent-pool added {agent}: {entry['name']} (score={recent_score:.3f})")
+    return {"agent": agent, "added": True, "entry": entry, "reason": reason}
+
+
 def _selected_cross_play_entries(
     pool: dict[str, list[dict[str, Any]]],
     *,
@@ -490,6 +630,10 @@ def _selected_cross_play_entries(
         entry
         for entry in pool.get(opponent, [])
         if _pool_entry_compatible(entry, role=opponent, args=args)
+        and (
+            args.cross_play_include_recent_pool
+            or str(entry.get("pool_type", POOL_TYPE_ELITE)) == POOL_TYPE_ELITE
+        )
     ]
     if not entries or args.cross_play_max_opponents <= 0:
         return []
@@ -719,6 +863,110 @@ def _cross_play_robustness(
     raise ValueError(f"Unknown agent: {agent}")
 
 
+def _safety_repair_decision(summary: dict[str, Any], args: argparse.Namespace) -> tuple[str, str] | None:
+    prey_oob = _metric(summary, "Metrics/prey_oob_rate")
+    predator_oob = _metric(summary, "Metrics/predator_oob_rate")
+    prey_soft = _metric(summary, "Metrics/prey_soft_arena_outside")
+    predator_soft = _metric(summary, "Metrics/predator_soft_arena_outside")
+
+    if prey_oob > args.max_prey_oob or prey_soft > args.max_prey_soft:
+        return "prey", (
+            f"prey safety repair: prey_oob={prey_oob:.3f}, "
+            f"prey_soft={prey_soft:.3f}"
+        )
+    if predator_oob > args.max_predator_oob or predator_soft > args.max_predator_soft:
+        return "predator", (
+            f"predator safety repair: predator_oob={predator_oob:.3f}, "
+            f"predator_soft={predator_soft:.3f}"
+        )
+    return None
+
+
+def _target_score_for_agent(agent: str, summary: dict[str, Any]) -> float:
+    catch_rate = _metric(summary, "Metrics/clean_catch_rate", _metric(summary, "Metrics/catch_rate"))
+    if agent == "predator":
+        return catch_rate
+    if agent == "prey":
+        return 1.0 - catch_rate
+    return 0.0
+
+
+def _promotion_failure_context(
+    agent: str,
+    summary: dict[str, Any],
+    cross_play_aggregate: dict[str, Any] | None,
+    args: argparse.Namespace,
+) -> tuple[str, float]:
+    pool_robust, pool_reason = _cross_play_robustness(agent, cross_play_aggregate, args)
+    default_prob = float(args.per_env_pool_prob)
+    if pool_robust is False:
+        return (
+            f"{agent} failed elite promotion because pool cross-play is weak; "
+            f"{pool_reason}; using pool-focused per-env exposure",
+            float(args.pool_focus_per_env_pool_prob),
+        )
+    if pool_robust is True:
+        return (
+            f"{agent} failed elite promotion while elite-pool cross-play is robust; "
+            f"{pool_reason}; using latest-focused per-env exposure",
+            float(args.latest_focus_per_env_pool_prob),
+        )
+    return (
+        f"{agent} failed elite promotion without enough cross-play context; "
+        f"{pool_reason}; using configured per-env exposure",
+        default_prob,
+    )
+
+
+def _promotion_failure_override(
+    *,
+    phase: str,
+    summary: dict[str, Any],
+    promotion: dict[str, Any] | None,
+    cross_play_aggregate: dict[str, Any] | None,
+    retry_state: dict[str, dict[str, Any]],
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    if not args.promotion_failure_phase_continuation or phase not in AGENTS:
+        return None
+    if promotion is None or bool(promotion.get("promoted", False)):
+        retry_state.pop(phase, None)
+        return None
+
+    score = _target_score_for_agent(phase, summary)
+    state = retry_state.get(phase, {"best_score": None, "stale_repeats": 0})
+    best_score = state.get("best_score")
+    if best_score is None or score > float(best_score) + float(args.promotion_failure_plateau_delta):
+        stale_repeats = 0
+        best_score = score
+    else:
+        stale_repeats = int(state.get("stale_repeats", 0)) + 1
+    retry_state[phase] = {"best_score": best_score, "stale_repeats": stale_repeats}
+
+    if stale_repeats >= int(args.promotion_failure_max_stale_repeats):
+        return {
+            "phase": args.promotion_failure_plateau_action,
+            "reason": (
+                f"{phase} promotion failures plateaued: score={score:.3f}, "
+                f"best={float(best_score):.3f}, stale_repeats={stale_repeats}; "
+                f"using plateau action={args.promotion_failure_plateau_action}"
+            ),
+            "per_env_pool_prob": float(args.per_env_pool_prob),
+            "plateau": True,
+        }
+
+    reason, pool_prob = _promotion_failure_context(phase, summary, cross_play_aggregate, args)
+    return {
+        "phase": phase,
+        "reason": (
+            f"repeat {phase} after failed elite promotion: score={score:.3f}, "
+            f"best={float(best_score):.3f}, stale_repeats={stale_repeats}; {reason}"
+        ),
+        "per_env_pool_prob": pool_prob,
+        "plateau": False,
+    }
+
+
 def _decide_phase(
     summary: dict[str, Any],
     args: argparse.Namespace,
@@ -737,16 +985,9 @@ def _decide_phase(
         "prey", cross_play_by_agent.get("prey"), args
     )
 
-    if prey_oob > args.max_prey_oob or prey_soft > args.max_prey_soft:
-        return "prey", (
-            f"prey safety repair: prey_oob={prey_oob:.3f}, "
-            f"prey_soft={prey_soft:.3f}"
-        )
-    if predator_oob > args.max_predator_oob or predator_soft > args.max_predator_soft:
-        return "predator", (
-            f"predator safety repair: predator_oob={predator_oob:.3f}, "
-            f"predator_soft={predator_soft:.3f}"
-        )
+    safety_decision = _safety_repair_decision(summary, args)
+    if safety_decision is not None:
+        return safety_decision
 
     if predator_robust is not None and prey_robust is not None:
         if predator_robust == prey_robust:
@@ -807,8 +1048,8 @@ def _requested_phase_iterations(phase: str, args: argparse.Namespace) -> int:
     return args.phase_iterations
 
 
-def _per_env_pool_path(args: argparse.Namespace) -> Path | None:
-    if args.per_env_pool_prob <= 0.0:
+def _per_env_pool_path(args: argparse.Namespace, per_env_pool_prob: float) -> Path | None:
+    if per_env_pool_prob <= 0.0:
         return None
     if args.auto_pool_path is not None:
         return args.auto_pool_path
@@ -872,6 +1113,7 @@ def _train_phase(
     phase_iterations: int,
     args: argparse.Namespace,
     frozen_source_checkpoint: Path | None = None,
+    per_env_pool_prob: float | None = None,
 ) -> Path:
     before = {path for path in args.run_root.iterdir() if path.is_dir()}
     command = [
@@ -895,14 +1137,15 @@ def _train_phase(
         str(phase_iterations),
     ]
     command.extend(_freeze_args(phase))
-    per_env_pool_path = _per_env_pool_path(args)
+    phase_per_env_pool_prob = args.per_env_pool_prob if per_env_pool_prob is None else per_env_pool_prob
+    per_env_pool_path = _per_env_pool_path(args, phase_per_env_pool_prob)
     if phase in {"predator", "prey"} and per_env_pool_path is not None:
         command.extend(
             [
                 "--per-env-opponent-pool",
                 str(per_env_pool_path),
                 "--per-env-pool-prob",
-                str(args.per_env_pool_prob),
+                str(phase_per_env_pool_prob),
                 "--per-env-pool-max-policies",
                 str(args.per_env_pool_max_policies),
                 "--per-env-pool-seed",
@@ -1206,6 +1449,28 @@ def main() -> None:
         help="Maximum number of auto-pool entries to keep per role.",
     )
     parser.add_argument(
+        "--recent-pool",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Keep a small safe-but-not-elite recent pool in the same pool JSON. "
+            "Recent entries are used by per-env pool training but excluded from "
+            "cross-play promotion gates by default."
+        ),
+    )
+    parser.add_argument(
+        "--recent-pool-max-entries-per-role",
+        type=int,
+        default=2,
+        help="Maximum number of safe recent entries to keep per role.",
+    )
+    parser.add_argument(
+        "--recent-pool-weight",
+        type=float,
+        default=0.25,
+        help="Base sampling weight assigned to safe recent-pool entries.",
+    )
+    parser.add_argument(
         "--auto-pool-predator-min-catch",
         type=float,
         default=0.75,
@@ -1301,6 +1566,11 @@ def main() -> None:
         help="How to select cross-play opponents from the relevant pool role.",
     )
     parser.add_argument(
+        "--cross-play-include-recent-pool",
+        action="store_true",
+        help="Include recent-pool entries in cross-play gates. Default is elite-only cross-play.",
+    )
+    parser.add_argument(
         "--cross-play-num-envs",
         type=int,
         default=256,
@@ -1326,6 +1596,45 @@ def main() -> None:
         type=int,
         default=2,
         help="Minimum sampled pool opponents required before cross-play can steer phase decisions.",
+    )
+    parser.add_argument(
+        "--promotion-failure-phase-continuation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "After a safe but non-promoted single-agent phase, prefer repeating that role. "
+            "The per-env pool probability is adapted from the cross-play failure context."
+        ),
+    )
+    parser.add_argument(
+        "--promotion-failure-max-stale-repeats",
+        type=int,
+        default=2,
+        help="Maximum stale failed-promotion repeats before using the plateau action.",
+    )
+    parser.add_argument(
+        "--promotion-failure-plateau-delta",
+        type=float,
+        default=0.03,
+        help="Minimum target-score improvement needed to avoid counting a failed-promotion repeat as stale.",
+    )
+    parser.add_argument(
+        "--promotion-failure-plateau-action",
+        choices=("both", "predator", "prey"),
+        default="both",
+        help="Phase to request after repeated failed-promotion plateau.",
+    )
+    parser.add_argument(
+        "--latest-focus-per-env-pool-prob",
+        type=float,
+        default=0.25,
+        help="Per-env pool probability when elite pool is robust but the latest opponent is still hard.",
+    )
+    parser.add_argument(
+        "--pool-focus-per-env-pool-prob",
+        type=float,
+        default=0.75,
+        help="Per-env pool probability when cross-play shows the candidate is not robust to elite pool opponents.",
     )
     parser.add_argument("--task", default="1v1-survival-soft-oob-v0", help="Isaac Lab task id.")
     parser.add_argument("--agent", default="skrl_mappo_finetune_cfg_entry_point", help="SKRL agent config entry point.")
@@ -1427,6 +1736,12 @@ def main() -> None:
     args.per_env_pool_prob = max(0.0, min(1.0, args.per_env_pool_prob))
     args.per_env_pool_max_policies = max(1, int(args.per_env_pool_max_policies))
     args.pfsp_min_weight = max(0.0, float(args.pfsp_min_weight))
+    args.recent_pool_max_entries_per_role = max(0, int(args.recent_pool_max_entries_per_role))
+    args.recent_pool_weight = max(0.0, float(args.recent_pool_weight))
+    args.promotion_failure_max_stale_repeats = max(1, int(args.promotion_failure_max_stale_repeats))
+    args.promotion_failure_plateau_delta = max(0.0, float(args.promotion_failure_plateau_delta))
+    args.latest_focus_per_env_pool_prob = max(0.0, min(1.0, args.latest_focus_per_env_pool_prob))
+    args.pool_focus_per_env_pool_prob = max(0.0, min(1.0, args.pool_focus_per_env_pool_prob))
     args.cross_play_every = max(1, int(args.cross_play_every))
     args.cross_play_max_opponents = max(0, int(args.cross_play_max_opponents))
     args.cross_play_num_envs = max(1, int(args.cross_play_num_envs))
@@ -1451,7 +1766,7 @@ def main() -> None:
         print(f"[INFO] Pool sampling probability: {args.pool_prob:.3f}")
         print(f"[INFO] Pool sampling rule: {args.pool_sampling}")
     if args.per_env_pool_prob > 0.0:
-        per_env_pool_path = _per_env_pool_path(args)
+        per_env_pool_path = _per_env_pool_path(args, args.per_env_pool_prob)
         print(
             "[INFO] Per-env pool mixing: "
             f"prob={args.per_env_pool_prob:.3f}, max_policies={args.per_env_pool_max_policies}, "
@@ -1472,6 +1787,22 @@ def main() -> None:
             "[INFO] Cross-play phase decisions enabled: "
             f"min_count={args.phase_decision_cross_play_min_count}"
         )
+    if args.recent_pool:
+        print(
+            "[INFO] Recent pool enabled: "
+            f"max_entries_per_role={args.recent_pool_max_entries_per_role}, "
+            f"weight={args.recent_pool_weight:.3f}, "
+            f"cross_play_include_recent={args.cross_play_include_recent_pool}"
+        )
+    if args.promotion_failure_phase_continuation:
+        print(
+            "[INFO] Promotion-failure continuation enabled: "
+            f"latest_focus_prob={args.latest_focus_per_env_pool_prob:.3f}, "
+            f"pool_focus_prob={args.pool_focus_per_env_pool_prob:.3f}, "
+            f"max_stale_repeats={args.promotion_failure_max_stale_repeats}, "
+            f"plateau_delta={args.promotion_failure_plateau_delta:.3f}, "
+            f"plateau_action={args.promotion_failure_plateau_action}"
+        )
     print(
         "[INFO] Phase iterations: "
         f"default={args.phase_iterations}, "
@@ -1489,9 +1820,28 @@ def main() -> None:
     phase_index = 0
     summary = _evaluate(current_checkpoint, phase_index=phase_index, output_dir=args.output_dir, args=args, label="start")
     cross_play_by_agent: dict[str, dict[str, Any] | None] = {agent: None for agent in AGENTS}
+    promotion_retry_state: dict[str, dict[str, Any]] = {}
+    next_phase_override: dict[str, Any] | None = None
 
     while completed_iterations < args.total_iterations:
-        phase, reason = _decide_phase(summary, args, cross_play_by_agent)
+        safety_decision = _safety_repair_decision(summary, args)
+        if safety_decision is not None:
+            phase, reason = safety_decision
+            phase_per_env_pool_prob = args.per_env_pool_prob
+            if next_phase_override is not None:
+                print(
+                    "[INFO] Ignoring promotion-failure phase override because safety repair is required: "
+                    f"{next_phase_override}"
+                )
+                next_phase_override = None
+        elif next_phase_override is not None:
+            phase = str(next_phase_override["phase"])
+            reason = str(next_phase_override["reason"])
+            phase_per_env_pool_prob = float(next_phase_override.get("per_env_pool_prob", args.per_env_pool_prob))
+            next_phase_override = None
+        else:
+            phase, reason = _decide_phase(summary, args, cross_play_by_agent)
+            phase_per_env_pool_prob = args.per_env_pool_prob
         catch_rate = _metric(summary, "Metrics/catch_rate")
         prey_oob = _metric(summary, "Metrics/prey_oob_rate")
         predator_oob = _metric(summary, "Metrics/predator_oob_rate")
@@ -1504,7 +1854,8 @@ def main() -> None:
         print(
             "\n[DECISION] "
             f"phase={phase}, reason={reason}, catch={catch_rate:.3f}, "
-            f"prey_oob={prey_oob:.3f}, predator_oob={predator_oob:.3f}"
+            f"prey_oob={prey_oob:.3f}, predator_oob={predator_oob:.3f}, "
+            f"per_env_pool_prob={phase_per_env_pool_prob:.3f}"
         )
         _write_record(
             args.output_dir,
@@ -1516,6 +1867,7 @@ def main() -> None:
                 "reason": reason,
                 "requested_phase_iterations": requested_phase_iterations,
                 "actual_phase_iterations": phase_iterations,
+                "per_env_pool_prob": phase_per_env_pool_prob,
                 "metrics": summary.get("episode_metrics", {}),
                 "phase_decision_cross_play": cross_play_by_agent,
                 "role_source_checkpoints": {
@@ -1552,6 +1904,7 @@ def main() -> None:
             phase_iterations=phase_iterations,
             args=args,
             frozen_source_checkpoint=frozen_source_checkpoint,
+            per_env_pool_prob=phase_per_env_pool_prob,
         )
         pool_opponent_summary = None
         if pool_sample is not None and not args.skip_pool_opponent_eval:
@@ -1644,6 +1997,28 @@ def main() -> None:
             phase_index=phase_index,
             args=args,
         )
+        recent_pool = _maybe_add_recent_to_pool(
+            pool,
+            agent=phase,
+            checkpoint=current_checkpoint,
+            summary=summary,
+            cross_play_aggregate=cross_play_aggregate,
+            promotion=promotion,
+            phase_index=phase_index,
+            args=args,
+        )
+        if phase in AGENTS:
+            next_phase_override = _promotion_failure_override(
+                phase=phase,
+                summary=summary,
+                promotion=promotion,
+                cross_play_aggregate=cross_play_aggregate,
+                retry_state=promotion_retry_state,
+                args=args,
+            )
+        elif phase == "both":
+            promotion_retry_state.clear()
+            next_phase_override = None
         if promotion is not None:
             _write_record(
                 args.output_dir,
@@ -1651,6 +2026,21 @@ def main() -> None:
                     "phase_index": phase_index,
                     "completed_iterations": completed_iterations,
                     "auto_pool_promotion": promotion,
+                    "recent_pool": recent_pool,
+                    "next_phase_override": next_phase_override,
+                    "cross_play_aggregate": cross_play_aggregate,
+                },
+            )
+            if args.auto_pool_path is not None:
+                _save_opponent_pool(args.auto_pool_path, pool)
+        elif recent_pool is not None or next_phase_override is not None:
+            _write_record(
+                args.output_dir,
+                {
+                    "phase_index": phase_index,
+                    "completed_iterations": completed_iterations,
+                    "recent_pool": recent_pool,
+                    "next_phase_override": next_phase_override,
                     "cross_play_aggregate": cross_play_aggregate,
                 },
             )

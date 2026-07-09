@@ -131,6 +131,7 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     oob_penalty = -200.0  # legacy default; kept for older configs/tools
     predator_oob_penalty = -200.0
     prey_oob_penalty = -200.0
+    arena_center_z = 1.0
     soft_arena_boundary = False
     soft_arena_radius = 5.0
     soft_arena_penalty_scale = 0.0
@@ -267,14 +268,16 @@ class Uav3v1FlightBootstrapTeammateVelEnvCfg(Uav3v1SurvivalSoftOobTeammateVelEnv
 
 @configclass
 class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg(Uav3v1SurvivalSoftOobTeammateVelEnvCfg):
-    """3v1 teammate-velocity variant with random XY starts inside the arena."""
+    """3v1 teammate-velocity variant with random starts inside an elevated spherical arena."""
 
     predator_proximity_reward_scale = 0.0
 
+    arena_center_z = 6.0
+    soft_arena_radius = 5.0
     random_arena_spawn = True
     random_spawn_radius_fraction = 0.85
-    random_spawn_z_min = 1.2
-    random_spawn_z_max = 2.3
+    random_spawn_z_min = 4.5
+    random_spawn_z_max = 7.5
     random_spawn_min_prey_predator_distance = 1.0
     random_spawn_min_predator_distance = 0.8
     random_spawn_resample_attempts = 32

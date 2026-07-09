@@ -107,6 +107,16 @@ training backbone.
 
 - MAPPO as the stable baseline.
 - HAPPO/HATRPO only if agents become truly heterogeneous.
+- SPO / Simple Policy Optimization as a later algorithm-update ablation:
+  - test only after the current MAPPO self-play loop is stable enough for a
+    fair comparison,
+  - keep the same checkpoint, seed, opponent pool, rollout budget, and
+    evaluation protocol as the MAPPO baseline,
+  - judge it by cross-play robustness, collapse avoidance, OOB behavior, and
+    latest-opponent recovery, not only by training reward or one current-pair
+    catch rate,
+  - treat it as an optimizer/update-rule experiment, not as a replacement for
+    the league, pooling, GRU, attention, or environment work.
 - Alternating self-play with freeze phases.
 - League / opponent-pool training to avoid cyclic forgetting.
 - Per-env opponent-pool mixing during single-agent freeze phases:
@@ -199,8 +209,9 @@ training backbone.
 - Recurrent memory:
   - GRU actor/critic path exists,
   - GRU evaluation/play state handling has been fixed and validated,
-  - still needs robust league training and ablation against the feedforward
-    large attention baseline.
+  - currently being tested as the active 3v1 league baseline,
+  - still needs robust multi-seed league evidence and ablation against the
+    feedforward large attention baseline.
 
 ### Missing
 
@@ -212,6 +223,7 @@ training backbone.
 - MPC-structured actor or local controller interface as a late-stage
   architecture experiment.
 - HAPPO/HATRPO experiments.
+- SPO / Simple Policy Optimization ablation against the locked MAPPO baseline.
 - Full automated league population scoring, pruning, and role assignment.
 - Initial velocity randomization curriculum.
 
@@ -236,7 +248,9 @@ Current focus:
   - hysteresis freeze phases,
   - per-env opponent-pool mixing during freeze phases,
   - run-local auto-pool promotion,
-  - cross-play and PFSP-style weight updates.
+  - elite/recent opponent pool tracking,
+  - cross-play and PFSP-style weight updates,
+  - longer predator recovery phases when the latest prey becomes hard.
 
 Important implementation note:
 
@@ -251,44 +265,31 @@ Important implementation note:
   `prey_oob_rate ~= 0.955` in eval to `prey_oob_rate ~= 0.012`, matching the
   TensorBoard rollout behavior much more closely.
 
-Current reference checkpoint under investigation:
+Current GRU league status:
 
-```text
-C:\RL\UAVPredatorPrey\logs\skrl\uav_3v1_direct\2026-06-20_00-52-48_mappo_attention_critic_prey_attention_large_gru_torch_attention_critic_prey_attention_large_gru\checkpoints\agent_576000.pt
-```
-
-Post-fix evaluation snapshot:
-
-```text
-catch_rate:             0.219
-clean_catch_rate:       0.219
-predator_success_rate:  0.219
-predator_oob_rate:      0.004
-prey_oob_rate:          0.012
-episode_length:         406
-episode_closest_approach: 0.726
-forced_prey_oob_rate:   0.000
-```
-
-Interpretation:
-
-- Flight stability is acceptable.
-- Prey is robust and not simply winning through OOB.
-- Predator is stable but currently weak against the trained prey.
-- The right next pressure is continued GRU hysteresis/league training, not a
-  new architecture change.
-
-Fresh GRU pool policy:
-
-- Do not seed GRU league training with old non-GRU pool checkpoints unless the
-  goal is diagnostic migration testing.
-- Old feedforward checkpoints can load partially, but the GRU weights are new;
-  this makes them poor league opponents.
-- Start GRU league runs from an empty or GRU-only pool and let
-  `opponent_pool_auto.json` build compatible predator/prey entries.
-- In the first few phases of a fresh pool, per-env opponent mixing may be
-  disabled because the only pool entry is the same as the current frozen
-  opponent. This is expected.
+- The GRU stack is no longer only an implementation experiment; it is the
+  active obstacle-free 3v1 league candidate.
+- Random-spawn and lifted-sphere arena training are active.
+- Proximity reward is disabled; catch and distance-progress are the main
+  predator pursuit signals.
+- GRU-only pool entries should be used for league training. Old feedforward
+  checkpoints remain useful for diagnostic migration tests, not as normal GRU
+  league opponents.
+- Recent curriculum runs showed that the old elite prey pool can be solved
+  while the latest prey remains difficult. This means latest-vs-latest and
+  pool cross-play must both be tracked.
+- A long frozen-prey predator recovery diagnostic from the current hard matchup
+  reached roughly `clean_catch_rate ~= 0.996` with near-zero OOB. This indicates
+  that the predator architecture/reward can solve the latest prey when given
+  enough uninterrupted gradient time.
+- Current bottleneck: curriculum/league dynamics and phase scheduling, not
+  basic predator capability.
+- Current near-term scheduler direction:
+  - use longer predator phases for hard latest-prey matchups,
+  - avoid switching to `both` too early when predator promotion plateaus,
+  - keep pool exposure modest when the old pool is already solved,
+  - keep safe non-promoted policies in a recent pool so useful recovery
+    checkpoints are not lost.
 
 ## Recommended Implementation Order
 
@@ -807,35 +808,43 @@ Success criteria:
 
 Do not add all SOTA components at once.
 
-The current near-term sequence after the GRU recurrent-state evaluation fix is:
+The current near-term sequence is:
 
-1. Continue the fresh GRU hysteresis run with a GRU-only run-local
-   `opponent_pool_auto.json`.
-2. Allow the first few phases to populate compatible predator and prey entries;
-   per-env pooling may be skipped until there is an older compatible opponent
-   for the frozen role.
-3. Once the GRU pool contains multiple predator and prey policies, evaluate:
+1. Continue the 3v1 large-GRU league from the strongest recent predator/prey
+   checkpoint pair, using a GRU-only opponent pool.
+2. Keep latest-vs-latest and pool cross-play separate:
    - latest predator vs latest prey,
    - latest predator vs all prey pool entries,
    - latest prey vs all predator pool entries,
    - selected pool predator/prey cross-play pairs.
-4. If behavior is visibly good, freeze a named 3v1 GRU baseline:
+3. When the old pool is solved but the latest prey remains hard, prioritize
+   latest-opponent recovery over more old-pool exposure:
+   - longer predator phases,
+   - modest per-env pool probability,
+   - promotion-failure continuation toward predator instead of early `both`
+     training.
+4. Keep recent safe-but-not-elite policies as a diagnostic/training buffer, but
+   avoid treating them as elite promotion evidence until cross-play confirms
+   robustness.
+5. If behavior is visibly good, freeze a named 3v1 GRU baseline:
    - checkpoint,
    - pool file,
    - command,
    - commit,
    - eval JSONs,
    - representative videos.
-5. Run robustness diagnostics:
+6. Run robustness diagnostics:
    - seeds 42, 43, 44, 45, 46,
    - deterministic eval,
    - pool cross-play,
    - visual review of representative successes and failures.
-6. If the baseline is robust, document it as the obstacle-free reference.
-7. Only then add obstacles as entities under full observability.
-8. After obstacle-aware full-state pursuit works, add line-of-sight masking and
+7. If the baseline is robust, document it as the obstacle-free reference.
+8. Only then add obstacles as entities under full observability.
+9. After obstacle-aware full-state pursuit works, add line-of-sight masking and
    partial observability.
-9. Use the GRU baseline as the first memory model for occluded pursuit; compare
+10. Use the GRU baseline as the first memory model for occluded pursuit; compare
    Mamba/Mamba-2/xLSTM-style memory only after GRU shows a clear bottleneck.
-10. Treat MPC-structured actors as a later research branch after the direct
+11. Treat SPO / Simple Policy Optimization as an algorithm-update ablation
+    only after the MAPPO GRU league baseline is locked.
+12. Treat MPC-structured actors as a later research branch after the direct
     GRU/attention stack has a defensible obstacle-aware baseline.

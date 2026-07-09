@@ -274,13 +274,13 @@ class Uav3v1Env(DirectMARLEnv):
 
         if self.cfg.soft_arena_boundary:
             prey_soft_pos = self._prey_pos_rel.clone()
-            prey_soft_pos[:, 2] -= self.cfg.target_height
+            prey_soft_pos[:, 2] -= self.cfg.arena_center_z
             self._prey_soft_arena_outside[:] = torch.clamp(
                 torch.linalg.norm(prey_soft_pos, dim=1) - self.cfg.soft_arena_radius,
                 min=0.0,
             )
             pred_soft_pos = pred_pos_rel.clone()
-            pred_soft_pos[:, :, 2] -= self.cfg.target_height
+            pred_soft_pos[:, :, 2] -= self.cfg.arena_center_z
             self._pred_soft_arena_outside[:] = torch.clamp(
                 torch.linalg.norm(pred_soft_pos, dim=2) - self.cfg.soft_arena_radius,
                 min=0.0,
