@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import re
 import subprocess
@@ -1038,6 +1039,15 @@ def _freeze_args(phase: str) -> list[str]:
     raise ValueError(f"Unknown phase: {phase}")
 
 
+def _training_override_args(args: argparse.Namespace) -> list[str]:
+    command = []
+    if args.learning_rate is not None:
+        command.extend(["--learning-rate", str(args.learning_rate)])
+    if args.kl_threshold is not None:
+        command.extend(["--kl-threshold", str(args.kl_threshold)])
+    return command
+
+
 def _requested_phase_iterations(phase: str, args: argparse.Namespace) -> int:
     if phase == "predator" and args.predator_phase_iterations is not None:
         return args.predator_phase_iterations
@@ -1136,6 +1146,7 @@ def _train_phase(
         "--max_iterations",
         str(phase_iterations),
     ]
+    command.extend(_training_override_args(args))
     command.extend(_freeze_args(phase))
     phase_per_env_pool_prob = args.per_env_pool_prob if per_env_pool_prob is None else per_env_pool_prob
     per_env_pool_path = _per_env_pool_path(args, phase_per_env_pool_prob)
@@ -1346,6 +1357,21 @@ def main() -> None:
         type=int,
         default=None,
         help="Optional iteration count for both-agent phases. Defaults to --phase-iterations.",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help=(
+            "Optional learning-rate override forwarded to every train.py phase. "
+            "It is applied after checkpoint loading so optimizer moments are preserved."
+        ),
+    )
+    parser.add_argument(
+        "--kl-threshold",
+        type=float,
+        default=None,
+        help="Optional PPO minibatch KL early-stop threshold forwarded to every train.py phase.",
     )
     parser.add_argument("--low", type=float, default=0.40, help="Train predator below this catch-rate.")
     parser.add_argument("--high", type=float, default=0.60, help="Train prey above this catch-rate.")
@@ -1703,6 +1729,15 @@ def main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing them.")
     args = parser.parse_args()
+
+    if args.learning_rate is not None and (
+        not math.isfinite(args.learning_rate) or args.learning_rate <= 0.0
+    ):
+        parser.error(f"--learning-rate must be finite and positive, got {args.learning_rate}")
+    if args.kl_threshold is not None and (
+        not math.isfinite(args.kl_threshold) or args.kl_threshold < 0.0
+    ):
+        parser.error(f"--kl-threshold must be finite and non-negative, got {args.kl_threshold}")
 
     preset = PRESETS.get(args.preset)
     if preset is not None:

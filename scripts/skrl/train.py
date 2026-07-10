@@ -50,6 +50,14 @@ parser.add_argument(
         "Useful for controlled resumed-training ablations."
     ),
 )
+parser.add_argument(
+    "--kl-threshold",
+    "--kl_threshold",
+    dest="kl_threshold",
+    type=float,
+    default=None,
+    help="Override the PPO minibatch KL early-stop threshold. Use 0 to disable the guard.",
+)
 parser.add_argument("--export_io_descriptors", action="store_true", default=False, help="Export IO descriptors.")
 parser.add_argument(
     "--ml_framework",
@@ -655,6 +663,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # Record the intended resumed-run setting in params/agent.yaml. The actual optimizer
         # must be updated again after loading because PyTorch checkpoints restore param-group LR.
         agent_cfg["agent"]["learning_rate"] = float(args_cli.learning_rate)
+    if args_cli.kl_threshold is not None:
+        if not math.isfinite(args_cli.kl_threshold) or args_cli.kl_threshold < 0.0:
+            raise ValueError(f"--kl-threshold must be finite and non-negative, got {args_cli.kl_threshold}")
+        agent_cfg["agent"]["kl_threshold"] = float(args_cli.kl_threshold)
     agent_cfg["trainer"]["close_environment_at_exit"] = False
     # configure the ML framework into the global skrl variable
     if args_cli.ml_framework.startswith("jax"):

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import hysteresis_curriculum as curriculum
 from hysteresis_curriculum import (
     POOL_TYPE_ELITE,
     POOL_TYPE_RECENT,
@@ -11,6 +12,7 @@ from hysteresis_curriculum import (
     _pfsp_weight,
     _pool_entry_weight,
     _prune_pool,
+    _training_override_args,
 )
 
 
@@ -127,3 +129,63 @@ def test_pruning_keeps_best_elites_and_newest_recent_entry() -> None:
         "elite-mid",
         "recent-new",
     }
+
+
+def test_training_overrides_are_forwarded_as_named_train_arguments() -> None:
+    args = SimpleNamespace(learning_rate=1.0e-5, kl_threshold=0.05)
+
+    assert _training_override_args(args) == [
+        "--learning-rate",
+        "1e-05",
+        "--kl-threshold",
+        "0.05",
+    ]
+
+
+def test_training_overrides_are_omitted_by_default() -> None:
+    args = SimpleNamespace(learning_rate=None, kl_threshold=None)
+
+    assert _training_override_args(args) == []
+
+
+def test_train_phase_forwards_overrides_before_greedy_freeze_argument(tmp_path, monkeypatch) -> None:
+    checkpoint = tmp_path / "agent_100.pt"
+    checkpoint.touch()
+    captured_commands = []
+
+    def capture_command(command, **_kwargs) -> None:
+        captured_commands.append(command)
+
+    monkeypatch.setattr(curriculum, "_run", capture_command)
+    args = SimpleNamespace(
+        run_root=tmp_path,
+        isaaclab=tmp_path / "isaaclab.bat",
+        task="test-task-v0",
+        agent="test-agent-entry-point",
+        algorithm="MAPPO",
+        train_num_envs=8,
+        seed=42,
+        learning_rate=1.0e-5,
+        kl_threshold=0.05,
+        per_env_pool_prob=0.0,
+        auto_pool_path=None,
+        opponent_pool=None,
+        per_env_pool_max_policies=1,
+        per_env_pool_seed=None,
+        dry_run=True,
+    )
+
+    result = curriculum._train_phase(
+        checkpoint,
+        phase="predator",
+        phase_iterations=100,
+        args=args,
+    )
+
+    assert result == checkpoint
+    assert len(captured_commands) == 1
+    command = captured_commands[0]
+    assert command[command.index("--learning-rate") + 1] == "1e-05"
+    assert command[command.index("--kl-threshold") + 1] == "0.05"
+    assert command.index("--learning-rate") < command.index("--freeze-agents")
+    assert command.index("--kl-threshold") < command.index("--freeze-agents")
