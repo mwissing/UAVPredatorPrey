@@ -39,6 +39,17 @@ parser.add_argument(
 )
 parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint to resume training.")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
+parser.add_argument(
+    "--learning-rate",
+    "--learning_rate",
+    dest="learning_rate",
+    type=float,
+    default=None,
+    help=(
+        "Override the optimizer learning rate after checkpoint loading while preserving optimizer moments. "
+        "Useful for controlled resumed-training ablations."
+    ),
+)
 parser.add_argument("--export_io_descriptors", action="store_true", default=False, help="Export IO descriptors.")
 parser.add_argument(
     "--ml_framework",
@@ -127,6 +138,7 @@ simulation_app = app_launcher.app
 import logging
 import copy
 import json
+import math
 import os
 import random
 import re
@@ -141,6 +153,7 @@ import torch
 from packaging import version
 
 from frozen_agents import capture_frozen_fingerprints, freeze_agent_training, verify_frozen_fingerprints
+from training_overrides import override_optimizer_learning_rate
 
 # check for minimum supported skrl version
 SKRL_VERSION = "1.4.3"
@@ -636,6 +649,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # max iterations for training
     if args_cli.max_iterations:
         agent_cfg["trainer"]["timesteps"] = args_cli.max_iterations * agent_cfg["agent"]["rollouts"]
+    if args_cli.learning_rate is not None:
+        if not math.isfinite(args_cli.learning_rate) or args_cli.learning_rate <= 0.0:
+            raise ValueError(f"--learning-rate must be finite and positive, got {args_cli.learning_rate}")
+        # Record the intended resumed-run setting in params/agent.yaml. The actual optimizer
+        # must be updated again after loading because PyTorch checkpoints restore param-group LR.
+        agent_cfg["agent"]["learning_rate"] = float(args_cli.learning_rate)
     agent_cfg["trainer"]["close_environment_at_exit"] = False
     # configure the ML framework into the global skrl variable
     if args_cli.ml_framework.startswith("jax"):
@@ -717,6 +736,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if resume_path:
         print(f"[INFO] Loading model checkpoint from: {resume_path}")
         runner.agent.load(resume_path)
+
+    if args_cli.learning_rate is not None:
+        updated_roles = override_optimizer_learning_rate(runner.agent, args_cli.learning_rate)
+        print(
+            "[INFO] Optimizer learning rate overridden after checkpoint load: "
+            f"learning_rate={args_cli.learning_rate:.8g}, roles={', '.join(updated_roles)}"
+        )
 
     freeze_agents = set(args_cli.freeze_agents)
     if args_cli.freeze_predator:

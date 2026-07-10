@@ -106,6 +106,9 @@ training backbone.
 ### Training
 
 - MAPPO as the stable baseline.
+- For resumed-run learning-rate ablations, apply the override after checkpoint
+  loading so the new optimizer LR is used while Adam's learned moments are
+  preserved. Keep the baseline YAML unchanged until the ablation wins.
 - HAPPO/HATRPO only if agents become truly heterogeneous.
 - SPO / Simple Policy Optimization as a later algorithm-update ablation:
   - test only after the current MAPPO self-play loop is stable enough for a

@@ -372,6 +372,9 @@ class RecurrentMAPPO(MAPPO):
             cumulative_policy_entropy = 0.0
             cumulative_gradient_norm = 0.0
             gradient_norm_count = 0
+            planned_update_count = self._learning_epochs[uid] * len(env_batches)
+            evaluated_minibatch_count = 0
+            kl_rejection_count = 0
             update_count = 0
             pre_update_replay_kl = None
             pre_update_replay_mean_ratio_deviation = None
@@ -451,6 +454,7 @@ class RecurrentMAPPO(MAPPO):
                                 | (diagnostic_ratio > 1.0 + self._ratio_clip[uid])
                             ).float().mean()
                             kl_divergences.append(kl_divergence)
+                            evaluated_minibatch_count += 1
 
                         # This is the first sampled minibatch before any optimizer
                         # step. It detects rollout replay mismatches without an
@@ -464,6 +468,7 @@ class RecurrentMAPPO(MAPPO):
                         peak_minibatch_kl = max(peak_minibatch_kl, float(kl_divergence.item()))
 
                         if self._kl_threshold[uid] and kl_divergence > self._kl_threshold[uid]:
+                            kl_rejection_count += 1
                             break
 
                         policy_entropy = policy.get_entropy(role="policy").mean()
@@ -550,6 +555,18 @@ class RecurrentMAPPO(MAPPO):
                 self.track_data(f"Loss / Entropy loss ({uid})", cumulative_entropy_loss / denominator)
             self.track_data(f"Diagnostics / Approximate KL ({uid})", cumulative_approx_kl / denominator)
             self.track_data(f"Diagnostics / Peak minibatch KL ({uid})", peak_minibatch_kl)
+            self.track_data(f"Diagnostics / Optimizer updates planned ({uid})", planned_update_count)
+            self.track_data(f"Diagnostics / Optimizer updates executed ({uid})", update_count)
+            self.track_data(
+                f"Diagnostics / Optimizer update utilization ({uid})",
+                update_count / max(planned_update_count, 1),
+            )
+            self.track_data(f"Diagnostics / Minibatches evaluated ({uid})", evaluated_minibatch_count)
+            self.track_data(f"Diagnostics / KL rejected minibatches ({uid})", kl_rejection_count)
+            self.track_data(
+                f"Diagnostics / KL early-stop epoch fraction ({uid})",
+                kl_rejection_count / max(self._learning_epochs[uid], 1),
+            )
             if pre_update_replay_kl is not None:
                 self.track_data(f"Diagnostics / Pre-update replay KL ({uid})", pre_update_replay_kl)
                 self.track_data(
@@ -593,5 +610,7 @@ class RecurrentMAPPO(MAPPO):
                 f"Policy / Standard deviation ({uid})",
                 policy.distribution(role="policy").stddev.mean().item(),
             )
-            if self._learning_rate_scheduler[uid]:
-                self.track_data(f"Learning / Learning rate ({uid})", self.schedulers[uid].get_last_lr()[0])
+            self.track_data(
+                f"Learning / Learning rate ({uid})",
+                float(self.optimizers[uid].param_groups[0]["lr"]),
+            )
