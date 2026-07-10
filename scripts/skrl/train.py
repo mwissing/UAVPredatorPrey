@@ -126,6 +126,12 @@ parser.add_argument(
         "Useful when the current full checkpoint differs from the frozen role's source checkpoint."
     ),
 )
+parser.add_argument(
+    "--disable-batched-info-logging",
+    action="store_true",
+    default=False,
+    help="Disable batched scalar info transfers for a performance A/B comparison.",
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -161,6 +167,7 @@ import torch
 from packaging import version
 
 from frozen_agents import capture_frozen_fingerprints, freeze_agent_training, verify_frozen_fingerprints
+from info_logging import BatchedScalarInfoWrapper
 from training_overrides import override_optimizer_learning_rate
 
 # check for minimum supported skrl version
@@ -419,6 +426,8 @@ class _PerEnvOpponentPoolWrapper:
         self.pool_prob = max(0.0, min(1.0, float(pool_prob)))
         self._last_observations: Mapping[str, torch.Tensor] | None = None
         self._assignment: torch.Tensor | None = None
+        self._assignment_counts: torch.Tensor | None = None
+        self._active_pool_source_indices: list[int] = []
         self._logged_assignment = False
         self._source_names = ["latest"] + [policy.name for policy in self.pool_policies]
         self._source_tokens = [
@@ -450,24 +459,29 @@ class _PerEnvOpponentPoolWrapper:
 
     def _sample_assignment(self) -> None:
         num_envs = int(self._env.num_envs)
-        self._assignment = torch.multinomial(
+        assignment_cpu = torch.multinomial(
             self._source_probs,
             num_samples=num_envs,
             replacement=True,
             generator=self._generator,
-        ).to(self._device)
+        )
+        counts_cpu = torch.bincount(assignment_cpu, minlength=len(self._source_probs))
+        self._assignment = assignment_cpu.to(self._device)
+        self._assignment_counts = counts_cpu.to(self._device, dtype=torch.float32)
+        self._active_pool_source_indices = [
+            index for index in range(1, len(self._source_probs)) if int(counts_cpu[index]) > 0
+        ]
 
         if not self._logged_assignment:
-            counts = torch.bincount(self._assignment.cpu(), minlength=len(self._source_probs))
-            latest_count = int(counts[0].item())
-            pool_count = int(counts[1:].sum().item())
+            latest_count = int(counts_cpu[0])
+            pool_count = int(counts_cpu[1:].sum())
             print(
                 f"[INFO] Per-env opponent pool active for frozen '{self.frozen_role}': "
                 f"latest_envs={latest_count}, pool_envs={pool_count}, "
                 f"pool_prob={self.pool_prob:.3f}, policies={len(self.pool_policies)}"
             )
             for index, policy in enumerate(self.pool_policies, start=1):
-                print(f"[INFO]   source {index}: {policy.name}, envs={int(counts[index].item())}")
+                print(f"[INFO]   source {index}: {policy.name}, envs={int(counts_cpu[index])}")
             self._logged_assignment = True
 
     def reset(self):
@@ -504,7 +518,9 @@ class _PerEnvOpponentPoolWrapper:
         if not isinstance(log_info, dict):
             return
 
-        counts = torch.bincount(self._assignment.cpu(), minlength=len(self._source_probs)).to(self._device).float()
+        if self._assignment_counts is None:
+            return
+        counts = self._assignment_counts
         num_envs = max(1, int(self._env.num_envs))
         log_info[f"Pool/{self.frozen_role}/pool_env_fraction"] = (counts[1:].sum() / num_envs).to(self._device)
         for source_index, token in enumerate(self._source_tokens):
@@ -575,11 +591,11 @@ class _PerEnvOpponentPoolWrapper:
         frozen_actions = actions[self.frozen_role].clone()
         frozen_observations = self._last_observations[self.frozen_role]
 
-        for source_index, policy in enumerate(self.pool_policies, start=1):
+        for source_index in self._active_pool_source_indices:
+            policy = self.pool_policies[source_index - 1]
             mask = self._assignment == source_index
-            if torch.any(mask):
-                pool_actions = policy.act(frozen_observations, mask)
-                frozen_actions[mask] = pool_actions
+            pool_actions = policy.act(frozen_observations, mask)
+            frozen_actions[mask] = pool_actions
         mixed_actions[self.frozen_role] = frozen_actions
 
         next_observations, rewards, terminated, truncated, infos = self._env.step(mixed_actions)
@@ -765,7 +781,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         freeze_agents = freeze_agent_training(runner.agent, freeze_agents)
     frozen_fingerprints = capture_frozen_fingerprints(runner.agent, freeze_agents)
 
-    runner._trainer.env = _wrap_per_env_opponent_pool(env, runner, freeze_agents)
+    training_env = _wrap_per_env_opponent_pool(env, runner, freeze_agents)
+    if not args_cli.disable_batched_info_logging and args_cli.ml_framework.startswith("torch"):
+        training_env = BatchedScalarInfoWrapper(
+            training_env,
+            info_key=agent_cfg["trainer"].get("environment_info", "log"),
+        )
+        print("[INFO] Batched scalar environment logging enabled.")
+    runner._trainer.env = training_env
 
     # run training
     try:
@@ -773,7 +796,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     finally:
         verify_frozen_fingerprints(runner.agent, frozen_fingerprints)
 
-    print(f"Training time: {round(time.time() - start_time, 2)} seconds")
+    training_time = time.time() - start_time
+    vector_steps = int(agent_cfg["trainer"]["timesteps"])
+    environment_transitions = vector_steps * int(env_cfg.scene.num_envs)
+    print(f"Training time: {round(training_time, 2)} seconds")
+    if training_time > 0.0:
+        print(f"Vector steps per second: {vector_steps / training_time:.2f}")
+        print(f"Environment transitions per second: {environment_transitions / training_time:.2f}")
 
     # close the simulator
     env.close()

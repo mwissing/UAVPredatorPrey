@@ -30,7 +30,7 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
 
     # simulation — optimized for RTX 5090
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 100,                          # 50Hz physics (was 100Hz) — halves physics compute
+        dt=1 / 100,                          # 100 Hz physics; decimation=2 gives 50 Hz policy actions
         render_interval=decimation,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -282,6 +282,19 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg(Uav3v1SurvivalSoftOobTea
     random_spawn_min_predator_distance = 0.8
     random_spawn_resample_attempts = 32
     spawn_pos_noise = 0.0
+
+
+@configclass
+class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnPhysics50HzEnvCfg(
+    Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg
+):
+    """A/B task with 50 Hz physics and the same 50 Hz policy-action frequency."""
+
+    decimation = 1
+
+    def __post_init__(self) -> None:
+        self.sim.dt = 1 / 50
+        self.sim.render_interval = self.decimation
 
 
 @configclass
