@@ -35,6 +35,21 @@ Install a clean Linux environment. Do not copy the Windows virtual environment.
 Match Isaac Sim, Isaac Lab, Python, PyTorch, and skrl as closely as practical
 before judging behavioral parity.
 
+## Linux Container Target
+
+The intended Docker architecture and the later JAX simulator split are recorded
+in [`docs/linux_docker_jax_setup.md`](linux_docker_jax_setup.md). That document
+is the implementation brief for Linux. In particular, it records these
+decisions:
+
+- keep `IsaacLab`, `UAVPredatorPrey`, and the future `UAVPredatorPreyJAX` as
+  sibling repositories under `$HOME/RL`
+- use the pinned official Isaac Lab Docker stack plus a project Compose override
+- use a separate small JAX container rather than one combined runtime image
+- validate the existing Isaac 5.1 / Isaac Lab 2.3.2 stack before any upgrade
+- keep generated artifacts on the host NVMe and share only an explicit transfer
+  directory between runtimes
+
 ## Active Model And Task
 
 - Preset: `3v1-attention-critic-prey-attention-large-gru`
@@ -245,3 +260,31 @@ benchmark 4096 and 8192 with the existing scaling script before the long run.
   exposure logic, not discard the pool or return to high progress shaping.
 - Preserve balanced-per-environment evaluation and recurrent state handling;
   both fixed earlier sources of misleading results.
+
+## First Codex Prompt On Linux
+
+After cloning this repository and restoring the artifact bundle, open a new
+Codex task in the repository and use:
+
+```text
+I am continuing the UAVPredatorPrey Linux migration from the Windows machine.
+
+First read AGENTS.md, docs/linux_handoff_2026-07-11.md, and
+docs/linux_docker_jax_setup.md. Then inspect the current Git branch, commit,
+working tree, the pinned IsaacLab checkout, and the restored migration artifact
+bundle. Do not upgrade Isaac Sim, Isaac Lab, Python, PyTorch, skrl, the model
+architecture, rewards, or task behavior during the initial migration.
+
+Our target is two separate GPU containers: one pinned Isaac Lab 2.3.2 / Isaac
+Sim 5.1.0 runtime for this repository, and later one small independent JAX
+runtime. Start only with the Isaac container. Reuse the official Docker setup
+from the pinned IsaacLab checkout and add the smallest project-specific Compose
+override needed to mount UAVPredatorPrey and host-owned artifacts. Pay explicit
+attention to host UID/GID, cache persistence, checkpoint paths, and headless
+rendering.
+
+Before editing, report what is already present, whether the recorded versions
+match, which files you propose to add, and the exact parity-validation sequence.
+Do not start a long training run until tests, checkpoint loading, pool loading,
+and deterministic evaluation parity have passed.
+```
