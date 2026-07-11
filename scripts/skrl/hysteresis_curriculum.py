@@ -1198,6 +1198,18 @@ def _record_phase_video(
         str(args.phase_video_length),
         "--video-dir",
         str(video_dir),
+        "--video-width",
+        str(args.phase_video_width),
+        "--video-height",
+        str(args.phase_video_height),
+        "--video-bitrate",
+        str(args.phase_video_bitrate),
+        "--video-antialiasing",
+        str(args.phase_video_antialiasing),
+        "--video-marker-radius",
+        str(args.phase_video_marker_radius),
+        "--video-marker-height",
+        str(args.phase_video_marker_height),
         "--task",
         args.task,
         "--agent",
@@ -1217,6 +1229,9 @@ def _record_phase_video(
         "--camera-env-index",
         str(args.phase_video_camera_env_index),
     ]
+    command.append("--video-markers" if args.phase_video_markers else "--no-video-markers")
+    if not args.phase_video_scene_overlay:
+        command.append("--no-video-scene-overlay")
     _run(command, cwd=REPO_ROOT, dry_run=args.dry_run)
 
 
@@ -1686,6 +1701,53 @@ def main() -> None:
         help="Number of environment steps per phase video.",
     )
     parser.add_argument(
+        "--phase-video-width",
+        type=int,
+        default=1920,
+        help="Phase-video width in pixels.",
+    )
+    parser.add_argument(
+        "--phase-video-height",
+        type=int,
+        default=1080,
+        help="Phase-video height in pixels.",
+    )
+    parser.add_argument(
+        "--phase-video-bitrate",
+        default="10M",
+        help="Target H.264 bitrate used for phase videos.",
+    )
+    parser.add_argument(
+        "--phase-video-antialiasing",
+        choices=("Off", "FXAA", "DLSS", "TAA", "DLAA"),
+        default="FXAA",
+        help="Phase-video anti-aliasing mode. FXAA avoids temporal trails around fast drones.",
+    )
+    parser.add_argument(
+        "--phase-video-markers",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Add optional non-physical colored drone beacons to phase videos.",
+    )
+    parser.add_argument(
+        "--phase-video-marker-radius",
+        type=float,
+        default=0.10,
+        help="Radius in meters of phase-video drone beacons.",
+    )
+    parser.add_argument(
+        "--phase-video-marker-height",
+        type=float,
+        default=0.16,
+        help="Height in meters of each phase-video beacon above its drone.",
+    )
+    parser.add_argument(
+        "--phase-video-scene-overlay",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use a matte floor and sparse reference grid in phase videos.",
+    )
+    parser.add_argument(
         "--phase-video-num-envs",
         type=int,
         default=1,
@@ -1784,6 +1846,10 @@ def main() -> None:
     args.phase_decision_cross_play_min_count = max(1, int(args.phase_decision_cross_play_min_count))
     args.phase_video_every = max(1, int(args.phase_video_every))
     args.phase_video_length = max(1, int(args.phase_video_length))
+    args.phase_video_width = max(1, int(args.phase_video_width))
+    args.phase_video_height = max(1, int(args.phase_video_height))
+    args.phase_video_marker_radius = max(0.0, float(args.phase_video_marker_radius))
+    args.phase_video_marker_height = max(0.0, float(args.phase_video_marker_height))
     args.phase_video_num_envs = max(1, int(args.phase_video_num_envs))
     pool_path = args.opponent_pool.resolve() if args.opponent_pool else None
     pool = _load_opponent_pool(pool_path)

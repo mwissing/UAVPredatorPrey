@@ -285,6 +285,15 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg(Uav3v1SurvivalSoftOobTea
 
 
 @configclass
+class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressEnvCfg(
+    Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg
+):
+    """Late-stage ablation with weaker direct-pursuit shaping."""
+
+    predator_distance_progress_reward_scale = 2.0
+
+
+@configclass
 class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnPhysics50HzEnvCfg(
     Uav3v1SurvivalSoftOobTeammateVelRandomSpawnEnvCfg
 ):

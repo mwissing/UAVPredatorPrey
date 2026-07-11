@@ -14,6 +14,7 @@ from isaaclab.envs import DirectMARLEnv
 from isaaclab.utils.math import subtract_frame_transforms
 
 from .episode_semantics import all_predators_inactive, predator_crash_event_penalty
+from .motion_diagnostics import compute_motion_diagnostics
 from .uav_3v1_env_cfg import Uav3v1EnvCfg
 
 
@@ -510,6 +511,7 @@ class Uav3v1Env(DirectMARLEnv):
         pred_lin_vel_sq = torch.stack([
             torch.sum(torch.square(p.data.root_lin_vel_b), dim=1) for p in self._predators
         ])  # (P, N)
+        pred_lin_vel_w = torch.stack([p.data.root_lin_vel_w for p in self._predators], dim=1)  # (N, P, 3)
         pred_ang_vel_sq = torch.stack([
             torch.sum(torch.square(p.data.root_ang_vel_b), dim=1) for p in self._predators
         ])  # (P, N)
@@ -538,8 +540,9 @@ class Uav3v1Env(DirectMARLEnv):
             * (~self._prey_oob).unsqueeze(0).float()
             * (~self._pred_oob.t()).float()
         )
+        raw_predator_distance_progress = self._prev_pred_prey_distances.t() - distances_t
         predator_distance_progress = torch.clamp(
-            self._prev_pred_prey_distances.t() - distances_t,
+            raw_predator_distance_progress,
             min=-self.cfg.predator_distance_progress_reward_clip,
             max=self.cfg.predator_distance_progress_reward_clip,
         )
@@ -547,6 +550,17 @@ class Uav3v1Env(DirectMARLEnv):
             predator_distance_progress
             * self.cfg.predator_distance_progress_reward_scale
             * predator_progress_valid
+        )
+        motion_diagnostics = compute_motion_diagnostics(
+            predator_positions=self._pred_pos_rel,
+            prey_positions=self._prey_pos_rel,
+            predator_velocities=pred_lin_vel_w,
+            prey_velocities=self._prey.data.root_lin_vel_w,
+            predator_alive=self._pred_alive,
+            raw_distance_progress=raw_predator_distance_progress.t(),
+            progress_valid=predator_progress_valid.t() > 0.0,
+            predator_upright=(-pred_grav_z).t(),
+            progress_clip=self.cfg.predator_distance_progress_reward_clip,
         )
         self._prev_pred_prey_distances[:] = self._current_distances.detach()
 
@@ -685,6 +699,7 @@ class Uav3v1Env(DirectMARLEnv):
         self.extras["log"]["Reward/predator_oob"] = oob_pen.mean()
         self.extras["log"]["Reward/predator_soft_arena"] = pred_soft_arena_pen.mean()
         self.extras["log"]["Reward/prey_height"] = prey_height.mean()
+        self.extras["log"]["Reward/prey_upright"] = prey_upright.mean()
         self.extras["log"]["Reward/prey_low_altitude"] = prey_low_altitude.mean()
         self.extras["log"]["Reward/prey_lin_vel"] = prey_lin_vel.mean()
         self.extras["log"]["Reward/prey_ang_vel"] = prey_ang_vel.mean()
@@ -715,6 +730,8 @@ class Uav3v1Env(DirectMARLEnv):
         self.extras["log"]["Metrics/prey_distance_progress"] = prey_distance_progress.mean()
         self.extras["log"]["Metrics/prey_boundary_progress"] = prey_boundary_progress.mean()
         self.extras["log"]["Metrics/prey_boundary_pressure"] = prey_boundary_pressure.mean()
+        for name, value in motion_diagnostics.items():
+            self.extras["log"][f"Diagnostics/{name}"] = value
         self.extras["log"]["Diagnostics/predator_action_outside_fraction"] = self._pred_action_outside_fraction
         self.extras["log"]["Diagnostics/predator_action_clip_mean_abs"] = self._pred_action_clip_mean_abs
         self.extras["log"]["Diagnostics/predator_action_clip_max_abs"] = self._pred_action_clip_max_abs

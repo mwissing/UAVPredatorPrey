@@ -150,6 +150,35 @@ gym.register(
 )
 
 gym.register(
+    id="3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-v0",
+    entry_point=f"{__name__}.uav_3v1_env:Uav3v1Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.uav_3v1_env_cfg:"
+            "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressEnvCfg"
+        ),
+        "skrl_ippo_cfg_entry_point": f"{agents.__name__}:skrl_ippo_cfg.yaml",
+        "skrl_mappo_cfg_entry_point": f"{agents.__name__}:skrl_mappo_cfg.yaml",
+        "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
+        "skrl_mappo_attention_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_cfg.yaml",
+        "skrl_mappo_attention_critic_cfg_entry_point": f"{agents.__name__}:skrl_mappo_attention_critic_cfg.yaml",
+        "skrl_mappo_attention_critic_prey_attention_cfg_entry_point": (
+            f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_cfg.yaml"
+        ),
+        "skrl_mappo_attention_critic_prey_attention_large_cfg_entry_point": (
+            f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_cfg.yaml"
+        ),
+        "skrl_mappo_attention_critic_prey_attention_large_bootstrap_cfg_entry_point": (
+            f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_bootstrap_cfg.yaml"
+        ),
+        "skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point": (
+            f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_cfg.yaml"
+        ),
+    },
+)
+
+gym.register(
     id="3v1-survival-soft-oob-teammate-vel-random-spawn-50hz-physics-v0",
     entry_point=f"{__name__}.uav_3v1_env:Uav3v1Env",
     disable_env_checker=True,
