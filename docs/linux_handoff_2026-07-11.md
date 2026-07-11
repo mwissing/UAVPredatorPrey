@@ -142,6 +142,8 @@ cd UAVPredatorPrey
 git checkout dev-3v1-obstacles
 git rev-parse HEAD
 
+export ISAACLAB_ROOT="$HOME/IsaacLab"
+
 mkdir -p .pretrained_checkpoints
 cp -a /media/$USER/<USB_LABEL>/uavpredatorprey_linux_migration_2026-07-11 \
   .pretrained_checkpoints/linux_migration_2026-07-11
@@ -170,13 +172,13 @@ during export.
 Unit tests:
 
 ```bash
-./isaaclab.sh -p -m pytest tests -q
+"$ISAACLAB_ROOT/isaaclab.sh" -p -m pytest tests -q
 ```
 
 Deterministic parity evaluation:
 
 ```bash
-./isaaclab.sh -p scripts/skrl/evaluate.py \
+"$ISAACLAB_ROOT/isaaclab.sh" -p scripts/skrl/evaluate.py \
   --headless \
   --task 3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-v0 \
   --agent skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point \
@@ -196,7 +198,7 @@ change well beyond normal seed/evaluation variance before continuing.
 Start this only after parity evaluation succeeds:
 
 ```bash
-./isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
+"$ISAACLAB_ROOT/isaaclab.sh" -p scripts/skrl/hysteresis_curriculum.py \
   --checkpoint ".pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt" \
   --preset 3v1-attention-critic-prey-attention-large-gru \
   --task 3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-v0 \
