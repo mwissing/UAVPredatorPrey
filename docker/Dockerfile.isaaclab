@@ -1,0 +1,96 @@
+# syntax=docker/dockerfile:1.7
+
+ARG ISAACLAB_BASE_IMAGE=isaac-lab-base-uav51:latest
+FROM ${ISAACLAB_BASE_IMAGE}
+
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+ARG RUNTIME_USER=ubuntu
+ARG ISAACSIM_GROUP=isaac-sim
+ARG ISAACLAB_COMMIT=f4aa17f87e2e5db5484f0b5974918573e8918ce2
+ARG SKRL_VERSION=1.4.3
+
+USER root
+
+# The upstream image runs as root. Create a host-matched account and prepare
+# every persistent cache mountpoint before Docker initializes the named volumes.
+RUN set -eux; \
+    runtime_group="$(getent group "${HOST_GID}" | cut -d: -f1 || true)"; \
+    if [ -z "${runtime_group}" ]; then \
+        groupadd --gid "${HOST_GID}" "${RUNTIME_USER}"; \
+        runtime_group="${RUNTIME_USER}"; \
+    fi; \
+    runtime_name="$(getent passwd "${HOST_UID}" | cut -d: -f1 || true)"; \
+    if [ -z "${runtime_name}" ]; then \
+        useradd --uid "${HOST_UID}" --gid "${runtime_group}" \
+            --home-dir "/home/${RUNTIME_USER}" --create-home --shell /bin/bash "${RUNTIME_USER}"; \
+        runtime_name="${RUNTIME_USER}"; \
+    else \
+        usermod --home "/home/${RUNTIME_USER}" "${runtime_name}"; \
+        mkdir -p "/home/${RUNTIME_USER}"; \
+    fi; \
+    if getent group "${ISAACSIM_GROUP}" >/dev/null; then \
+        usermod --append --groups "${ISAACSIM_GROUP}" "${runtime_name}"; \
+    fi; \
+    mkdir -p \
+        "/home/${RUNTIME_USER}/.cache/ov" \
+        "/home/${RUNTIME_USER}/.cache/pip" \
+        "/home/${RUNTIME_USER}/.cache/nvidia/GLCache" \
+        "/home/${RUNTIME_USER}/.nv/ComputeCache" \
+        "/home/${RUNTIME_USER}/.nvidia-omniverse/logs" \
+        "/home/${RUNTIME_USER}/.local/share/ov/data" \
+        "/home/${RUNTIME_USER}/Documents" \
+        "${ISAACSIM_ROOT_PATH}/kit/cache" \
+        "${ISAACSIM_ROOT_PATH}/kit/data" \
+        "${ISAACSIM_ROOT_PATH}/kit/logs/Kit/Isaac-Sim" \
+        "${ISAACLAB_PATH}/docs/_build" \
+        "${ISAACLAB_PATH}/logs" \
+        "${ISAACLAB_PATH}/data_storage"; \
+    chown -R "${HOST_UID}:${HOST_GID}" "/home/${RUNTIME_USER}"; \
+    chown "${HOST_UID}:${HOST_GID}" \
+        "${ISAACSIM_ROOT_PATH}/kit/cache" \
+        "${ISAACSIM_ROOT_PATH}/kit/data" \
+        "${ISAACSIM_ROOT_PATH}/kit/logs/Kit/Isaac-Sim" \
+        "${ISAACLAB_PATH}/docs/_build" \
+        "${ISAACLAB_PATH}/logs" \
+        "${ISAACLAB_PATH}/data_storage"; \
+    chmod u+rwx \
+        "${ISAACSIM_ROOT_PATH}/kit/cache" \
+        "${ISAACSIM_ROOT_PATH}/kit/data" \
+        "${ISAACSIM_ROOT_PATH}/kit/logs/Kit/Isaac-Sim" \
+        "${ISAACLAB_PATH}/docs/_build" \
+        "${ISAACLAB_PATH}/logs" \
+        "${ISAACLAB_PATH}/data_storage"
+
+# Isaac Lab intentionally declares skrl>=1.4.3. Behavioral parity with the
+# migrated Windows checkpoint requires the exact source version instead.
+RUN "${ISAACLAB_PATH}/isaaclab.sh" -p -m pip install \
+        --no-cache-dir --no-deps --force-reinstall "skrl==${SKRL_VERSION}" && \
+    "${ISAACLAB_PATH}/isaaclab.sh" -p -c \
+        "import skrl; assert skrl.__version__ == '${SKRL_VERSION}', skrl.__version__"
+
+# Build context is source/UAVPredatorPrey, never the repository root containing
+# checkpoints. The editable pointer remains valid when the host project bind
+# replaces /workspace/UAVPredatorPrey at runtime.
+COPY . /workspace/UAVPredatorPrey/source/UAVPredatorPrey
+
+RUN "${ISAACLAB_PATH}/isaaclab.sh" -p -m pip install \
+        --no-cache-dir --no-deps --no-build-isolation \
+        -e /workspace/UAVPredatorPrey/source/UAVPredatorPrey && \
+    chown -R "${HOST_UID}:${HOST_GID}" /workspace/UAVPredatorPrey
+
+ENV HOME=/home/${RUNTIME_USER} \
+    DOCKER_USER_HOME=/home/${RUNTIME_USER} \
+    ISAACLAB_COMMIT=${ISAACLAB_COMMIT} \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+LABEL org.opencontainers.image.title="UAVPredatorPrey Isaac runtime" \
+      org.opencontainers.image.description="Pinned Linux parity runtime for UAVPredatorPrey" \
+      org.opencontainers.image.isaaclab.commit="${ISAACLAB_COMMIT}" \
+      org.opencontainers.image.isaaclab.version="2.3.2" \
+      org.opencontainers.image.isaacsim.version="5.1.0" \
+      org.opencontainers.image.skrl.version="${SKRL_VERSION}"
+
+USER ${HOST_UID}:${HOST_GID}
+WORKDIR /workspace/UAVPredatorPrey

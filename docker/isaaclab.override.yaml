@@ -1,0 +1,86 @@
+services:
+  isaac-lab-base:
+    # The official base is built first under an isolated suffix. This service
+    # then selects the small project-derived image without rebuilding upstream.
+    build: !reset null
+    image: ${UAV_ISAAC_IMAGE:?Set UAV_ISAAC_IMAGE in docker/.env}
+    pull_policy: never
+    user: "${HOST_UID:?Set HOST_UID in docker/.env}:${HOST_GID:?Set HOST_GID in docker/.env}"
+    group_add:
+      - "${ISAACSIM_GID:?Set ISAACSIM_GID in docker/.env}"
+    working_dir: /workspace/UAVPredatorPrey
+    init: true
+    shm_size: 8gb
+    environment:
+      ACCEPT_EULA: "Y"
+      PRIVACY_CONSENT: "Y"
+      HOME: ${DOCKER_USER_HOME}
+      USER: ${RUNTIME_USER}
+      LOGNAME: ${RUNTIME_USER}
+      DOCKER_USER_HOME: ${DOCKER_USER_HOME}
+      HOST_UID: ${HOST_UID}
+      HOST_GID: ${HOST_GID}
+      ISAACLAB_COMMIT: ${ISAACLAB_COMMIT}
+      OMNI_KIT_ALLOW_ROOT: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /workspace/UAVPredatorPrey/source/UAVPredatorPrey:/workspace/isaaclab/source
+      XDG_CACHE_HOME: ${DOCKER_USER_HOME}/.cache
+      PIP_CACHE_DIR: ${DOCKER_USER_HOME}/.cache/pip
+      CUDA_CACHE_PATH: ${DOCKER_USER_HOME}/.nv/ComputeCache
+    volumes:
+      - type: bind
+        source: ${UAVPREDATORPREY_ROOT:?Set UAVPREDATORPREY_ROOT in docker/.env}
+        target: /workspace/UAVPredatorPrey
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ARTIFACTS_ROOT:?Set ARTIFACTS_ROOT in docker/.env}
+        target: /workspace/artifacts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ARTIFACTS_ROOT}/isaac/logs
+        target: /workspace/UAVPredatorPrey/logs
+        bind:
+          create_host_path: false
+
+# External names isolate Isaac Sim 5.1 from the existing 5.0 cache set and
+# prevent the upstream helper's `down --volumes` from deleting migration data.
+volumes:
+  isaac-cache-kit:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-kit-cache
+  isaac-cache-ov:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-ov-cache
+  isaac-cache-pip:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-pip-cache
+  isaac-cache-gl:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-gl-cache
+  isaac-cache-compute:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-compute-cache
+  isaac-logs:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-omniverse-logs
+  isaac-carb-logs:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-kit-logs
+  isaac-data:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-ov-data
+  isaac-docs:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-documents
+  isaac-lab-docs:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-lab-docs
+  isaac-lab-logs:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-lab-logs
+  isaac-lab-data:
+    external: true
+    name: ${UAV_VOLUME_PREFIX}-lab-data
