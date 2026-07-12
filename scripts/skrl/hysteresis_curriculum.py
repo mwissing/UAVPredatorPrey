@@ -9,6 +9,7 @@ runner and checkpoint state are easiest to reason about.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -95,6 +96,119 @@ def _agent_opponent(agent: str) -> str:
 
 def _command_text(command: list[str]) -> str:
     return subprocess.list2cmdline(command)
+
+
+def _git_text(*args: str) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _prepare_output_dir(path: Path) -> None:
+    """Create a new scheduler directory and reject accidental pseudo-resumes."""
+
+    if path.exists():
+        if not path.is_dir():
+            raise RuntimeError(f"Curriculum output path is not a directory: {path}")
+        if any(path.iterdir()):
+            raise RuntimeError(
+                f"Curriculum output directory is not empty: {path}. "
+                "The scheduler does not resume; choose a new directory."
+            )
+        return
+    path.mkdir(parents=True)
+
+
+def _write_run_config(
+    args: argparse.Namespace,
+    *,
+    pool: dict[str, list[dict[str, Any]]] | None = None,
+) -> Path:
+    """Persist the exact resolved invocation before evaluation or training."""
+
+    digest_cache: dict[Path, str] = {}
+    inputs: dict[str, Any] = {}
+    for name in (
+        "checkpoint",
+        "predator_source_checkpoint",
+        "prey_source_checkpoint",
+        "opponent_pool",
+    ):
+        value = getattr(args, name, None)
+        if value is None:
+            continue
+        path = Path(value).resolve()
+        record: dict[str, Any] = {"path": str(path), "exists": path.is_file()}
+        if path.is_file():
+            if path not in digest_cache:
+                digest_cache[path] = _sha256_file(path)
+            record["sha256"] = digest_cache[path]
+        inputs[name] = record
+
+    pool_checkpoints = []
+    for role in AGENTS:
+        for index, entry in enumerate((pool or {}).get(role, [])):
+            path = Path(str(entry["checkpoint"])).resolve()
+            record = {
+                "role": role,
+                "index": index,
+                "name": str(entry.get("name", path.stem)),
+                "path": str(path),
+                "exists": path.is_file(),
+            }
+            if path.is_file():
+                if path not in digest_cache:
+                    digest_cache[path] = _sha256_file(path)
+                record["sha256"] = digest_cache[path]
+            pool_checkpoints.append(record)
+    if pool_checkpoints:
+        inputs["pool_checkpoints"] = pool_checkpoints
+
+    script_path = Path(__file__).resolve()
+    payload = {
+        "schema_version": 1,
+        "created_at": datetime.now().astimezone().isoformat(),
+        "argv": list(sys.argv),
+        "resolved_args": _jsonable(vars(args)),
+        "git": {
+            "commit": _git_text("rev-parse", "HEAD"),
+            "branch": _git_text("branch", "--show-current"),
+            "status": _git_text("status", "--porcelain"),
+        },
+        "runtime": {
+            "python": sys.version.split()[0],
+            "isaac_lab_commit": os.environ.get("ISAACLAB_COMMIT"),
+            "container_image": os.environ.get("UAV_ISAAC_IMAGE"),
+        },
+        "inputs": inputs,
+        "scheduler": {"path": str(script_path), "sha256": _sha256_file(script_path)},
+    }
+    output = args.output_dir / "run_config.json"
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return output
 
 
 def _cli_arg_present(*names: str) -> bool:
@@ -1855,11 +1969,14 @@ def main() -> None:
     args.isaaclab = args.isaaclab.resolve()
     args.run_root = args.run_root.resolve()
     if args.output_dir is None:
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
         suffix = preset["output_suffix"] if preset is not None else "hysteresis"
         args.output_dir = REPO_ROOT / "logs" / "curriculum" / f"{timestamp}_{suffix}"
     args.output_dir = args.output_dir.resolve()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _prepare_output_dir(args.output_dir)
+    except RuntimeError as error:
+        parser.error(str(error))
     args.phase_iterations = max(1, int(args.phase_iterations))
     args.predator_phase_iterations = (
         None if args.predator_phase_iterations is None else max(1, int(args.predator_phase_iterations))
@@ -1896,6 +2013,9 @@ def main() -> None:
             if args.auto_pool_path is not None
             else args.output_dir / "opponent_pool_auto.json"
         )
+    run_config_path = _write_run_config(args, pool=pool)
+    print(f"[INFO] Run configuration: {run_config_path}")
+    if args.auto_pool or args.cross_play:
         _save_opponent_pool(args.auto_pool_path, pool)
     rng = random.Random(args.pool_seed if args.pool_seed is not None else args.seed)
     if pool_path is not None:

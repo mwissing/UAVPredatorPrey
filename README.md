@@ -1,79 +1,136 @@
-# Template for Isaac Lab Projects
+# UAVPredatorPrey
 
-## Overview
+Multi-agent reinforcement learning for three predator quadrotors pursuing one
+prey quadrotor in Isaac Lab. The current training stack uses MAPPO through
+`skrl`, recurrent attention policies, a centralized critic, deterministic
+evaluation, opponent pools, and an outer-loop hysteresis curriculum.
 
-This project/repository serves as a template for building projects or extensions based on Isaac Lab.
-It allows you to develop in an isolated environment, outside of the core Isaac Lab repository.
+The supported Linux workflow is Docker-first. Do not install a second native
+Isaac Sim, PyTorch, or CUDA environment for this repository.
 
-**Key Features:**
+## Current Linux Stack
 
-- `Isolation` Work outside the core Isaac Lab repository, ensuring that your development efforts remain self-contained.
-- `Flexibility` This template is set up to allow your code to be run as an extension in Omniverse.
+| Component | Pinned version |
+| --- | --- |
+| Isaac Sim | 5.1.0 |
+| Isaac Lab | 2.3.2, commit `f4aa17f87e2e5db5484f0b5974918573e8918ce2` |
+| Python | 3.11 |
+| PyTorch | 2.7.0 with CUDA 12.8 |
+| skrl | 1.4.3 |
 
-**Keywords:** extension, template, isaaclab
+The migrated Windows anchor and eight active opponent-pool checkpoints are
+external artifacts under:
 
-## Installation
-
-- Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html).
-  We recommend using the conda or uv installation as it simplifies calling Python scripts from the terminal.
-
-- Clone or copy this project/repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
-
-- Using a python interpreter that has Isaac Lab installed, install the library in editable mode using:
-
-    ```bash
-    # use 'PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-    python -m pip install -e source/UAVPredatorPrey
-
-- Verify that the extension is correctly installed by:
-
-    - Listing the available tasks:
-
-        Note: It the task name changes, it may be necessary to update the search pattern `"Template-"`
-        (in the `scripts/list_envs.py` file) so that it can be listed.
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/list_envs.py
-        ```
-
-    - Running a task:
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/<RL_LIBRARY>/train.py --task=<TASK_NAME>
-        ```
-
-    - Running a task with dummy agents:
-
-        These include dummy agents that output zero or random agents. They are useful to ensure that the environments are configured correctly.
-
-        - Zero-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/zero_agent.py --task=<TASK_NAME>
-            ```
-        - Random-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/random_agent.py --task=<TASK_NAME>
-            ```
-
-## How to use
-
-```bash
-python scripts/skrl/train.py --task=1v1-empty-v0 --algorithm=MAPPO --headless 
-python scripts/skrl/train.py --task=3v1-empty-v0 --algorithm=MAPPO --headless 
+```text
+.pretrained_checkpoints/linux_migration_2026-07-11/
 ```
 
-## 3v1 Obstacles Training
+They are intentionally not stored in Git. See
+[`docs/linux_handoff_2026-07-11.md`](docs/linux_handoff_2026-07-11.md) for the
+bundle layout, checksums, and Windows reference metrics.
 
-The obstacle curriculum and checkpoint workflow for `3v1-obstacles-v0` is documented in
-[`docs/training_3v1_obstacles.md`](docs/training_3v1_obstacles.md).
+## Repository Layout
 
-## Design Notes
+```text
+docker/                     Pinned project image and Compose override
+scripts/linux/              Linux runtime verification
+scripts/skrl/               Training, evaluation, and curriculum entry points
+source/UAVPredatorPrey/     Isaac Lab extension and environments
+tests/                      CPU-side regression tests
+docs/                       Architecture, migration, and experiment runbooks
+```
 
-- [`docs/planning_and_hierarchical_rl_ideas.md`](docs/planning_and_hierarchical_rl_ideas.md) records hierarchical
-  subgoal RL and learned-model MPC ideas for predator-prey UAV control.
+Large logs, checkpoints, videos, and evaluation reports are written to the
+host-owned `$HOME/RL/artifacts/isaac/` tree through Docker bind mounts.
+
+## Start The Isaac Container
+
+The expected host layout is:
+
+```text
+$HOME/RL/IsaacLab
+$HOME/RL/UAVPredatorPrey
+$HOME/RL/artifacts
+```
+
+Copy `docker/.env.example` to `docker/.env` and adjust the host paths and
+UID/GID before the first start. The upstream Isaac Lab checkout must be pinned
+to the commit shown above, and the project image must already be built as
+described in
+[`docs/linux_docker_jax_setup.md`](docs/linux_docker_jax_setup.md).
+
+From the host:
+
+```bash
+cd "$HOME/RL/IsaacLab"
+
+python3 docker/container.py start base \
+  --suffix uav51 \
+  --files "$HOME/RL/UAVPredatorPrey/docker/isaaclab.override.yaml" \
+  --env-files "$HOME/RL/UAVPredatorPrey/docker/.env"
+
+python3 docker/container.py enter base \
+  --suffix uav51 \
+  --files "$HOME/RL/UAVPredatorPrey/docker/isaaclab.override.yaml" \
+  --env-files "$HOME/RL/UAVPredatorPrey/docker/.env"
+```
+
+The shell prompt should open in `/workspace/UAVPredatorPrey`. Older running
+containers may inherit `TERM=dumb`; fix that session before calling the official
+Isaac launcher:
+
+```bash
+export TERM=xterm-256color
+```
+
+New containers receive this setting from the project Compose override.
+
+## Verify The Runtime
+
+Inside the container:
+
+```bash
+cd /workspace/UAVPredatorPrey
+./scripts/linux/verify_container_runtime.sh
+/workspace/isaaclab/isaaclab.sh -p -m pytest tests -q
+```
+
+The deterministic migration certification, including the five-seed anchor and
+all eight pool matchups, is:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p scripts/skrl/certify_baseline.py
+```
+
+Reports are written outside the repository under
+`/workspace/artifacts/isaac/evaluations/`.
+
+## Run The 3v1 Hysteresis Curriculum
+
+Use the dedicated Linux runbook:
+
+- [`docs/3v1_hysteresis_linux_runbook.md`](docs/3v1_hysteresis_linux_runbook.md)
+
+It contains the decision rule, eval-only check, 100-update smoke test, full
+pool/cross-play command, output layout, monitoring, video settings, and manual
+recovery procedure. Every invocation must use a new output directory because
+the scheduler deliberately does not perform an implicit resume.
+
+## JAX Simulator
+
+The planned JAX simulator belongs in a separate repository and container. It
+will share an explicit simulator contract with this Isaac implementation rather
+than importing Isaac dependencies. The architecture and transfer constraints
+are documented in
+[`docs/linux_docker_jax_setup.md`](docs/linux_docker_jax_setup.md).
+
+Before implementing the JAX environment core, freeze the shared observation,
+action, units/frame, reward, termination, spawn, and recurrent-reset contract.
+
+## Additional Documentation
+
+- [`docs/marl_sota_roadmap.md`](docs/marl_sota_roadmap.md): model and league roadmap
+- [`docs/curriculum_learning_plan.md`](docs/curriculum_learning_plan.md): curriculum principles
+- [`docs/training_3v1_obstacles.md`](docs/training_3v1_obstacles.md): obstacle-task workflow
+- [`docs/1v1_hysteresis_curriculum_runbook.md`](docs/1v1_hysteresis_curriculum_runbook.md): legacy Windows 1v1 history
+- [`docs/planning_and_hierarchical_rl_ideas.md`](docs/planning_and_hierarchical_rl_ideas.md): hierarchical and MPC ideas

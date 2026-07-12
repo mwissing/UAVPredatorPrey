@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,8 +14,10 @@ from hysteresis_curriculum import (
     _maybe_promote_to_pool,
     _pfsp_weight,
     _pool_entry_weight,
+    _prepare_output_dir,
     _prune_pool,
     _training_override_args,
+    _write_run_config,
 )
 
 
@@ -60,6 +63,61 @@ def test_default_isaaclab_launcher_keeps_windows_default(monkeypatch) -> None:
     assert _default_isaaclab_launcher(platform="win32") == (
         Path(r"C:\RL\IsaacLab") / "isaaclab.bat"
     )
+
+
+def test_prepare_output_dir_requires_a_new_or_empty_directory(tmp_path) -> None:
+    new_dir = tmp_path / "new-run"
+    _prepare_output_dir(new_dir)
+    assert new_dir.is_dir()
+
+    (new_dir / "existing.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="does not resume"):
+        _prepare_output_dir(new_dir)
+
+
+def test_run_config_records_invocation_resolved_args_and_input_hashes(tmp_path, monkeypatch) -> None:
+    output_dir = tmp_path / "curriculum"
+    output_dir.mkdir()
+    checkpoint = tmp_path / "agent_100.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    pool_checkpoint = tmp_path / "prey_00.pt"
+    pool_checkpoint.write_bytes(b"pool checkpoint")
+    args = SimpleNamespace(
+        output_dir=output_dir,
+        checkpoint=checkpoint,
+        predator_source_checkpoint=None,
+        prey_source_checkpoint=None,
+        opponent_pool=None,
+        total_iterations=100,
+        task="test-task-v0",
+    )
+
+    git_values = {
+        ("rev-parse", "HEAD"): "abc123",
+        ("branch", "--show-current"): "test-branch",
+        ("status", "--porcelain"): "",
+    }
+    monkeypatch.setattr(curriculum, "_git_text", lambda *items: git_values[items])
+    monkeypatch.setattr(curriculum.sys, "argv", ["hysteresis_curriculum.py", "--total-iterations", "100"])
+    monkeypatch.setenv("ISAACLAB_COMMIT", "f4aa17f")
+
+    path = _write_run_config(
+        args,
+        pool={
+            "predator": [],
+            "prey": [{"name": "prey-0", "checkpoint": str(pool_checkpoint)}],
+        },
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["argv"][-2:] == ["--total-iterations", "100"]
+    assert payload["resolved_args"]["total_iterations"] == 100
+    assert payload["resolved_args"]["checkpoint"] == str(checkpoint)
+    assert payload["git"] == {"commit": "abc123", "branch": "test-branch", "status": ""}
+    assert payload["runtime"]["isaac_lab_commit"] == "f4aa17f"
+    assert len(payload["inputs"]["checkpoint"]["sha256"]) == 64
+    assert payload["inputs"]["pool_checkpoints"][0]["name"] == "prey-0"
+    assert len(payload["inputs"]["pool_checkpoints"][0]["sha256"]) == 64
 
 
 def _args(**overrides):

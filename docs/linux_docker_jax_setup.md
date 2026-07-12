@@ -2,8 +2,8 @@
 
 ## Status
 
-This document records the intended Linux setup. It is an implementation brief,
-not a claim that the Docker files already exist in `UAVPredatorPrey`.
+The Isaac runtime described here is implemented and validated on Linux. The
+separate JAX runtime remains the next architecture stage.
 
 The immediate goal is to reproduce the current Windows Isaac Lab behavior on
 Linux. A JAX simulator is a later, separate runtime that shares a stable
@@ -73,7 +73,7 @@ Use the official Docker machinery from the pinned `IsaacLab` checkout. Extend
 it with a project-specific Compose override instead of replacing the upstream
 Docker stack.
 
-Expected project files after implementation:
+Implemented project files:
 
 ```text
 UAVPredatorPrey/
@@ -95,18 +95,77 @@ Use named Docker volumes for Isaac, Kit, shader, pip, and compute caches. Make
 the ownership of bind-mounted logs explicit so the container does not leave
 root-owned experiment files on the host.
 
-Conceptual start command:
+### First-Time Isaac Image Build
+
+Create the host configuration and artifact directories:
+
+```bash
+cd "$HOME/RL/UAVPredatorPrey"
+cp docker/.env.example docker/.env
+# Edit docker/.env for this host, especially paths, HOST_UID, and HOST_GID.
+
+mkdir -p \
+  "$HOME/RL/artifacts/isaac/logs" \
+  "$HOME/RL/artifacts/isaac/checkpoints" \
+  "$HOME/RL/artifacts/isaac/evaluations" \
+  "$HOME/RL/artifacts/isaac/curriculum"
+```
+
+Build the pinned upstream base from the sibling Isaac Lab checkout:
+
+```bash
+cd "$HOME/RL/IsaacLab"
+git checkout f4aa17f87e2e5db5484f0b5974918573e8918ce2
+python3 docker/container.py build base --suffix uav51
+```
+
+Build the small project-derived image. The build context intentionally contains
+only the extension package, not the external checkpoints:
+
+```bash
+cd "$HOME/RL/UAVPredatorPrey"
+
+docker build \
+  --file docker/Dockerfile.isaaclab \
+  --tag uavpredatorprey-isaaclab:f4aa17f-sim5.1.0-skrl1.4.3 \
+  --build-arg ISAACLAB_BASE_IMAGE=isaac-lab-base-uav51:latest \
+  --build-arg HOST_UID="$(id -u)" \
+  --build-arg HOST_GID="$(id -g)" \
+  --build-arg ISAACLAB_COMMIT=f4aa17f87e2e5db5484f0b5974918573e8918ce2 \
+  --build-arg SKRL_VERSION=1.4.3 \
+  source/UAVPredatorPrey
+```
+
+The Compose override uses external volumes so Isaac caches survive container
+removal. Create them once:
+
+```bash
+for suffix in \
+  kit-cache ov-cache pip-cache gl-cache compute-cache \
+  omniverse-logs kit-logs ov-data documents lab-docs lab-logs lab-data
+do
+  docker volume create "uavpredatorprey-isaacsim-5.1.0-${suffix}"
+done
+```
+
+Verified start and enter commands:
 
 ```bash
 cd "$HOME/RL/IsaacLab"
 
 python3 docker/container.py start base \
+  --suffix uav51 \
+  --files "$HOME/RL/UAVPredatorPrey/docker/isaaclab.override.yaml" \
+  --env-files "$HOME/RL/UAVPredatorPrey/docker/.env"
+
+python3 docker/container.py enter base \
+  --suffix uav51 \
   --files "$HOME/RL/UAVPredatorPrey/docker/isaaclab.override.yaml" \
   --env-files "$HOME/RL/UAVPredatorPrey/docker/.env"
 ```
 
-The exact command must be verified against the pinned `container.py` before it
-is added to a runbook.
+The reproducible curriculum workflow is documented in
+[`3v1_hysteresis_linux_runbook.md`](3v1_hysteresis_linux_runbook.md).
 
 Training and deterministic evaluation should run headless. Interactive play
 can add an X11 or Wayland display bridge later; it is not required for the
@@ -190,8 +249,10 @@ with matched seeds, environment steps, wall-clock time, and evaluation metrics.
 7. Run one visual episode and a deterministic 128-environment evaluation.
 8. Run the full 512-environment parity evaluation from the migration handoff.
 9. Run a 100-300 iteration training smoke test.
-10. Only after parity succeeds, start a long curriculum run.
-11. Create the JAX repository and its independent container afterward.
+10. Freeze the shared simulator contract, then create the independent JAX
+    repository and container.
+11. Before a long Isaac league run, validate scheduler-integrated pool mixing,
+    cross-play, and persistence. Do not run Isaac and JAX GPU jobs concurrently.
 
 ### Reusable Linux Validation
 
