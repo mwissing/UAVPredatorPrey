@@ -193,6 +193,53 @@ with matched seeds, environment steps, wall-clock time, and evaluation metrics.
 10. Only after parity succeeds, start a long curriculum run.
 11. Create the JAX repository and its independent container afterward.
 
+### Reusable Linux Validation
+
+Run the non-destructive runtime verifier from the project container:
+
+```bash
+cd /workspace/UAVPredatorPrey
+./scripts/linux/verify_container_runtime.sh
+```
+
+Run the complete CPU-side regression suite through the pinned Isaac Python:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p -m pytest tests -q
+```
+
+The baseline certification tool runs the current checkpoint over seeds
+`42 43 44 45 46`, then evaluates the current predator and prey against every
+opposite-role entry in the portable pool:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p scripts/skrl/certify_baseline.py
+```
+
+It executes GPU jobs sequentially, rejects incomplete evaluator output, keeps
+composed cross-play checkpoints only in a temporary directory, and writes the
+individual evaluator JSON files plus aggregate JSON, CSV, Markdown, status, and
+provenance reports under:
+
+```text
+/workspace/artifacts/isaac/evaluations/<timestamp>_baseline_certification/
+```
+
+The seed-42 512-episode anchor is compared with the Windows metrics in the
+handoff using explicit behavioral-shift tolerances. `REPORT.md` and the JSON
+contain a `pass` or `fail` verdict; a failed parity verdict returns a non-zero
+exit status. Real certification requires a clean Git tree so the commit fully
+identifies the evaluated code. `--allow-dirty` is available for diagnostic runs
+that are labeled `diagnostic_*` and must not be treated as the reproducible
+baseline. A real run without the seed-42 512-episode anchor is reported as
+`not_comparable` and returns a non-zero status; `--skip-anchor` is therefore
+intended only for focused cross-play diagnostics.
+
+Use `--dry-run` to inspect every command without launching Isaac Sim. The
+certification tool and curriculum scheduler resolve `isaaclab.sh` automatically
+from `$ISAACLAB_ROOT`, the sibling checkout, or `/workspace/isaaclab`;
+`--isaaclab` remains available as an explicit override.
+
 ## Acceptance Criteria For Isaac Migration
 
 - the repository test suite passes

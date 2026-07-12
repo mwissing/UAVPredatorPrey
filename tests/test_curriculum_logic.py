@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -8,12 +9,57 @@ import hysteresis_curriculum as curriculum
 from hysteresis_curriculum import (
     POOL_TYPE_ELITE,
     POOL_TYPE_RECENT,
+    _default_isaaclab_launcher,
     _maybe_promote_to_pool,
     _pfsp_weight,
     _pool_entry_weight,
     _prune_pool,
     _training_override_args,
 )
+
+
+def test_default_isaaclab_launcher_uses_linux_sibling_checkout(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("ISAACLAB_ROOT", raising=False)
+    repo_root = tmp_path / "UAVPredatorPrey"
+    launcher = tmp_path / "IsaacLab" / "isaaclab.sh"
+    launcher.parent.mkdir()
+    launcher.touch()
+
+    assert _default_isaaclab_launcher(
+        platform="linux",
+        repo_root=repo_root,
+        workspace_root=tmp_path / "workspace" / "isaaclab",
+    ) == launcher
+
+
+def test_default_isaaclab_launcher_uses_container_checkout(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("ISAACLAB_ROOT", raising=False)
+    workspace_root = tmp_path / "workspace" / "isaaclab"
+    launcher = workspace_root / "isaaclab.sh"
+    workspace_root.mkdir(parents=True)
+    launcher.touch()
+
+    assert _default_isaaclab_launcher(
+        platform="linux",
+        repo_root=tmp_path / "repo" / "UAVPredatorPrey",
+        workspace_root=workspace_root,
+    ) == launcher
+
+
+def test_default_isaaclab_launcher_honors_root_override(tmp_path, monkeypatch) -> None:
+    isaaclab_root = tmp_path / "custom-isaaclab"
+    monkeypatch.setenv("ISAACLAB_ROOT", str(isaaclab_root))
+
+    assert _default_isaaclab_launcher(platform="linux") == isaaclab_root / "isaaclab.sh"
+    assert _default_isaaclab_launcher(platform="win32") == isaaclab_root / "isaaclab.bat"
+
+
+def test_default_isaaclab_launcher_keeps_windows_default(monkeypatch) -> None:
+    monkeypatch.delenv("ISAACLAB_ROOT", raising=False)
+
+    assert _default_isaaclab_launcher(platform="win32") == (
+        Path(r"C:\RL\IsaacLab") / "isaaclab.bat"
+    )
 
 
 def _args(**overrides):

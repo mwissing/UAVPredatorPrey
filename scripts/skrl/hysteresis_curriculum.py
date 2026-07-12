@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import re
 import subprocess
@@ -23,7 +24,6 @@ import torch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_ISAACLAB = Path(r"C:\RL\IsaacLab\isaaclab.bat")
 DEFAULT_RUN_ROOT = REPO_ROOT / "logs" / "skrl" / "uav_3v1_direct"
 AGENT_RE = re.compile(r"agent_(\d+)\.pt$")
 AGENTS = ("predator", "prey")
@@ -55,6 +55,34 @@ PRESETS = {
         "output_suffix": "3v1_attention_critic_prey_attention_large_gru_hysteresis",
     },
 }
+
+
+def _default_isaaclab_launcher(
+    *,
+    platform: str | None = None,
+    repo_root: Path = REPO_ROOT,
+    workspace_root: Path = Path("/workspace/isaaclab"),
+) -> Path:
+    """Resolve the conventional Isaac Lab launcher for the active platform."""
+
+    platform = sys.platform if platform is None else platform
+    launcher_name = "isaaclab.bat" if platform.startswith("win") else "isaaclab.sh"
+
+    configured_root = os.environ.get("ISAACLAB_ROOT")
+    if configured_root:
+        return Path(configured_root).expanduser() / launcher_name
+
+    if platform.startswith("win"):
+        return Path(r"C:\RL\IsaacLab") / launcher_name
+
+    candidates = (
+        repo_root.parent / "IsaacLab" / launcher_name,
+        workspace_root / launcher_name,
+    )
+    return next((candidate for candidate in candidates if candidate.is_file()), candidates[0])
+
+
+DEFAULT_ISAACLAB = _default_isaaclab_launcher()
 
 
 def _agent_opponent(agent: str) -> str:
@@ -1781,7 +1809,16 @@ def main() -> None:
         help="Skip the extra deterministic eval of a trained pool-composed checkpoint before restoring the current pair.",
     )
     parser.add_argument("--seed", type=int, default=42, help="Seed for train/eval subprocesses.")
-    parser.add_argument("--isaaclab", type=Path, default=DEFAULT_ISAACLAB, help="Path to isaaclab.bat.")
+    parser.add_argument(
+        "--isaaclab",
+        type=Path,
+        default=DEFAULT_ISAACLAB,
+        help=(
+            "Path to the Isaac Lab launcher (isaaclab.sh or isaaclab.bat). "
+            "Defaults to $ISAACLAB_ROOT, a sibling IsaacLab checkout, or "
+            "/workspace/isaaclab."
+        ),
+    )
     parser.add_argument("--run-root", type=Path, default=DEFAULT_RUN_ROOT, help="SKRL run root directory.")
     parser.add_argument(
         "--output-dir",

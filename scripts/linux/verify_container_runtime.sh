@@ -6,6 +6,12 @@ isaaclab_root="${ISAACLAB_ROOT:-/workspace/isaaclab}"
 bundle_rel=".pretrained_checkpoints/linux_migration_2026-07-11"
 bundle_root="${repo_root}/${bundle_rel}"
 
+# Isaac Lab's official launcher calls `tabs`, which rejects an unset or dumb
+# terminal even though this verification is otherwise fully non-interactive.
+if [[ -z "${TERM:-}" || "${TERM}" == "dumb" ]]; then
+    export TERM=xterm-256color
+fi
+
 fail() {
     echo "[FAIL] $*" >&2
     exit 1
