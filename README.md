@@ -174,6 +174,20 @@ This writes the exact root inputs, `90D/30D/120D` outputs, alive masks, and
 root-versus-system-COM diagnostics under
 `/workspace/artifacts/transfer/observations_v0/`.
 
+Export externally observable reset invariants and distribution summaries with:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_reset_oracle.py \
+  --num-envs 4096 --seeds 42 43 44 45 \
+  --headless --device cuda:0
+```
+
+The exporter also includes a forced zero-radius case that confirms the legacy
+32-attempt fallback returns an invalid layout rather than looping indefinitely
+or raising. Artifacts are written under
+`/workspace/artifacts/transfer/reset_v0/` and are not committed.
+
 ## Additional Documentation
 
 - [`docs/marl_sota_roadmap.md`](docs/marl_sota_roadmap.md): model and league roadmap
