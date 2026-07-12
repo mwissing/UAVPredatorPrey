@@ -136,14 +136,43 @@ the scheduler deliberately does not perform an implicit resume.
 
 ## JAX Simulator
 
-The planned JAX simulator belongs in a separate repository and container. It
-will share an explicit simulator contract with this Isaac implementation rather
-than importing Isaac dependencies. The architecture and transfer constraints
-are documented in
+The JAX simulator lives in the separate sibling repository
+`$HOME/RL/UAVPredatorPreyJAX` and its own container. It shares an explicit
+simulator contract with this Isaac implementation rather than importing Isaac
+dependencies. The architecture and transfer constraints are documented in
 [`docs/linux_docker_jax_setup.md`](docs/linux_docker_jax_setup.md).
 
-Before implementing the JAX environment core, freeze the shared observation,
-action, units/frame, reward, termination, spawn, and recurrent-reset contract.
+The existing rewards, observations, resets, terminations, and curriculum rules
+are semantic source material for the JAX port; they do not need to be designed
+again. Isaac scene calls and mutable Torch buffers must be replaced by pure JAX
+functions while preserving feature ordering, frames, constants, event timing,
+and `terminated` versus `truncated` behavior.
+
+Export deterministic `direct_wrench_v0` physics traces from inside the Isaac
+container with:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_direct_wrench_oracle.py \
+  --headless --device cuda:0
+```
+
+The generated JSON and SHA-256 sidecar are written under
+`/workspace/artifacts/transfer/direct_wrench_v0/`; they are validation
+artifacts and are not committed.
+
+Export the checkpoint-compatible observation fixture without a rollout or
+policy step with:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_observation_oracle.py \
+  --headless --device cuda:0
+```
+
+This writes the exact root inputs, `90D/30D/120D` outputs, alive masks, and
+root-versus-system-COM diagnostics under
+`/workspace/artifacts/transfer/observations_v0/`.
 
 ## Additional Documentation
 
