@@ -167,9 +167,20 @@ python3 docker/container.py enter base \
 The reproducible curriculum workflow is documented in
 [`3v1_hysteresis_linux_runbook.md`](3v1_hysteresis_linux_runbook.md).
 
-Training and deterministic evaluation should run headless. Interactive play
-can add an X11 or Wayland display bridge later; it is not required for the
-first parity test or for headless video recording.
+Training and deterministic evaluation should run headless. X11 forwarding may
+remain enabled for interactive play, but batch processes must not inherit the
+display variables. On the validated host, Kit crashed in `XOpenDisplay` when a
+headless evaluator inherited the forwarded X11 environment. Launch every batch
+Isaac process with:
+
+```bash
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p <script> <arguments>
+```
+
+This command-scoped isolation preserves X11 for later interactive sessions.
+Headless simulation and offscreen MP4 recording were both validated without a
+display server.
 
 ## Runtime B - JAX Simulator
 
@@ -221,11 +232,37 @@ both simulators:
 - recurrent-state initialization and reset behavior
 - deterministic evaluation protocol and seed handling
 
-The current Isaac policy outputs body-rate and thrust commands. Keep the action
-meaning stable if direct transfer is attempted. If the first JAX simulator uses
-a higher-level action such as acceleration or velocity, treat it as a different
-policy interface and add an explicit low-level controller rather than silently
-changing action semantics.
+### Current Isaac Action Contract
+
+The current Isaac policy emits dimensionless normalized collective-thrust and
+direct body-frame moment commands. Each UAV uses
+`[a_T, a_tau_x, a_tau_y, a_tau_z]` with the executed-action contract
+`[-1, 1]^4`; the shared predator agent stacks three commands into 12 dimensions
+and the prey action is 4-dimensional. For the validated low-progress task:
+
+```text
+T     = r m g (a_T + 1) / 2
+tau_b = 0.01 [a_tau_x, a_tau_y, a_tau_z] N m
+r     = 1.9 for predators, 2.2 for prey
+```
+
+The environment applies collective thrust along body `+Z` and the moments
+about the body axes at a 50 Hz action rate, holding each action over two 100 Hz
+physics steps. There is no body-rate PID, motor mixer, motor/rotor dynamics, or
+MPC in the current control path.
+
+The integer action-dimension configuration makes Isaac Lab expose formally
+unbounded Gym `Box(-inf, inf)` metadata. That metadata is not the executed
+contract: the current GRU actor applies `tanh`, and the environment defensively
+clamps every component to `[-1, 1]`. JAX must declare the actual bounded
+contract explicitly.
+
+Preserve these semantics in a first `direct_wrench_v0` JAX mode so the migrated
+checkpoint remains meaningful. A later `accel_yaw_rate_v1` policy may emit a
+desired acceleration plus yaw-rate reference, but that is a different policy
+interface. A shared saturated geometric/PD controller in both JAX and Isaac
+must map those references to the existing collective-thrust/body-moment wrench.
+Existing direct-wrench checkpoints are not compatible with the new semantics.
 
 The meaningful experiment is:
 
@@ -274,7 +311,8 @@ The baseline certification tool runs the current checkpoint over seeds
 opposite-role entry in the portable pool:
 
 ```bash
-/workspace/isaaclab/isaaclab.sh -p scripts/skrl/certify_baseline.py
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p scripts/skrl/certify_baseline.py
 ```
 
 It executes GPU jobs sequentially, rejects incomplete evaluator output, keeps

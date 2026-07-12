@@ -85,10 +85,11 @@ training backbone.
   - replace only the low-level action head with an MPC-structured action
     layer after strong direct-action baselines exist,
   - let the neural actor output physically meaningful MPC cost parameters or
-    local references rather than raw body-rate/thrust commands,
+    local references rather than direct normalized collective-thrust/body-moment
+    commands,
   - use MPC to enforce short-horizon dynamics, action limits, smoothness, and
     safety constraints,
-  - compare against the direct Gaussian body-rate/thrust actor under the same
+  - compare against the direct Gaussian normalized-wrench actor under the same
     self-play, cross-play, and robustness evaluation protocol.
 
 ### Critic
@@ -714,7 +715,8 @@ without replacing the self-play and league stack.
 
 This is a final-stage research topic, not a near-term replacement for the
 active GRU league. It should only be tested after there is a strong direct
-body-rate/thrust baseline under random spawns, obstacles, and cross-play.
+normalized collective-thrust/body-moment baseline under random spawns,
+obstacles, and cross-play.
 
 Core idea:
 
@@ -731,7 +733,8 @@ The most relevant variant is an MA-AC-MPC-style actor:
   - control effort weights,
   - local state/reference targets,
   - control references,
-- a short-horizon MPC layer produces the actual body-rate/thrust command,
+- a short-horizon MPC layer produces the final normalized
+  collective-thrust/body-moment command consumed by the environment,
 - PPO/MAPPO still trains the actor/critic using the same opponent-pool and
   cross-play machinery,
 - raw MPC state must bypass observation normalization so the controller sees
@@ -869,7 +872,7 @@ Success criteria:
     outputs MPC parameters and the MPC layer returns feasible low-level
     actions.
   - Project connection: late-stage comparison against the current direct
-    Gaussian body-rate/thrust actor while keeping the self-play and opponent
+    Gaussian normalized-wrench actor while keeping the self-play and opponent
     pool stack intact.
   - https://arxiv.org/abs/2606.06011
 

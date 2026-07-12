@@ -476,13 +476,14 @@ the existing self-play stack and changes only the action-generation path.
 Instead of:
 
 ```text
-observation -> neural actor -> body-rate/thrust action
+observation -> neural actor -> normalized collective-thrust/body-moment action
 ```
 
 the actor becomes:
 
 ```text
-observation -> neural cost/reference network -> MPC -> body-rate/thrust action
+observation -> neural cost/reference network -> MPC
+            -> normalized collective-thrust/body-moment action
 ```
 
 The neural network output is not an undefined latent vector. It should have an

@@ -64,6 +64,13 @@ export TERM=xterm-256color
 The explicit `TERM` export is harmless on new containers and fixes older
 running containers that inherited `TERM=dumb`.
 
+X11 forwarding is only for interactive GUI play. Batch Isaac processes must
+not inherit `DISPLAY` or `XAUTHORITY`: the validated host produced a Kit
+`XOpenDisplay` segmentation fault when a headless evaluator inherited them.
+Prefix every evaluation, training, certification, cross-play, and offscreen
+video invocation with `env -u DISPLAY -u XAUTHORITY` as shown below. This
+leaves X11 available in the shell for later interactive use.
+
 ## 2. Verify Before Training
 
 ```bash
@@ -74,7 +81,8 @@ running containers that inherited `TERM=dumb`.
 For a clean reproducibility certificate, also run:
 
 ```bash
-/workspace/isaaclab/isaaclab.sh -p scripts/skrl/certify_baseline.py
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p scripts/skrl/certify_baseline.py
 ```
 
 Do not begin a long run if runtime verification, tests, checkpoint loading, or
@@ -89,7 +97,8 @@ not an implicit resume mechanism and rejects non-empty directories.
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_low_progress_eval_only"
 OUTPUT_DIR="/workspace/artifacts/isaac/curriculum_smoke/${RUN_ID}"
 
-/workspace/isaaclab/isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
   --checkpoint ".pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt" \
   --preset 3v1-attention-critic-prey-attention-large-gru \
   --task 3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-v0 \
@@ -121,7 +130,8 @@ evaluation. It intentionally disables pool sampling and video.
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_one_phase_100_seed42"
 OUTPUT_DIR="/workspace/artifacts/isaac/curriculum_smoke/${RUN_ID}"
 
-/workspace/isaaclab/isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
   --checkpoint ".pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt" \
   --preset 3v1-attention-critic-prey-attention-large-gru \
   --task 3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-v0 \
@@ -169,7 +179,8 @@ mixing, the evolving pool file, one cross-play opponent, and PFSP updates.
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_pool_crossplay_smoke"
 OUTPUT_DIR="/workspace/artifacts/isaac/curriculum_smoke/${RUN_ID}"
 
-/workspace/isaaclab/isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
   --checkpoint ".pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt" \
   --preset 3v1-attention-critic-prey-attention-large-gru \
   --task 3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-v0 \
@@ -204,6 +215,13 @@ OUTPUT_DIR="/workspace/artifacts/isaac/curriculum_smoke/${RUN_ID}"
 In addition to the one-phase outputs, expect `opponent_pool_auto.json`, composed
 checkpoint evidence when required, and cross-play evaluation JSON.
 
+This short smoke deliberately evaluates only one cross-play opponent. The
+scheduler default requires at least two cross-play results before they may
+influence a phase decision, so this command validates composition, evaluation,
+PFSP metadata, and persistence but cannot test cross-play-driven phase
+selection. Use `--cross-play-max-opponents 2` or more for that test. The long
+curriculum below uses `4`.
+
 ## 6. Planned Long Curriculum
 
 The migrated handoff proposes the following phase sizes after the pool
@@ -224,7 +242,8 @@ The complete proposed command is:
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_3v1_pool_hysteresis"
 OUTPUT_DIR="/workspace/artifacts/isaac/curriculum/${RUN_ID}"
 
-/workspace/isaaclab/isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p scripts/skrl/hysteresis_curriculum.py \
   --checkpoint ".pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt" \
   --preset 3v1-attention-critic-prey-attention-large-gru \
   --task 3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-v0 \
@@ -295,7 +314,14 @@ before startup, enable pipeline failure propagation and write a sibling log:
 ```bash
 set -o pipefail
 # append `2>&1 | tee "${OUTPUT_DIR}.console.log"` to the scheduler command
+STATUS=${PIPESTATUS[0]}
+printf 'status=%s\noutput=%s\n' "$STATUS" "$OUTPUT_DIR" | \
+  tee "${OUTPUT_DIR}.status.txt"
 ```
+
+Capture `PIPESTATUS[0]` immediately after the pipeline. The sibling console log
+contains scheduler output but not the shell's exit status; the separate status
+file preserves it.
 
 ## Stopping And Recovery
 
@@ -309,6 +335,33 @@ set -o pipefail
   `opponent_pool_auto.json` as the new `--opponent-pool`.
 
 This is a new run from recovered weights and pool state, not a bit-exact resume.
+
+### Extract A Recovery Checkpoint Safely
+
+The pinned container does not provide `jq` or a `python3` executable on
+`PATH`. Use the bundled Isaac Python binary directly to read the completed
+phase JSON:
+
+```bash
+INT_DIR=/workspace/artifacts/isaac/curriculum_smoke/<interrupted_run>
+ISAAC_PYTHON="${ISAACSIM_PATH:-/workspace/isaaclab/_isaac_sim}/kit/python/bin/python3"
+
+RECOVERY_CKPT="$(
+  "$ISAAC_PYTHON" -c \
+    'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["checkpoint"])' \
+    "$INT_DIR/phase_001_after_eval.json"
+)"
+
+printf 'recovery_checkpoint=%s\n' "$RECOVERY_CKPT"
+test -n "$RECOVERY_CKPT"
+test -f "$RECOVERY_CKPT"
+sha256sum "$RECOVERY_CKPT"
+```
+
+Stop if any check fails. Never invoke the scheduler with an empty checkpoint:
+an empty path resolves to the repository directory and later fails with
+`IsADirectoryError`. After the checks pass, start the intended scheduler
+command with `--checkpoint "$RECOVERY_CKPT"` and a fresh `--output-dir`.
 
 ## Verified Linux Smoke Evidence
 
@@ -327,3 +380,17 @@ The pasted terminal command described a 100-iteration run, but this artifact
 contains 300 iterations. The old scheduler did not persist argv, so the cause
 cannot be reconstructed. `run_config.json` and the non-empty-directory guard
 were added afterward specifically to prevent this ambiguity.
+
+A later clean run at Git commit `b60f5aa` validated the complete pool path over
+three 100-update prey phases: exact predator freezing, 50% per-environment
+pool mixing, three checkpoint compositions, three 64-episode cross-play
+evaluations, PFSP metadata updates, recent-pool rotation, and three 1280x720
+videos with explicit `--no-video-markers`. The run finalized normally after
+300 updates.
+
+The interruption procedure was also validated. `Ctrl-C` during phase 2 returned
+status `130`; the completed phase-1 evaluation and checkpoint remained valid,
+and the interrupted directory correctly had no `final_checkpoint.txt`. A fresh
+10-update scheduler invocation started from that recorded checkpoint hash and
+returned status `0` with a new final checkpoint. This validates manual weight
+recovery, not bit-exact scheduler resume.

@@ -402,7 +402,7 @@ Project connection:
 - Relevant as a late-stage actor-head experiment, not as a replacement for the
   current self-play stack.
 - The direct comparison for our project would be:
-  - current Gaussian body-rate/thrust actor,
+  - current Gaussian normalized collective-thrust/body-moment actor,
   - same self-play/curriculum/evaluation stack with an MPC-structured action
     head.
 - Especially relevant if Crazyflow/JAX becomes a fast backend for testing

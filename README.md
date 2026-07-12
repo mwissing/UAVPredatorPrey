@@ -18,6 +18,11 @@ Isaac Sim, PyTorch, or CUDA environment for this repository.
 | PyTorch | 2.7.0 with CUDA 12.8 |
 | skrl | 1.4.3 |
 
+The current per-UAV policy action is a normalized direct wrench:
+`[collective thrust, body moment x, body moment y, body moment z]`. It is not a
+body-rate command, and the environment has no inner PID, motor mixer, or MPC.
+The shared predator action stacks three such commands; the prey uses one.
+
 The migrated Windows anchor and eight active opponent-pool checkpoints are
 external artifacts under:
 
@@ -85,6 +90,18 @@ export TERM=xterm-256color
 
 New containers receive this setting from the project Compose override.
 
+X11 forwarding is only needed for interactive GUI play. Even when X11 is
+enabled on the container, isolate every batch evaluation, training,
+certification, and offscreen-video process from it:
+
+```bash
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p <script> <arguments>
+```
+
+This avoids the verified Kit `XOpenDisplay` startup crash without changing the
+interactive shell or disabling later GUI sessions.
+
 ## Verify The Runtime
 
 Inside the container:
@@ -99,7 +116,8 @@ The deterministic migration certification, including the five-seed anchor and
 all eight pool matchups, is:
 
 ```bash
-/workspace/isaaclab/isaaclab.sh -p scripts/skrl/certify_baseline.py
+env -u DISPLAY -u XAUTHORITY \
+  /workspace/isaaclab/isaaclab.sh -p scripts/skrl/certify_baseline.py
 ```
 
 Reports are written outside the repository under
