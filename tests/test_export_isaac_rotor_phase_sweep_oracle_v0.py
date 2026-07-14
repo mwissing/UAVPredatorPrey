@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import math
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def test_cli_defaults_use_separate_held_out_schema_and_artifact_path() -> None:
     assert module.SCHEMA_VERSION == "uavpredatorprey.rotor_phase_sweep_oracle.v0"
     assert str(args.output) == (
         "/workspace/artifacts/transfer/rotor_phase_sweep_v0/"
-        "midpoint16_aggressive_seed42"
+        "midpoint16_aggressive_high_z10_seed42"
     )
     assert args.seed == 42
     explicit = module._base_parser().parse_args(
@@ -46,6 +47,21 @@ def test_cli_defaults_use_separate_held_out_schema_and_artifact_path() -> None:
     )
     assert explicit.seed == 7
     assert explicit.output == Path("/tmp/held-out-phase")
+
+
+def test_initial_state_contract_requests_contact_free_world_positions() -> None:
+    module = _module()
+    initial_state = module._initial_state_contract()
+
+    assert module.MINIMUM_SYSTEM_COM_Z_M == 1.0
+    assert initial_state["requested_root_link_pos_w_m"] == [-3.0, 0.0, 10.0]
+    assert initial_state["requested_root_link_pos_w_m_by_asset"] == {
+        "predator_0": [-3.0, 0.0, 10.0],
+        "predator_1": [0.0, -3.0, 10.0],
+        "predator_2": [3.0, 0.0, 10.0],
+        "prey": [0.0, 3.0, 10.0],
+    }
+    assert initial_state["requested_root_link_position_frame"] == "world"
 
 
 def test_phase_cases_are_exact_float32_midpoints_in_ascending_order() -> None:
@@ -205,6 +221,7 @@ def test_array_validation_rejects_members_dtype_shape_and_finiteness() -> None:
 def test_fixture_is_immutable_pickle_free_and_checksummed(tmp_path: Path) -> None:
     module = _module()
     arrays = _arrays(module)
+    arrays["state.system_com_pos_w_m"][..., 2] = np.float32(10.0)
     output = tmp_path / "rotor_phase_sweep"
 
     written = module._write_fixture(
@@ -223,6 +240,29 @@ def test_fixture_is_immutable_pickle_free_and_checksummed(tmp_path: Path) -> Non
     for filename in (module.ARRAYS_FILENAME, module.METADATA_FILENAME):
         digest = hashlib.sha256((written / filename).read_bytes()).hexdigest()
         assert f"{digest}  {filename}\n" in manifest
+    metadata = json.loads(
+        (written / module.METADATA_FILENAME).read_text(encoding="utf-8")
+    )
+    height_guard = metadata["validation"]["contact_free_height_guard"]
+    assert height_guard == {
+        "axis": "z",
+        "check": "minimum_recorded_system_com_world_z",
+        "coordinate_frame": "world",
+        "minimum_system_com_z_m": 1.0,
+        "observed_minimum_location": {
+            "case_index": 0,
+            "repeat_index": 0,
+            "sample_index": 0,
+        },
+        "observed_minimum_system_com_z_m": 10.0,
+        "passed": True,
+        "recorded_value_count": 3 * 16 * 101,
+        "required_relation": (
+            "every recorded system COM z >= minimum_system_com_z_m"
+        ),
+        "state_array": "state.system_com_pos_w_m",
+        "unit": "m",
+    }
 
     with pytest.raises(FileExistsError, match="already exists"):
         module._write_fixture(
@@ -231,3 +271,26 @@ def test_fixture_is_immutable_pickle_free_and_checksummed(tmp_path: Path) -> Non
             {"schema_version": module.SCHEMA_VERSION},
             repository=Path.cwd(),
         )
+
+
+def test_fixture_publication_rejects_any_system_com_sample_below_guard(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    arrays = _arrays(module)
+    arrays["state.system_com_pos_w_m"][..., 2] = np.float32(10.0)
+    arrays["state.system_com_pos_w_m"][2, 7, 53, 2] = np.float32(0.999)
+    output = tmp_path / "too_low"
+
+    with pytest.raises(
+        ValueError,
+        match=r"publication refused:.*below required 1 m.*repeat=2, case=7, sample=53",
+    ):
+        module._write_fixture(
+            output,
+            arrays,
+            {"schema_version": module.SCHEMA_VERSION},
+            repository=Path.cwd(),
+        )
+
+    assert not output.exists()

@@ -64,6 +64,12 @@ PULSE_STEP_RANGE = (0, 2)
 COAST_STEP_RANGE = (2, 10)
 ISAAC_REPEATS = 3
 INITIAL_ROOT_POS_W_M = (-3.0, 0.0, 6.0)
+INITIAL_ROOT_POSITIONS_W_M = (
+    INITIAL_ROOT_POS_W_M,
+    (0.0, -3.0, 6.0),
+    (3.0, 0.0, 6.0),
+    (0.0, 3.0, 6.0),
+)
 INITIAL_ROOT_QUAT_WB_WXYZ = (1.0, 0.0, 0.0, 0.0)
 
 ARRAY_NAMES = (
@@ -432,12 +438,27 @@ def _validate_initial_joint_sample(
             )
 
 
-def _write_controlled_state(env: Any, case: Mapping[str, Any]) -> dict[str, np.ndarray]:
+def _write_controlled_state(
+    env: Any,
+    case: Mapping[str, Any],
+    *,
+    root_positions_w_m: tuple[tuple[float, float, float], ...] = (
+        INITIAL_ROOT_POSITIONS_W_M
+    ),
+) -> dict[str, np.ndarray]:
     import torch
 
     assets = [*env._predators, env._prey]
-    positions = ((-3.0, 0.0, 6.0), (0.0, -3.0, 6.0), (3.0, 0.0, 6.0), (0.0, 3.0, 6.0))
-    for asset_index, (asset, position) in enumerate(zip(assets, positions, strict=True)):
+    if len(root_positions_w_m) != len(assets) or any(
+        len(position) != 3 or not all(math.isfinite(float(value)) for value in position)
+        for position in root_positions_w_m
+    ):
+        raise ValueError(
+            "root_positions_w_m must contain one finite xyz world position per asset"
+        )
+    for asset_index, (asset, position) in enumerate(
+        zip(assets, root_positions_w_m, strict=True)
+    ):
         asset.reset()
         root_state = asset.data.default_root_state.clone()
         root_state[:, :3] = torch.tensor(position, dtype=torch.float32, device=env.device)

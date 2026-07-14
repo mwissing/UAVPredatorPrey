@@ -281,13 +281,14 @@ an independent long-horizon phase sweep for held-out validation:
 /workspace/isaaclab/isaaclab.sh -p \
   scripts/jax/export_isaac_rotor_phase_sweep_oracle_v0.py \
   --output \
-    /workspace/artifacts/transfer/rotor_phase_sweep_v0/midpoint16_aggressive_seed42 \
+    /workspace/artifacts/transfer/rotor_phase_sweep_v0/midpoint16_aggressive_high_z10_seed42 \
   --headless --device cuda:0
 ```
 
 The immutable `uavpredatorprey.rotor_phase_sweep_oracle.v0` fixture uses 16
 midpoint phases `float32((k + 0.5) * pi / 16)` over `[0, pi)`. Every case
-starts the four joints at `[theta, -theta, theta, -theta]` with velocities
+places all four vehicles in the controlled XY formation at `z = 10 m`, then
+starts the four target joints at `[theta, -theta, theta, -theta]` with velocities
 `[200, -200, 200, -200] rad/s`, then executes the same 50-row analytic
 aggressive multi-axis action tape. Each policy row is held for two 10 ms
 physics steps, producing 100 transitions and 101 state samples per repeat.
@@ -307,7 +308,9 @@ all frame conventions. Three Isaac repeats store the same action, wrench,
 system-COM, root-link, per-link angular-rate, and rotor-joint fields as the
 rotor-pulse fixture. This sweep is a held-out diagnostic; it does not call a
 policy, episode reward/termination/reset, or training code, and it refuses to
-overwrite an existing fixture.
+overwrite an existing fixture. Publication also fails if any recorded target
+system-COM sample falls below `z = 1.0 m`; metadata records the requested
+world-frame root positions and the observed minimum-height validation result.
 
 Export deterministic `direct_wrench_v0` physics traces from inside the Isaac
 container with:

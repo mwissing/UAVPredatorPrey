@@ -123,6 +123,85 @@ def test_initial_joint_sample_must_exactly_match_requested_float32_state() -> No
         module._validate_initial_joint_sample(case, wrong)
 
 
+def test_controlled_state_keeps_default_formation_and_accepts_explicit_positions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch = pytest.importorskip("torch")
+    module = _module()
+
+    class Data:
+        def __init__(self) -> None:
+            self.default_root_state = torch.zeros((1, 13), dtype=torch.float32)
+            self.default_joint_pos = torch.zeros((1, 4), dtype=torch.float32)
+            self.default_joint_vel = torch.zeros((1, 4), dtype=torch.float32)
+
+    class Asset:
+        def __init__(self) -> None:
+            self.data = Data()
+            self.written_root_pose = None
+
+        def reset(self) -> None:
+            pass
+
+        def write_root_pose_to_sim(self, value) -> None:
+            self.written_root_pose = value.clone()
+
+        def write_root_velocity_to_sim(self, value) -> None:
+            pass
+
+        def write_joint_state_to_sim(self, position, velocity) -> None:
+            pass
+
+    class Sim:
+        class Config:
+            dt = 0.01
+
+        cfg = Config()
+
+        def forward(self) -> None:
+            pass
+
+    class Scene:
+        def update(self, dt: float) -> None:
+            pass
+
+    class Env:
+        def __init__(self) -> None:
+            assets = [Asset() for _ in range(4)]
+            self._predators = assets[:3]
+            self._prey = assets[3]
+            self.device = "cpu"
+            self.episode_length_buf = torch.ones(1)
+            self._pred_alive = torch.zeros((1, 3), dtype=torch.bool)
+            self._pred_oob = torch.ones((1, 3), dtype=torch.bool)
+            self._pred_newly_oob = torch.ones((1, 3), dtype=torch.bool)
+            self._prey_oob = torch.ones(1, dtype=torch.bool)
+            self._intermediate_values_valid = True
+            self.sim = Sim()
+            self.scene = Scene()
+
+    monkeypatch.setattr(module, "_asset_sample", lambda asset: {"asset": asset})
+    case = module._case_specs()[0]
+    env = Env()
+    module._write_controlled_state(env, case)
+    assets = [*env._predators, env._prey]
+    default_actual = [asset.written_root_pose[0, :3].tolist() for asset in assets]
+    assert default_actual == [list(position) for position in module.INITIAL_ROOT_POSITIONS_W_M]
+
+    explicit = (
+        (-3.0, 0.0, 10.0),
+        (0.0, -3.0, 10.0),
+        (3.0, 0.0, 10.0),
+        (0.0, 3.0, 10.0),
+    )
+    module._write_controlled_state(env, case, root_positions_w_m=explicit)
+    explicit_actual = [asset.written_root_pose[0, :3].tolist() for asset in assets]
+    assert explicit_actual == [list(position) for position in explicit]
+
+    with pytest.raises(ValueError, match="one finite xyz world position per asset"):
+        module._write_controlled_state(env, case, root_positions_w_m=explicit[:3])
+
+
 def test_schema_and_default_path_identify_phase_sweep_fixture() -> None:
     module = _module()
 

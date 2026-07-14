@@ -29,7 +29,7 @@ import numpy as np
 SCHEMA_VERSION = "uavpredatorprey.rotor_phase_sweep_oracle.v0"
 DEFAULT_OUTPUT = (
     "/workspace/artifacts/transfer/rotor_phase_sweep_v0/"
-    "midpoint16_aggressive_seed42"
+    "midpoint16_aggressive_high_z10_seed42"
 )
 
 PHASE_COUNT = 16
@@ -54,6 +54,14 @@ ACTION_CAST_ORDER = (
     "float32, repeat each policy row twice"
 )
 ACTION_TAPE_SHA256_ENCODING = "C-contiguous float32 raw bytes"
+ASSET_NAMES = ("predator_0", "predator_1", "predator_2", "prey")
+INITIAL_ROOT_POSITIONS_W_M = (
+    (-3.0, 0.0, 10.0),
+    (0.0, -3.0, 10.0),
+    (3.0, 0.0, 10.0),
+    (0.0, 3.0, 10.0),
+)
+MINIMUM_SYSTEM_COM_Z_M = 1.0
 
 
 def _load_rotor_pulse_helper() -> ModuleType:
@@ -83,7 +91,7 @@ BODY_NAMES = _PULSE.BODY_NAMES
 JOINT_NAMES = _PULSE.JOINT_NAMES
 ACTION_ORDER = _PULSE.ACTION_ORDER
 ROTOR_DIRECTION = _PULSE.ROTOR_DIRECTION
-INITIAL_ROOT_POS_W_M = _PULSE.INITIAL_ROOT_POS_W_M
+INITIAL_ROOT_POS_W_M = INITIAL_ROOT_POSITIONS_W_M[0]
 INITIAL_ROOT_QUAT_WB_WXYZ = _PULSE.INITIAL_ROOT_QUAT_WB_WXYZ
 ARRAY_NAMES = _PULSE.ARRAY_NAMES
 
@@ -190,6 +198,31 @@ def _action_schedule_contract() -> dict[str, Any]:
     }
 
 
+def _initial_state_contract() -> dict[str, Any]:
+    return {
+        "requested_root_link_pos_w_m": list(INITIAL_ROOT_POS_W_M),
+        "requested_root_link_pos_w_m_by_asset": {
+            asset_name: list(position)
+            for asset_name, position in zip(
+                ASSET_NAMES, INITIAL_ROOT_POSITIONS_W_M, strict=True
+            )
+        },
+        "requested_root_link_position_frame": "world",
+        "requested_root_link_quat_wb_wxyz": list(
+            INITIAL_ROOT_QUAT_WB_WXYZ
+        ),
+        "requested_root_link_lin_vel_w_mps": [0.0, 0.0, 0.0],
+        "requested_root_link_ang_vel_w_radps": [0.0, 0.0, 0.0],
+        "requested_joint_pos_rad_source": (
+            "cases[].requested_initial_joint_pos_rad"
+        ),
+        "requested_joint_vel_radps_source": (
+            "cases[].requested_initial_joint_vel_radps"
+        ),
+        "physx_sample_0_readback": "state.*[:, :, 0, ...]",
+    }
+
+
 def _expected_array_shapes() -> dict[str, tuple[int, ...]]:
     sample_count = PHYSICS_STEPS + 1
     return {
@@ -279,6 +312,42 @@ def _validate_arrays(arrays: Mapping[str, np.ndarray]) -> None:
             raise ValueError(f"rotor-phase-sweep array {name!r} contains a non-finite value")
 
 
+def _minimum_system_com_height_validation(
+    arrays: Mapping[str, np.ndarray],
+) -> dict[str, Any]:
+    positions = arrays["state.system_com_pos_w_m"]
+    system_com_z = positions[..., 2]
+    minimum_flat_index = int(np.argmin(system_com_z))
+    minimum_index = np.unravel_index(minimum_flat_index, system_com_z.shape)
+    observed_minimum = float(system_com_z[minimum_index])
+    record = {
+        "check": "minimum_recorded_system_com_world_z",
+        "state_array": "state.system_com_pos_w_m",
+        "coordinate_frame": "world",
+        "axis": "z",
+        "unit": "m",
+        "required_relation": "every recorded system COM z >= minimum_system_com_z_m",
+        "minimum_system_com_z_m": MINIMUM_SYSTEM_COM_Z_M,
+        "observed_minimum_system_com_z_m": observed_minimum,
+        "observed_minimum_location": {
+            "repeat_index": int(minimum_index[0]),
+            "case_index": int(minimum_index[1]),
+            "sample_index": int(minimum_index[2]),
+        },
+        "recorded_value_count": int(system_com_z.size),
+        "passed": observed_minimum >= MINIMUM_SYSTEM_COM_Z_M,
+    }
+    if not record["passed"]:
+        raise ValueError(
+            "rotor-phase-sweep fixture publication refused: minimum recorded "
+            f"system COM world z is {observed_minimum:.9g} m, below required "
+            f"{MINIMUM_SYSTEM_COM_Z_M:.9g} m at "
+            f"repeat={minimum_index[0]}, case={minimum_index[1]}, "
+            f"sample={minimum_index[2]}"
+        )
+    return record
+
+
 def _write_fixture(
     destination_argument: Path,
     arrays: Mapping[str, np.ndarray],
@@ -287,6 +356,15 @@ def _write_fixture(
     repository: Path,
 ) -> Path:
     _validate_arrays(arrays)
+    height_validation = _minimum_system_com_height_validation(arrays)
+    metadata_to_write = dict(metadata)
+    validation = metadata_to_write.get("validation", {})
+    if not isinstance(validation, Mapping):
+        raise TypeError("rotor-phase-sweep metadata validation must be a mapping")
+    metadata_to_write["validation"] = {
+        **validation,
+        "contact_free_height_guard": height_validation,
+    }
     destination = destination_argument.expanduser()
     if os.path.lexists(destination):
         raise FileExistsError(f"fixture destination already exists: {destination}")
@@ -309,7 +387,9 @@ def _write_fixture(
     )
     try:
         _PULSE._write_npz_fsynced(temporary / ARRAYS_FILENAME, arrays)
-        _PULSE._write_json_fsynced(temporary / METADATA_FILENAME, metadata)
+        _PULSE._write_json_fsynced(
+            temporary / METADATA_FILENAME, metadata_to_write
+        )
         checksum_lines = [
             f"{_PULSE._sha256_file(temporary / filename)}  {filename}"
             for filename in (ARRAYS_FILENAME, METADATA_FILENAME)
@@ -335,7 +415,11 @@ def _run_case(
     case: Mapping[str, Any],
     physics_action_tape: np.ndarray,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
-    initial_sample = _PULSE._write_controlled_state(env, case)
+    initial_sample = _PULSE._write_controlled_state(
+        env,
+        case,
+        root_positions_w_m=INITIAL_ROOT_POSITIONS_W_M,
+    )
     _PULSE._validate_initial_joint_sample(case, initial_sample)
     samples = [initial_sample]
     actions: list[np.ndarray] = []
@@ -544,6 +628,9 @@ def _run(args: argparse.Namespace) -> Path:
                 ),
                 "policy_reward_termination_or_environment_reset_called": False,
                 "controlled_articulation_state_restore_before_each_case": True,
+                "minimum_system_com_z_m_for_publication": (
+                    MINIMUM_SYSTEM_COM_Z_M
+                ),
                 "quaternion_order": "wxyz",
                 "quaternion_semantics": "q_WB_body_to_world",
                 "translation_point": "mass_weighted_five_link_system_com",
@@ -559,21 +646,7 @@ def _run(args: argparse.Namespace) -> Path:
                 "force_frame": "root_link_body",
                 "torque_frame": "root_link_body",
             },
-            "initial_state": {
-                "requested_root_link_pos_w_m": list(INITIAL_ROOT_POS_W_M),
-                "requested_root_link_quat_wb_wxyz": list(
-                    INITIAL_ROOT_QUAT_WB_WXYZ
-                ),
-                "requested_root_link_lin_vel_w_mps": [0.0, 0.0, 0.0],
-                "requested_root_link_ang_vel_w_radps": [0.0, 0.0, 0.0],
-                "requested_joint_pos_rad_source": (
-                    "cases[].requested_initial_joint_pos_rad"
-                ),
-                "requested_joint_vel_radps_source": (
-                    "cases[].requested_initial_joint_vel_radps"
-                ),
-                "physx_sample_0_readback": "state.*[:, :, 0, ...]",
-            },
+            "initial_state": _initial_state_contract(),
             "asset": _PULSE._json_compatible(_PULSE._asset_metadata(env)),
             "case_count": len(cases),
             "trace_count": ISAAC_REPEATS,
