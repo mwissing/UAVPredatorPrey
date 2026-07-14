@@ -196,6 +196,50 @@ resume. The migrated `.pt` has no environment, rollout, RNG, or GRU carry
 state, and its frozen prey role has no optimizer. JAX fine-tuning therefore
 starts with fresh Adam state for both roles.
 
+### Export the paired policy-trajectory diagnostic
+
+After policy-forward parity is established, capture a representative action
+tape and the corresponding PhysX trajectory at the 10 ms physics boundary:
+
+For a canonical artifact, inject the running container's immutable image ID
+when entering it from the host, then run the exporter command below in that
+shell:
+
+```bash
+IMAGE_ID="$(docker container inspect -f '{{.Image}}' isaac-lab-base-uav51)"
+docker exec -e UAV_ISAAC_IMAGE_ID="$IMAGE_ID" -it \
+  isaac-lab-base-uav51 bash
+```
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_isaac_policy_trajectory_v0.py \
+  --checkpoint \
+    .pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt \
+  --expected-checkpoint-sha256 \
+    88e7161b48323452c5d302b25a8f50d1fd5ac026fdeddd2819d64eeb2521ba98 \
+  --output \
+    /workspace/artifacts/transfer/policy_trajectory_v0/windows_agent115200_controlled_seed42 \
+  --headless --device cuda:0
+```
+
+Repeat 0 starts all four vehicles from the documented controlled formation,
+zeros both actor GRUs, and records 50 deterministic `tanh(mean)` policy
+actions. Repeats 1 and 2 restore the same articulation state and replay the
+exact post-clipping tape. Every 10 ms substep is sampled, including the initial
+state, for 101 samples per repeat. The exporter aborts on catch, OOB, or an
+inactive predator and never calls reward, termination, auto-reset, or training
+code. It stores mass-weighted five-link system-COM translation, root-link
+attitude/rate, root diagnostics, and rotor joint state in an atomically
+published, no-overwrite, checksummed fixture outside Git.
+
+The JAX repository contains the matching open-loop comparator. It initializes
+the lumped plant from PhysX read-back—not the requested pose—and requires exact
+action/torque identity plus at most one `float32` ULP of force-encoding
+difference before reporting descriptive trajectory error at policy horizons
+1, 2, 5, 10, 25, and 50. Use a new output directory for a new capture because
+fixtures deliberately have no overwrite mode.
+
 Export deterministic `direct_wrench_v0` physics traces from inside the Isaac
 container with:
 
