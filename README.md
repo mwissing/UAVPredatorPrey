@@ -148,6 +148,54 @@ again. Isaac scene calls and mutable Torch buffers must be replaced by pure JAX
 functions while preserving feature ordering, frames, constants, event timing,
 and `terminated` versus `truncated` behavior.
 
+### Export an skrl policy for the JAX runtime
+
+The Isaac container is the only runtime that may parse the pickle-capable
+skrl `.pt` format. Export the verified migration checkpoint into the neutral,
+pickle-free `skrl_policy_transfer_v0` directory before importing it in JAX:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_skrl_policy_transfer_v0.py \
+  --bundle-root \
+    .pretrained_checkpoints/linux_migration_2026-07-11 \
+  --checkpoint \
+    .pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt \
+  --output \
+    /workspace/artifacts/transfer/skrl_policy_transfer_v0/windows_agent_115200
+```
+
+The exporter verifies the source hashes before calling
+`torch.load(..., weights_only=True, map_location="cpu")`. It preserves the 94
+model tensors and 18 running-scaler tensors in their source layout and dtype;
+optimizer tensors are excluded. The output directory is checksummed,
+pickle-free, and published with no-replace semantics. Run the importer and
+deterministic forward oracle in the sibling JAX repository as documented
+there.
+
+Export a deterministic checkpoint-forward oracle from the actual skrl model
+classes without launching Isaac Sim:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_skrl_policy_oracle_v0.py \
+  --checkpoint \
+    .pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt \
+  --expected-checkpoint-sha256 \
+    88e7161b48323452c5d302b25a8f50d1fd5ac026fdeddd2819d64eeb2521ba98 \
+  --output \
+    /workspace/artifacts/transfer/skrl_policy_oracle_v0/windows_agent_115200
+```
+
+The JAX comparator binds this oracle and the imported policy to the same source
+checkpoint SHA before comparing normalizers, actor outputs, critic outputs,
+and nonzero recurrent states.
+
+This boundary reproduces clean-boundary inference, not an exact training
+resume. The migrated `.pt` has no environment, rollout, RNG, or GRU carry
+state, and its frozen prey role has no optimizer. JAX fine-tuning therefore
+starts with fresh Adam state for both roles.
+
 Export deterministic `direct_wrench_v0` physics traces from inside the Isaac
 container with:
 
