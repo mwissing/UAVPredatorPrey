@@ -240,6 +240,75 @@ difference before reporting descriptive trajectory error at policy horizons
 1, 2, 5, 10, 25, and 50. Use a new output directory for a new capture because
 fixtures deliberately have no overwrite mode.
 
+### Export the rotor-pulse dynamics diagnostic
+
+To isolate articulation and rotor gyroscopic effects from policy feedback, run
+the controlled low-torque probe inside the Isaac container:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_isaac_rotor_pulse_oracle_v0.py \
+  --output \
+    /workspace/artifacts/transfer/rotor_pulse_v0/free_gyro_on_static_phase_seed42 \
+  --headless --device cuda:0
+```
+
+The immutable `uavpredatorprey.rotor_pulse_oracle.v0` fixture contains 49
+cases. The original first 35 cases keep rotor phase at zero and combine rotor
+speed scalars `0`, `+50`, `-50`, `+200`, and `-200 rad/s` with idle and signed
+low pulses about body x/y/z. The additional 14 static-phase cases hold rotor
+speed at zero and repeat all seven schedules at phase `pi/4` and `pi/2 rad`.
+Both position and velocity use the `m1..m4` pattern
+`s * [1, -1, 1, -1]`. Explicit condition IDs, requested `float32` joint
+positions, and requested joint velocities are recorded per case rather than
+encoded only in case names. Every case has three repeats, two 10 ms pulse steps
+followed by eight zero-torque coast steps, and an initial PhysX read-back sample
+that must exactly match the requested joint state. Actions, body wrench,
+system-COM state, root and per-link angular rates, and rotor joint state are
+stored as strict `float32` arrays. Per-link runtime gyro, damping, and
+angular-speed-cap settings plus Git, image, and source hashes are recorded in
+metadata. The exporter explicitly restores the articulation state before each
+case, but does not call policy, reward, termination, environment episode-reset/
+autoreset, or training code. It refuses to overwrite an existing fixture
+directory.
+
+### Export the held-out rotor-phase sweep
+
+After calibrating candidate lumped plants with the rotor-pulse fixture, export
+an independent long-horizon phase sweep for held-out validation:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_isaac_rotor_phase_sweep_oracle_v0.py \
+  --output \
+    /workspace/artifacts/transfer/rotor_phase_sweep_v0/midpoint16_aggressive_seed42 \
+  --headless --device cuda:0
+```
+
+The immutable `uavpredatorprey.rotor_phase_sweep_oracle.v0` fixture uses 16
+midpoint phases `float32((k + 0.5) * pi / 16)` over `[0, pi)`. Every case
+starts the four joints at `[theta, -theta, theta, -theta]` with velocities
+`[200, -200, 200, -200] rad/s`, then executes the same 50-row analytic
+aggressive multi-axis action tape. Each policy row is held for two 10 ms
+physics steps, producing 100 transitions and 101 state samples per repeat.
+The four action components for policy index `n = 0, ..., 49` are evaluated in
+`float64`, stacked, and cast once to `float32`:
+
+```text
+a_T   = 0.05 + 0.75 sin(2 pi (n + 0.5) / 19)
+a_tx  = 0.95 sin(2 pi (n + 0.5) / 11)
+a_ty  = 0.90 cos(2 pi (n + 0.5) / 13)
+a_tz  = 0.85 sin(2 pi (n + 0.5) / 17 + pi / 7)
+```
+
+The metadata records both action-tape hashes, formula and cast order, exact
+phase/joint requests, runtime articulation properties, source provenance, and
+all frame conventions. Three Isaac repeats store the same action, wrench,
+system-COM, root-link, per-link angular-rate, and rotor-joint fields as the
+rotor-pulse fixture. This sweep is a held-out diagnostic; it does not call a
+policy, episode reward/termination/reset, or training code, and it refuses to
+overwrite an existing fixture.
+
 Export deterministic `direct_wrench_v0` physics traces from inside the Isaac
 container with:
 
