@@ -19,6 +19,9 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     decimation = 2
     episode_length_s = 10.0
     num_predators = 3
+    # Logging-only reductions can be disabled by the training launcher without
+    # changing actions, dynamics, rewards, terminations, or episode tracking.
+    enable_step_diagnostics = True
 
     # multi-agent specification (2 agents: shared predator policy + prey)
     possible_agents = ["predator", "prey"]

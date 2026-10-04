@@ -134,6 +134,15 @@ parser.add_argument(
     default=False,
     help="Disable batched scalar info transfers for a performance A/B comparison.",
 )
+parser.add_argument(
+    "--disable-environment-info-logging",
+    action="store_true",
+    default=False,
+    help=(
+        "Disable training-time environment metric logging and associated 3v1 diagnostic reductions while "
+        "preserving PPO diagnostics and checkpoints."
+    ),
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -686,6 +695,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if not math.isfinite(args_cli.kl_threshold) or args_cli.kl_threshold < 0.0:
             raise ValueError(f"--kl-threshold must be finite and non-negative, got {args_cli.kl_threshold}")
         agent_cfg["agent"]["kl_threshold"] = float(args_cli.kl_threshold)
+    if args_cli.disable_environment_info_logging:
+        agent_cfg["trainer"]["environment_info"] = None
+        if hasattr(env_cfg, "enable_step_diagnostics"):
+            env_cfg.enable_step_diagnostics = False
     agent_cfg["trainer"]["close_environment_at_exit"] = False
     # configure the ML framework into the global skrl variable
     if args_cli.ml_framework.startswith("jax"):
@@ -785,7 +798,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     frozen_fingerprints = capture_frozen_fingerprints(runner.agent, freeze_agents)
 
     training_env = _wrap_per_env_opponent_pool(env, runner, freeze_agents)
-    if not args_cli.disable_batched_info_logging and args_cli.ml_framework.startswith("torch"):
+    if args_cli.disable_environment_info_logging:
+        print("[INFO] Training-time environment info logging disabled.")
+        if hasattr(env_cfg, "enable_step_diagnostics"):
+            print("[INFO] Per-step environment diagnostic computation disabled.")
+    elif not args_cli.disable_batched_info_logging and args_cli.ml_framework.startswith("torch"):
         training_env = BatchedScalarInfoWrapper(
             training_env,
             info_key=agent_cfg["trainer"].get("environment_info", "log"),

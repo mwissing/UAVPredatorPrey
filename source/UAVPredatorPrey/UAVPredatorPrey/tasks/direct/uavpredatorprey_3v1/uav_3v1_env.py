@@ -249,13 +249,14 @@ class Uav3v1Env(DirectMARLEnv):
         # Predator: reshape shared policy action to (N, num_predators, 4).
         pred_raw_actions = actions["predator"].reshape(self.num_envs, self._P, 4)
         pred_clipped_actions = pred_raw_actions.clamp(-1.0, 1.0)
-        pred_clip_delta = torch.abs(pred_raw_actions - pred_clipped_actions)
-        self._pred_action_outside_fraction.copy_((torch.abs(pred_raw_actions) > 1.0).float().mean())
-        self._pred_action_clip_mean_abs.copy_(pred_clip_delta.mean())
-        self._pred_action_clip_max_abs.copy_(pred_clip_delta.max())
-        self._pred_action_raw_abs_max.copy_(torch.abs(pred_raw_actions).max())
-        self._pred_action_near_limit_fraction.copy_((torch.abs(pred_clipped_actions) > 0.95).float().mean())
-        self._pred_action_bounded_abs_mean.copy_(torch.abs(pred_clipped_actions).mean())
+        if self.cfg.enable_step_diagnostics:
+            pred_clip_delta = torch.abs(pred_raw_actions - pred_clipped_actions)
+            self._pred_action_outside_fraction.copy_((torch.abs(pred_raw_actions) > 1.0).float().mean())
+            self._pred_action_clip_mean_abs.copy_(pred_clip_delta.mean())
+            self._pred_action_clip_max_abs.copy_(pred_clip_delta.max())
+            self._pred_action_raw_abs_max.copy_(torch.abs(pred_raw_actions).max())
+            self._pred_action_near_limit_fraction.copy_((torch.abs(pred_clipped_actions) > 0.95).float().mean())
+            self._pred_action_bounded_abs_mean.copy_(torch.abs(pred_clipped_actions).mean())
         self._pred_actions[:] = pred_clipped_actions
         self._pred_actions *= self._pred_alive.unsqueeze(-1).float()
         self._pred_thrust[:, :, 0, 2] = (
@@ -269,13 +270,14 @@ class Uav3v1Env(DirectMARLEnv):
         # Prey
         prey_raw_actions = actions["prey"]
         prey_clipped_actions = prey_raw_actions.clamp(-1.0, 1.0)
-        prey_clip_delta = torch.abs(prey_raw_actions - prey_clipped_actions)
-        self._prey_action_outside_fraction.copy_((torch.abs(prey_raw_actions) > 1.0).float().mean())
-        self._prey_action_clip_mean_abs.copy_(prey_clip_delta.mean())
-        self._prey_action_clip_max_abs.copy_(prey_clip_delta.max())
-        self._prey_action_raw_abs_max.copy_(torch.abs(prey_raw_actions).max())
-        self._prey_action_near_limit_fraction.copy_((torch.abs(prey_clipped_actions) > 0.95).float().mean())
-        self._prey_action_bounded_abs_mean.copy_(torch.abs(prey_clipped_actions).mean())
+        if self.cfg.enable_step_diagnostics:
+            prey_clip_delta = torch.abs(prey_raw_actions - prey_clipped_actions)
+            self._prey_action_outside_fraction.copy_((torch.abs(prey_raw_actions) > 1.0).float().mean())
+            self._prey_action_clip_mean_abs.copy_(prey_clip_delta.mean())
+            self._prey_action_clip_max_abs.copy_(prey_clip_delta.max())
+            self._prey_action_raw_abs_max.copy_(torch.abs(prey_raw_actions).max())
+            self._prey_action_near_limit_fraction.copy_((torch.abs(prey_clipped_actions) > 0.95).float().mean())
+            self._prey_action_bounded_abs_mean.copy_(torch.abs(prey_clipped_actions).mean())
         self._prey_actions[:] = prey_clipped_actions
         self._prey_thrust[:, 0, 2] = (
             self.cfg.prey_thrust_to_weight * self._robot_weight * (self._prey_actions[:, 0] + 1.0) / 2.0
@@ -511,7 +513,6 @@ class Uav3v1Env(DirectMARLEnv):
         pred_lin_vel_sq = torch.stack([
             torch.sum(torch.square(p.data.root_lin_vel_b), dim=1) for p in self._predators
         ])  # (P, N)
-        pred_lin_vel_w = torch.stack([p.data.root_lin_vel_w for p in self._predators], dim=1)  # (N, P, 3)
         pred_ang_vel_sq = torch.stack([
             torch.sum(torch.square(p.data.root_ang_vel_b), dim=1) for p in self._predators
         ])  # (P, N)
@@ -556,17 +557,19 @@ class Uav3v1Env(DirectMARLEnv):
             * self.cfg.predator_distance_progress_reward_scale
             * predator_progress_valid
         )
-        motion_diagnostics = compute_motion_diagnostics(
-            predator_positions=self._pred_pos_rel,
-            prey_positions=self._prey_pos_rel,
-            predator_velocities=pred_lin_vel_w,
-            prey_velocities=self._prey.data.root_lin_vel_w,
-            predator_alive=self._pred_alive,
-            raw_distance_progress=raw_predator_distance_progress.t(),
-            progress_valid=predator_progress_valid.t() > 0.0,
-            predator_upright=(-pred_grav_z).t(),
-            progress_clip=self.cfg.predator_distance_progress_reward_clip,
-        )
+        if self.cfg.enable_step_diagnostics:
+            pred_lin_vel_w = torch.stack([p.data.root_lin_vel_w for p in self._predators], dim=1)  # (N, P, 3)
+            motion_diagnostics = compute_motion_diagnostics(
+                predator_positions=self._pred_pos_rel,
+                prey_positions=self._prey_pos_rel,
+                predator_velocities=pred_lin_vel_w,
+                prey_velocities=self._prey.data.root_lin_vel_w,
+                predator_alive=self._pred_alive,
+                raw_distance_progress=raw_predator_distance_progress.t(),
+                progress_valid=predator_progress_valid.t() > 0.0,
+                predator_upright=(-pred_grav_z).t(),
+                progress_clip=self.cfg.predator_distance_progress_reward_clip,
+            )
         self._prev_pred_prey_distances[:] = self._current_distances.detach()
 
         # Catch attribution (P, N)
@@ -687,70 +690,70 @@ class Uav3v1Env(DirectMARLEnv):
         )
 
         # === Per-agent reward logging ===
-        if "log" not in self.extras:
-            self.extras["log"] = {}
-        self.extras["log"]["Reward/predator_mean"] = pred_team_reward.mean()
-        self.extras["log"]["Reward/prey_mean"] = prey_reward.mean()
-        self.extras["log"]["Reward/predator_height"] = height.mean()
-        self.extras["log"]["Reward/predator_lin_vel"] = lin_vel.mean()
-        self.extras["log"]["Reward/predator_ang_vel"] = ang_vel.mean()
-        self.extras["log"]["Reward/predator_action"] = action_pen.mean()
-        self.extras["log"]["Reward/predator_proximity"] = proximity.mean()
-        self.extras["log"]["Reward/predator_distance_progress"] = predator_distance_progress_reward.mean()
-        self.extras["log"]["Reward/predator_catch"] = catch_bonus.mean()
-        self.extras["log"]["Reward/predator_assist"] = assist_bonus.mean()
-        self.extras["log"]["Reward/predator_upright"] = upright.mean()
-        self.extras["log"]["Reward/predator_boundary"] = -boundary.mean()
-        self.extras["log"]["Reward/predator_oob"] = oob_pen.mean()
-        self.extras["log"]["Reward/predator_soft_arena"] = pred_soft_arena_pen.mean()
-        self.extras["log"]["Reward/prey_height"] = prey_height.mean()
-        self.extras["log"]["Reward/prey_upright"] = prey_upright.mean()
-        self.extras["log"]["Reward/prey_low_altitude"] = prey_low_altitude.mean()
-        self.extras["log"]["Reward/prey_lin_vel"] = prey_lin_vel.mean()
-        self.extras["log"]["Reward/prey_ang_vel"] = prey_ang_vel.mean()
-        self.extras["log"]["Reward/prey_action"] = prey_action_pen.mean()
-        self.extras["log"]["Reward/prey_alive"] = prey_alive_gated.mean()
-        self.extras["log"]["Reward/prey_evasion"] = prey_evasion.mean()
-        self.extras["log"]["Reward/prey_distance_progress"] = prey_distance_progress_reward.mean()
-        self.extras["log"]["Reward/prey_boundary_progress"] = prey_boundary_progress_reward.mean()
-        self.extras["log"]["Reward/prey_caught"] = prey_caught.mean()
-        self.extras["log"]["Reward/prey_boundary"] = -prey_boundary.mean()
-        self.extras["log"]["Reward/prey_oob"] = prey_oob_pen.mean()
-        self.extras["log"]["Reward/prey_soft_arena"] = prey_soft_arena_pen.mean()
-        self.extras["log"]["Metrics/predator_oob_step_fraction"] = self._pred_oob.any(dim=1).float().mean()
-        self.extras["log"]["Metrics/predator_oob_event_step_fraction"] = self._pred_newly_oob.any(dim=1).float().mean()
-        self.extras["log"]["Metrics/predator_inactive_step_fraction"] = self._pred_oob.any(dim=1).float().mean()
-        self.extras["log"]["Metrics/predator_distance_progress"] = predator_distance_progress.mean()
-        self.extras["log"]["Metrics/predator_soft_arena_outside"] = self._pred_soft_arena_outside.mean()
-        self.extras["log"]["Metrics/predator_min_height"] = self._pred_min_height.mean()
-        self.extras["log"]["Metrics/prey_min_height"] = self._prey_pos_rel[:, 2].min()
-        self.extras["log"]["Metrics/predator_teammate_min_distance"] = self._pred_teammate_min_distance.mean()
-        self.extras["log"]["Metrics/predator_teammate_close_step_fraction"] = self._pred_teammate_close.float().mean()
-        self.extras["log"]["Metrics/clean_catch_step_fraction"] = clean_catch.float().mean()
-        self.extras["log"]["Metrics/forced_prey_oob_step_fraction"] = forced_prey_oob.float().mean()
-        self.extras["log"]["Metrics/predator_success_step_fraction"] = predator_success.float().mean()
-        self.extras["log"]["Metrics/prey_oob_step_fraction"] = self._prey_oob.float().mean()
-        self.extras["log"]["Metrics/prey_soft_arena_outside"] = self._prey_soft_arena_outside.mean()
-        self.extras["log"]["Metrics/step_closest_approach"] = min_pred_dist.mean()
-        self.extras["log"]["Metrics/prey_distance_progress"] = prey_distance_progress.mean()
-        self.extras["log"]["Metrics/prey_boundary_progress"] = prey_boundary_progress.mean()
-        self.extras["log"]["Metrics/prey_boundary_pressure"] = prey_boundary_pressure.mean()
-        for name, value in motion_diagnostics.items():
-            self.extras["log"][f"Diagnostics/{name}"] = value
-        self.extras["log"]["Diagnostics/predator_action_outside_fraction"] = self._pred_action_outside_fraction
-        self.extras["log"]["Diagnostics/predator_action_clip_mean_abs"] = self._pred_action_clip_mean_abs
-        self.extras["log"]["Diagnostics/predator_action_clip_max_abs"] = self._pred_action_clip_max_abs
-        self.extras["log"]["Diagnostics/predator_action_raw_abs_max"] = self._pred_action_raw_abs_max
-        self.extras["log"]["Diagnostics/predator_action_near_limit_fraction"] = (
-            self._pred_action_near_limit_fraction
-        )
-        self.extras["log"]["Diagnostics/predator_action_bounded_abs_mean"] = self._pred_action_bounded_abs_mean
-        self.extras["log"]["Diagnostics/prey_action_outside_fraction"] = self._prey_action_outside_fraction
-        self.extras["log"]["Diagnostics/prey_action_clip_mean_abs"] = self._prey_action_clip_mean_abs
-        self.extras["log"]["Diagnostics/prey_action_clip_max_abs"] = self._prey_action_clip_max_abs
-        self.extras["log"]["Diagnostics/prey_action_raw_abs_max"] = self._prey_action_raw_abs_max
-        self.extras["log"]["Diagnostics/prey_action_near_limit_fraction"] = self._prey_action_near_limit_fraction
-        self.extras["log"]["Diagnostics/prey_action_bounded_abs_mean"] = self._prey_action_bounded_abs_mean
+        if self.cfg.enable_step_diagnostics:
+            if "log" not in self.extras:
+                self.extras["log"] = {}
+            log = self.extras["log"]
+            log["Reward/predator_mean"] = pred_team_reward.mean()
+            log["Reward/prey_mean"] = prey_reward.mean()
+            log["Reward/predator_height"] = height.mean()
+            log["Reward/predator_lin_vel"] = lin_vel.mean()
+            log["Reward/predator_ang_vel"] = ang_vel.mean()
+            log["Reward/predator_action"] = action_pen.mean()
+            log["Reward/predator_proximity"] = proximity.mean()
+            log["Reward/predator_distance_progress"] = predator_distance_progress_reward.mean()
+            log["Reward/predator_catch"] = catch_bonus.mean()
+            log["Reward/predator_assist"] = assist_bonus.mean()
+            log["Reward/predator_upright"] = upright.mean()
+            log["Reward/predator_boundary"] = -boundary.mean()
+            log["Reward/predator_oob"] = oob_pen.mean()
+            log["Reward/predator_soft_arena"] = pred_soft_arena_pen.mean()
+            log["Reward/prey_height"] = prey_height.mean()
+            log["Reward/prey_upright"] = prey_upright.mean()
+            log["Reward/prey_low_altitude"] = prey_low_altitude.mean()
+            log["Reward/prey_lin_vel"] = prey_lin_vel.mean()
+            log["Reward/prey_ang_vel"] = prey_ang_vel.mean()
+            log["Reward/prey_action"] = prey_action_pen.mean()
+            log["Reward/prey_alive"] = prey_alive_gated.mean()
+            log["Reward/prey_evasion"] = prey_evasion.mean()
+            log["Reward/prey_distance_progress"] = prey_distance_progress_reward.mean()
+            log["Reward/prey_boundary_progress"] = prey_boundary_progress_reward.mean()
+            log["Reward/prey_caught"] = prey_caught.mean()
+            log["Reward/prey_boundary"] = -prey_boundary.mean()
+            log["Reward/prey_oob"] = prey_oob_pen.mean()
+            log["Reward/prey_soft_arena"] = prey_soft_arena_pen.mean()
+            log["Metrics/predator_oob_step_fraction"] = self._pred_oob.any(dim=1).float().mean()
+            log["Metrics/predator_oob_event_step_fraction"] = self._pred_newly_oob.any(dim=1).float().mean()
+            log["Metrics/predator_inactive_step_fraction"] = self._pred_oob.any(dim=1).float().mean()
+            log["Metrics/predator_distance_progress"] = predator_distance_progress.mean()
+            log["Metrics/predator_soft_arena_outside"] = self._pred_soft_arena_outside.mean()
+            log["Metrics/predator_min_height"] = self._pred_min_height.mean()
+            log["Metrics/prey_min_height"] = self._prey_pos_rel[:, 2].min()
+            log["Metrics/predator_teammate_min_distance"] = self._pred_teammate_min_distance.mean()
+            log["Metrics/predator_teammate_close_step_fraction"] = self._pred_teammate_close.float().mean()
+            log["Metrics/clean_catch_step_fraction"] = clean_catch.float().mean()
+            log["Metrics/forced_prey_oob_step_fraction"] = forced_prey_oob.float().mean()
+            log["Metrics/predator_success_step_fraction"] = predator_success.float().mean()
+            log["Metrics/prey_oob_step_fraction"] = self._prey_oob.float().mean()
+            log["Metrics/prey_soft_arena_outside"] = self._prey_soft_arena_outside.mean()
+            log["Metrics/step_closest_approach"] = min_pred_dist.mean()
+            log["Metrics/prey_distance_progress"] = prey_distance_progress.mean()
+            log["Metrics/prey_boundary_progress"] = prey_boundary_progress.mean()
+            log["Metrics/prey_boundary_pressure"] = prey_boundary_pressure.mean()
+            for name, value in motion_diagnostics.items():
+                log[f"Diagnostics/{name}"] = value
+            log["Diagnostics/predator_action_outside_fraction"] = self._pred_action_outside_fraction
+            log["Diagnostics/predator_action_clip_mean_abs"] = self._pred_action_clip_mean_abs
+            log["Diagnostics/predator_action_clip_max_abs"] = self._pred_action_clip_max_abs
+            log["Diagnostics/predator_action_raw_abs_max"] = self._pred_action_raw_abs_max
+            log["Diagnostics/predator_action_near_limit_fraction"] = self._pred_action_near_limit_fraction
+            log["Diagnostics/predator_action_bounded_abs_mean"] = self._pred_action_bounded_abs_mean
+            log["Diagnostics/prey_action_outside_fraction"] = self._prey_action_outside_fraction
+            log["Diagnostics/prey_action_clip_mean_abs"] = self._prey_action_clip_mean_abs
+            log["Diagnostics/prey_action_clip_max_abs"] = self._prey_action_clip_max_abs
+            log["Diagnostics/prey_action_raw_abs_max"] = self._prey_action_raw_abs_max
+            log["Diagnostics/prey_action_near_limit_fraction"] = self._prey_action_near_limit_fraction
+            log["Diagnostics/prey_action_bounded_abs_mean"] = self._prey_action_bounded_abs_mean
 
         # Episode tracking
         self._episode_catches += caught_f
