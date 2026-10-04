@@ -210,6 +210,23 @@ runtime. Its 112 inference tensors and layouts are unchanged from transfer v0;
 only the provenance envelope differs. Import it with the sibling JAX
 repository's `import_skrl_policy_transfer_v1.py` command.
 
+To diagnose training-update parity rather than inference alone, export one
+deterministic predator PPO/Adam update from the same verified checkpoint:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_skrl_one_update_oracle_v0.py \
+  --checkpoint /workspace/path/to/agent.pt \
+  --expected-checkpoint-sha256 <sha256> \
+  --output \
+    /workspace/artifacts/transfer/skrl_one_update_oracle_v0/<oracle-name>
+```
+
+The fixture records recurrent inputs, PPO losses, raw and globally clipped
+gradients, fresh Adam moments, and updated parameters in Torch layouts. Entropy
+is disabled only in this deterministic oracle to avoid cross-framework RNG
+differences.
+
 This boundary reproduces clean-boundary inference, not an exact training
 resume. The migrated `.pt` has no environment, rollout, RNG, or GRU carry
 state, and its frozen prey role has no optimizer. JAX fine-tuning therefore
