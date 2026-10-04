@@ -227,10 +227,43 @@ gradients, fresh Adam moments, and updated parameters in Torch layouts. Entropy
 is disabled only in this deterministic oracle to avoid cross-framework RNG
 differences.
 
+### Import a JAX policy for Isaac fine-tuning
+
+After the sibling JAX repository creates a checksummed
+`jax_to_skrl_v0` transfer, combine it with an exact architecture-compatible
+template checkpoint:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/import_jax_policy_bundle_v0.py \
+  --transfer \
+    /workspace/artifacts/transfer/jax_to_skrl_v0/<transfer-name> \
+  --template-checkpoint /workspace/path/to/template-agent.pt \
+  --expected-template-sha256 <sha256> \
+  --output \
+    /workspace/artifacts/transfer/skrl_checkpoint_from_jax_v0/<checkpoint-name>
+```
+
+The result is an immutable directory containing `agent.pt`, metadata, and
+checksums. The importer replaces exactly 112 model/normalizer tensors and
+removes optimizer modules for both roles. Passing its `agent.pt` to
+`scripts/skrl/train.py --checkpoint ...` therefore initializes fresh Adam
+state instead of reusing moments from the template.
+
 This boundary reproduces clean-boundary inference, not an exact training
 resume. The migrated `.pt` has no environment, rollout, RNG, or GRU carry
 state, and its frozen prey role has no optimizer. JAX fine-tuning therefore
 starts with fresh Adam state for both roles.
+
+Imported JAX policies use a `[-3, 0]` log-standard-deviation range, while the
+large-GRU preset keeps the `-2.0` floor of the Windows training recipe. Append
+`agent.models.policy.min_log_std=-3.0` to a `train.py` fine-tuning command to
+train an imported policy without clamping its standard deviation. The seed-42
+stable-flight recovery bundle exported on 2026-07-16 passed an exact 112-leaf
+JAX→skrl→JAX round trip, then its generated `agent.pt` loaded with a `-3.0`
+floor and completed a 64-environment, one-iteration Isaac Lab flight-bootstrap
+training smoke with fresh optimizer state. This verifies the training handoff
+and tensor contract; it is not a claim of full JAX/PhysX trajectory parity.
 
 ### Export the paired policy-trajectory diagnostic
 
