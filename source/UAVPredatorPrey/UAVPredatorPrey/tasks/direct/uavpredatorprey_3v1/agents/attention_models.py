@@ -149,6 +149,26 @@ def _infer_prey_layout(num_observations: int, num_actions: int, min_predators: i
     return num_predators
 
 
+def _aligned_attention_weights(query: torch.Tensor, key: torch.Tensor) -> torch.Tensor:
+    """Compute broadcast-aligned attention weights without FP16 score overflow."""
+
+    # Trained query/key activations can be individually finite in FP16 while
+    # their elementwise product exceeds FP16's range. Disable autocast for the
+    # product, reduction and softmax; callers cast the normalized weights back
+    # to the value dtype so the remaining attention path stays under AMP.
+    with torch.autocast(device_type=query.device.type, enabled=False):
+        scores = (query.float() * key.float()).sum(dim=-1) / math.sqrt(key.shape[-1])
+        return torch.softmax(scores, dim=-1)
+
+
+def _pairwise_attention_weights(query: torch.Tensor, key: torch.Tensor) -> torch.Tensor:
+    """Compute all-pairs attention weights without autocast narrowing the matmul."""
+
+    with torch.autocast(device_type=query.device.type, enabled=False):
+        scores = torch.matmul(query.float(), key.float().transpose(-1, -2)) / math.sqrt(key.shape[-1])
+        return torch.softmax(scores, dim=-1)
+
+
 class SharedPredatorAttentionGaussianModel(TanhGaussianMixin, Model):
     """Gaussian policy with shared per-predator actor and entity attention.
 
@@ -243,7 +263,7 @@ class SharedPredatorAttentionGaussianModel(TanhGaussianMixin, Model):
         key = self.key(entities)
         value = self.value(entities)
 
-        weights = torch.softmax((query * key).sum(dim=-1) / math.sqrt(key.shape[-1]), dim=-1)
+        weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=2)
 
         actions = self.actor_head(torch.cat((own_emb, context), dim=-1))
@@ -383,7 +403,7 @@ class PredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             key = self.key(entities)
             value = self.value(entities)
 
-            weights = torch.softmax((query * key).sum(dim=-1) / math.sqrt(key.shape[-1]), dim=-1)
+            weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
             context = (weights.unsqueeze(-1) * value).sum(dim=2)
 
             actions = self.actor_head(torch.cat((own_emb, context), dim=-1))
@@ -402,7 +422,7 @@ class PredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         key = self.key(predator_emb)
         value = self.value(predator_emb)
 
-        weights = torch.softmax((query * key).sum(dim=-1) / math.sqrt(key.shape[-1]), dim=-1)
+        weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=1)
         actions = self.actor_head(torch.cat((own_emb, context), dim=-1))
 
@@ -553,7 +573,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         query = self.query(own_emb).unsqueeze(2)
         key = self.key(entities)
         value = self.value(entities)
-        weights = torch.softmax((query * key).sum(dim=-1) / math.sqrt(key.shape[-1]), dim=-1)
+        weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=2)
         return torch.cat((own_emb, context), dim=-1)
 
@@ -569,7 +589,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         query = self.query(own_emb).unsqueeze(1)
         key = self.key(predator_emb)
         value = self.value(predator_emb)
-        weights = torch.softmax((query * key).sum(dim=-1) / math.sqrt(key.shape[-1]), dim=-1)
+        weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=1)
         return torch.cat((own_emb, context), dim=-1)
 
@@ -741,8 +761,7 @@ class EntityAttentionCentralizedValueModel(DeterministicMixin, Model):
         query = self.query(entities)
         key = self.key(entities)
         value = self.value(entities)
-        scores = torch.matmul(query, key.transpose(-1, -2)) / math.sqrt(key.shape[-1])
-        weights = torch.softmax(scores, dim=-1)
+        weights = _pairwise_attention_weights(query, key).to(dtype=value.dtype)
         attended = torch.matmul(weights, value)
         pooled = attended.mean(dim=1)
 
@@ -844,8 +863,7 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
         query = self.query(entities)
         key = self.key(entities)
         value = self.value(entities)
-        scores = torch.matmul(query, key.transpose(-1, -2)) / math.sqrt(key.shape[-1])
-        weights = torch.softmax(scores, dim=-1)
+        weights = _pairwise_attention_weights(query, key).to(dtype=value.dtype)
         attended = torch.matmul(weights, value)
         return attended.mean(dim=1)
 
