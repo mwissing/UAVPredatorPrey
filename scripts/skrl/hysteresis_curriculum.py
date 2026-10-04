@@ -1169,6 +1169,31 @@ def _decide_phase(
     )
 
 
+def _enforce_catch_rate_band(
+    phase: str,
+    reason: str,
+    summary: dict[str, Any],
+    args: argparse.Namespace,
+) -> tuple[str, str]:
+    """Outside the hysteresis band, train only the role that is losing.
+
+    Plateau overrides and cross-play robustness rules may otherwise request a
+    joint or opposite-role phase while one role already dominates. The winning
+    role then has the denser learning signal, so co-training it widens the gap
+    instead of closing it.
+    """
+    catch_rate = _metric(summary, "Metrics/catch_rate")
+    if catch_rate < args.low and phase in {"prey", "both"}:
+        return "predator", (
+            f"{reason}; band guard: catch_rate={catch_rate:.3f} < {args.low:.3f} trains only the predator"
+        )
+    if catch_rate > args.high and phase in {"predator", "both"}:
+        return "prey", (
+            f"{reason}; band guard: catch_rate={catch_rate:.3f} > {args.high:.3f} trains only the prey"
+        )
+    return phase, reason
+
+
 def _freeze_args(phase: str) -> list[str]:
     if phase == "predator":
         return ["--freeze-agents", "prey"]
@@ -2114,6 +2139,8 @@ def main() -> None:
         else:
             phase, reason = _decide_phase(summary, args, cross_play_by_agent)
             phase_per_env_pool_prob = args.per_env_pool_prob
+        if safety_decision is None:
+            phase, reason = _enforce_catch_rate_band(phase, reason, summary, args)
         catch_rate = _metric(summary, "Metrics/catch_rate")
         prey_oob = _metric(summary, "Metrics/prey_oob_rate")
         predator_oob = _metric(summary, "Metrics/predator_oob_rate")

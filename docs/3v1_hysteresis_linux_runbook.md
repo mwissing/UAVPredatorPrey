@@ -32,6 +32,13 @@ training phase:
 - excessive OOB or soft-arena metrics override the catch-rate decision with a
   safety-repair phase.
 
+Promotion-failure plateau overrides and cross-play robustness rules may choose
+another phase inside the band. Outside the band they cannot train the winning
+role: a requested joint or opposite-role phase becomes a phase for the losing
+role, and `history.jsonl` records the band-guard reason. Training the winning
+role widens the gap; a July 19 joint phase at catch rate `0.371` left the
+predator unchanged while the prey pushed the catch rate to `0.035`.
+
 One MAPPO update consumes the configured rollout length. For the current agent,
 `100` curriculum iterations produce `2400` trainer timesteps because the
 rollout length is `24`.

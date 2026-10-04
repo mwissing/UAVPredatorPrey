@@ -10,11 +10,14 @@ import hysteresis_curriculum as curriculum
 from hysteresis_curriculum import (
     POOL_TYPE_ELITE,
     POOL_TYPE_RECENT,
+    _decide_phase,
     _default_isaaclab_launcher,
+    _enforce_catch_rate_band,
     _maybe_promote_to_pool,
     _pfsp_weight,
     _pool_entry_weight,
     _prepare_output_dir,
+    _promotion_failure_override,
     _prune_pool,
     _training_override_args,
     _write_run_config,
@@ -233,6 +236,92 @@ def test_pruning_keeps_best_elites_and_newest_recent_entry() -> None:
         "elite-mid",
         "recent-new",
     }
+
+
+def _band_args(**overrides):
+    values = {
+        "low": 0.40,
+        "high": 0.60,
+        "balanced_action": "both",
+        "per_env_pool_prob": 0.5,
+        "max_predator_oob": 0.12,
+        "max_prey_oob": 0.12,
+        "max_predator_soft": 0.3,
+        "max_prey_soft": 0.3,
+        "phase_decision_cross_play": True,
+        "phase_decision_cross_play_min_count": 2,
+        "auto_pool_predator_min_cross_play_avg_catch": 0.55,
+        "auto_pool_predator_min_cross_play_min_catch": 0.25,
+        "auto_pool_prey_max_cross_play_avg_catch": 0.5,
+        "auto_pool_prey_max_cross_play_max_catch": 0.8,
+        "promotion_failure_phase_continuation": True,
+        "promotion_failure_plateau_delta": 0.03,
+        "promotion_failure_max_stale_repeats": 2,
+        "promotion_failure_plateau_action": "both",
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _catch_summary(catch_rate: float) -> dict:
+    return {"episode_metrics": {"Metrics/catch_rate": catch_rate}}
+
+
+@pytest.mark.parametrize("requested", ["both", "prey"])
+def test_band_guard_trains_only_the_predator_below_the_band(requested: str) -> None:
+    phase, reason = _enforce_catch_rate_band(requested, "requested", _catch_summary(0.371), _band_args())
+
+    assert phase == "predator"
+    assert reason.startswith("requested; band guard")
+
+
+@pytest.mark.parametrize("requested", ["both", "predator"])
+def test_band_guard_trains_only_the_prey_above_the_band(requested: str) -> None:
+    phase, _ = _enforce_catch_rate_band(requested, "requested", _catch_summary(0.887), _band_args())
+
+    assert phase == "prey"
+
+
+@pytest.mark.parametrize(
+    ("requested", "catch_rate"),
+    [("both", 0.5), ("predator", 0.5), ("prey", 0.5), ("stop", 0.5), ("predator", 0.2), ("prey", 0.8)],
+)
+def test_band_guard_keeps_balanced_and_losing_role_decisions(requested: str, catch_rate: float) -> None:
+    result = _enforce_catch_rate_band(requested, "requested", _catch_summary(catch_rate), _band_args())
+
+    assert result == (requested, "requested")
+
+
+def test_plateau_override_below_the_band_keeps_training_the_predator() -> None:
+    # Mirrors the July 19 run: the second failed predator promotion without
+    # beating 0.570 requested a joint phase at catch rate 0.371.
+    args = _band_args()
+    override = _promotion_failure_override(
+        phase="predator",
+        summary=_catch_summary(0.371),
+        promotion={"promoted": False},
+        cross_play_aggregate=None,
+        retry_state={"predator": {"best_score": 0.570, "stale_repeats": 1}},
+        args=args,
+    )
+    assert override is not None and override["plateau"] and override["phase"] == "both"
+
+    phase, _ = _enforce_catch_rate_band(override["phase"], override["reason"], _catch_summary(0.371), args)
+
+    assert phase == "predator"
+
+
+def test_pool_robust_joint_decision_below_the_band_keeps_training_the_predator() -> None:
+    args = _band_args()
+    summary = _catch_summary(0.121)
+    cross_play = {
+        "predator": {"count": 3, "catch_avg": 0.8, "catch_min": 0.6, "catch_max": 1.0},
+        "prey": {"count": 3, "catch_avg": 0.3, "catch_min": 0.1, "catch_max": 0.5},
+    }
+    phase, reason = _decide_phase(summary, args, cross_play)
+    assert phase == "both"
+
+    assert _enforce_catch_rate_band(phase, reason, summary, args)[0] == "predator"
 
 
 def test_training_overrides_are_forwarded_as_named_train_arguments() -> None:
