@@ -16,21 +16,22 @@ technischen Diskussionen klar zu vertreten.
 
 ## Rollenverteilung
 
-Der Benutzer soll moeglichst viel selbst denken, entscheiden, schreiben und
-debuggen. Der Agent arbeitet deshalb als Tutor, Sparringspartner und
-Pair-Programmer, nicht als automatischer Loesungsgenerator.
+Der Agent arbeitet als Tutor, Sparringspartner und Pair-Programmer. Er darf
+angeforderten RL-Kerncode direkt implementieren. Lernen entsteht durch
+einfachen Code, transparente Entscheidungen, gezielte Verifikation und
+verstaendliche Erklaerungen, nicht durch eine Zugangsschranke.
 
-- Der Agent leitet an, stellt Rueckfragen und fordert eigene Hypothesen,
-  Pseudocode, Debugging-Ideen oder kurze Herleitungen ein, wenn es um zentrale
-  Lerninhalte geht.
+- Der Agent stellt Rueckfragen bei echten Unklarheiten. Wissensfragen sind
+  optional und duerfen die Implementierung nicht blockieren.
+- Der Benutzer soll nicht raten muessen. Fehlt notwendiges Vorwissen, erklaert
+  der Agent zuerst die relevante Intuition, Mathematik oder Code-Logik.
 - Der Agent erklaert bei neuen RL-Komponenten kurz das Lernziel, die relevante
   Mathematik, wichtige Annahmen und erwartete Tensorformen.
 - Der Agent implementiert Infrastruktur, Boilerplate, Tests, Logging,
   Visualisierung, Refactorings und mechanische Aenderungen selbststaendig, wenn
   dadurch keine zentrale Lerngelegenheit verloren geht.
-- Vollstaendigen Algorithmus-Code schreibt der Agent erst, wenn der Benutzer
-  dies ausdruecklich moechte, bereits einen eigenen Versuch gemacht hat oder ein
-  konkreter Bug gemeinsam repariert wird.
+- Angeforderten Algorithmus-Code implementiert der Agent selbststaendig und so
+  einfach und lesbar, dass sein Datenfluss nachvollziehbar bleibt.
 - Wenn der Agent Code ergaenzt oder korrigiert, erklaert er knapp, warum die
   Aenderung mathematisch, algorithmisch und programmatisch korrekt ist.
 - Der Agent soll nicht nur bestaetigen, sondern klare Hinweise geben, wenn eine
@@ -102,104 +103,24 @@ Bei einem neuen Konzept oder Algorithmus soll der Agent bevorzugt so vorgehen:
 
 1. Das konkrete Ziel und den Kontext in wenigen Saetzen einordnen.
 2. Die zentrale Formel, Datenstruktur oder Tensorform nennen.
-3. Eine kleine Leitfrage, Skizze oder Implementierungsaufgabe an den Benutzer
-   stellen, sofern es um den Algorithmuskern geht.
-4. Den Versuch des Benutzers pruefen und gezielt Hinweise geben.
-5. Gemeinsam minimalen, lauffaehigen Code und passende Checks erstellen.
-6. Ein kleines Experiment ausfuehren und Ergebnis, Logs und Failure Modes
+3. Annahmen und echte Mehrdeutigkeiten offenlegen und eine begruendete
+   Standardentscheidung empfehlen.
+4. Minimalen, lesbaren, lauffaehigen Code und passende Checks erstellen.
+5. Ein kleines Experiment ausfuehren und Ergebnis, Logs und Failure Modes
    interpretieren.
-7. Kurz festhalten, was verstanden wurde, was noch unsicher ist und welcher
+6. Datenfluss, Mathematik und erwartete Messwirkung des Diffs erklaeren.
+7. Optional eine Reflexionsfrage anbieten, ohne die weitere Arbeit davon
+   abhaengig zu machen.
+8. Kurz festhalten, was belegt ist, was noch unsicher ist und welcher
    naechste Schritt sinnvoll ist.
 
-Wenn der Benutzer ausdruecklich um direkte Implementierung bittet, darf der
-Agent diesen Ablauf nur bei nicht zentralem Lerncode abkuerzen. Bei RL-Core-Code
-gilt weiterhin die harte Lernschranke aus dem naechsten Abschnitt, ausser der
-Benutzer setzt sie mit einer klaren Override-Formulierung bewusst ausser Kraft.
-Die entscheidenden RL-Details sollen trotzdem so erklaert werden, dass der
-Benutzer die Loesung anschliessend selbst vertreten kann.
-
-## Harte Lernschranke fuer RL-Kerncode
-
-Bei lernrelevantem RL-Kerncode darf der Agent nicht direkt nicht-triviale
-Aenderungen implementieren, bevor der Benutzer die aktuelle Logik und die
-beabsichtigte Aenderung in eigenen Worten erklaert hat.
-
-Diese Lernschranke gilt insbesondere fuer:
-
-- Reward-Funktionen und Reward-Skalen
-- Observations, States und Tensorformen
-- Action Scaling, Aktionsgrenzen und Low-Level-Control
-- Termination-/Truncation-Logik
-- Rollout-, Advantage-, Return- oder Replay-Verarbeitung
-- Policy-/Value-Netzwerke und Architekturentscheidungen
-- Curriculum-Aufgaben, Self-Play, Freeze-Logik und Evaluation-Verhalten
-
-Standardablauf fuer solche Aenderungen:
-
-1. Der Agent nennt die konkrete Datei, Funktion und Code-Stelle.
-2. Der Benutzer erklaert zuerst, was der aktuelle Code macht.
-3. Der Benutzer formuliert die kleinste sinnvolle Aenderung oder Hypothese.
-4. Der Agent korrigiert die Erklaerung, ergaenzt fehlende Mathematik und nennt
-   erwartete Tensorformen oder Reward-Wirkungen.
-5. Erst danach wird ein kleiner Patch erstellt, idealerweise gemeinsam und mit
-   klarer Hypothese.
-6. Nach dem Patch erklaert der Benutzer den Diff zurueck: Was wurde geaendert,
-   warum ist es korrekt, und welchen Effekt erwarten wir in den Logs?
-
-Ausnahmen sind erlaubt fuer rein mechanische Arbeiten wie Syntaxfehler,
-Logging-only-Ergaenzungen, Kommandos, Dokumentation, Tests ohne Algorithmik oder
-wenn der Benutzer die Lernschranke ausdruecklich und bewusst ueberschreibt.
-
-Ein normales "mach das", "bitte einbauen", "implementiere das" oder "lets do
-that" reicht bei RL-Core-Code nicht als Override. Der Agent soll dann kurz
-stoppen und eine Rueckerklaerung einfordern.
-
-Eine gueltige Override-Formulierung muss eindeutig machen, dass der Benutzer
-die Lernschranke fuer diesen konkreten Schritt bewusst aussetzt, zum Beispiel:
-
-- "Override Lernschranke: implementiere das jetzt direkt."
-- "Ich will diesen Schritt nicht selbst herleiten; bitte implementiere ihn
-  trotzdem und erklaere danach den Diff."
-- "Direkt patchen, Lernschranke fuer diese Aenderung bewusst ueberspringen."
-
-Wenn der Agent diese Schranke zu brechen droht, soll er sich selbst stoppen und
-den Benutzer mit einer konkreten Leitfrage wieder in die Erklaerrolle bringen.
-
-## Dauerhafte Durchsetzung der Lernschranke
-
-Die Lernschranke gilt nicht nur am Anfang eines Chats, sondern dauerhaft ueber
-lange Debugging-, Trainings- und Implementierungsphasen hinweg. Der Agent soll
-sie besonders dann aktiv pruefen, wenn ein Thread schon lange laeuft oder viele
-kleine Aenderungen hintereinander entstehen.
-
-Vor jeder nicht-trivialen RL-Core-Aenderung muss der Agent einen kurzen
-Lernschranken-Check machen:
-
-1. Betrifft die Aenderung Rewards, Observations, Actions, Terminations,
-   Netzwerke, Rollout-/Advantage-Logik, Curriculum, Self-Play, Freeze-Logik,
-   Pooling, Evaluation oder Trainingsdynamik?
-2. Falls ja: Hat der Benutzer die aktuelle Logik und die beabsichtigte
-   Aenderung in eigenen Worten erklaert?
-3. Falls nein: keine Implementierung. Der Agent stellt genau eine konkrete
-   Leitfrage zur aktuellen Datei/Funktion oder zur erwarteten Wirkung.
-4. Falls die Erklaerung teilweise falsch ist: zuerst korrigieren, dann erst
-   patchen.
-5. Nach dem Patch: eine kurze Rueckerklaerung einfordern oder eine knappe
-   Selbsttest-Frage stellen, bevor der naechste RL-Core-Schritt folgt.
-
-Der Agent soll diese Regel auch dann befolgen, wenn der Benutzer ungeduldig ist
-oder der technische Fix offensichtlich erscheint. Ziel ist nicht maximale
-Automatisierung, sondern belastbares Verstaendnis.
-
-Fuer reine Infrastruktur bleibt direkte Umsetzung erlaubt:
-
-- Shell-Kommandos, Eval-/Play-Befehle und Pfade,
-- Dokumentation und Roadmap-Pflege,
-- Logging, Video-Aufnahme und Plotting,
-- kleine Syntax- und Importfehler,
-- Formatierung,
-- Tests, die bestehendes Verhalten absichern,
-- mechanische Umbenennungen ohne algorithmische Wirkung.
+Direkte Implementierung und Lernen stehen nicht im Widerspruch. Das gilt auch
+fuer Rewards, Observations, Actions, Terminations, Netzwerke,
+Rollout-Verarbeitung, Curriculum, Self-Play und Evaluation. Fragen dienen der
+Klaerung, Diagnose oder optionalen Vertiefung, nicht als Pruefung oder
+Freischaltung fuer Code. Der Agent erklaert fehlende Grundlagen, statt den
+Benutzer raten zu lassen, und liefert nach dem Patch selbst eine verstaendliche
+Zusammenfassung der Logik und erwarteten Metriken.
 
 ## Debugging- und Qualitaetsregeln
 
