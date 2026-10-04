@@ -251,6 +251,12 @@ training:    8192 environments, benchmark against 4096 first
 evaluation:   512 environments and 512 completed episodes
 ```
 
+The command keeps the archived training recipe of the reference anchor: FP32,
+learning rate `1e-5`, KL threshold `0.05`, the preset's `-2.0` log-std floor,
+and the legacy `low-progress-v0` reward. Add `--mixed-precision` only after an
+A/B run isolates its effect on learning. The July 17-19 Linux scratch lineage
+changed AMP together with the learning rate, log-std floor, and phase lengths.
+
 The complete proposed command is:
 
 ```bash
@@ -268,7 +274,6 @@ env -u DISPLAY -u XAUTHORITY \
   --both-phase-iterations 2400 \
   --learning-rate 1e-5 \
   --kl-threshold 0.05 \
-  --mixed-precision \
   --low 0.40 \
   --high 0.60 \
   --max-predator-oob 0.12 \
@@ -403,6 +408,12 @@ pool mixing, three checkpoint compositions, three 64-episode cross-play
 evaluations, PFSP metadata updates, recent-pool rotation, and three 1280x720
 videos with explicit `--no-video-markers`. The run finalized normally after
 300 updates.
+
+On 2026-10-04, commit `ec2d939` reran the one-phase smoke from section 4
+without `--mixed-precision`, matching the archived anchor recipe. Its start
+and phase-1 evaluations (`0.6484375` and `0.6015625`) reproduced the July 12
+episode metrics and all 28 per-step reward terms bit-exactly. The restored
+configuration therefore trains exactly like the validated July 12 state.
 
 The interruption procedure was also validated. `Ctrl-C` during phase 2 returned
 status `130`; the completed phase-1 evaluation and checkpoint remained valid,
