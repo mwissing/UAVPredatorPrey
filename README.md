@@ -191,6 +191,25 @@ The JAX comparator binds this oracle and the imported policy to the same source
 checkpoint SHA before comparing normalizers, actor outputs, critic outputs,
 and nonzero recurrent states.
 
+For a checkpoint produced locally in the pinned Linux container, use transfer
+v1 instead of modifying or imitating the immutable Windows migration bundle:
+
+```bash
+/workspace/isaaclab/isaaclab.sh -p \
+  scripts/jax/export_skrl_policy_transfer_v1.py \
+  --checkpoint /workspace/path/to/agent.pt \
+  --expected-checkpoint-sha256 <sha256> \
+  --output \
+    /workspace/artifacts/transfer/skrl_policy_transfer_v1/<transfer-name>
+```
+
+Transfer v1 requires the exact checkpoint SHA-256 before deserialization,
+reuses the verified descriptor for `torch.load(..., weights_only=True)`, and
+records the resolved checkpoint path, size, and actual Python/PyTorch/skrl
+runtime. Its 112 inference tensors and layouts are unchanged from transfer v0;
+only the provenance envelope differs. Import it with the sibling JAX
+repository's `import_skrl_policy_transfer_v1.py` command.
+
 This boundary reproduces clean-boundary inference, not an exact training
 resume. The migrated `.pt` has no environment, rollout, RNG, or GRU carry
 state, and its frozen prey role has no optimizer. JAX fine-tuning therefore
