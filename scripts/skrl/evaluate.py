@@ -12,6 +12,8 @@ import sys
 
 from isaaclab.app import AppLauncher
 
+from isaac_startup import exclude_isaac_telemetry
+
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Evaluate a checkpoint of an RL agent from skrl.")
 parser.add_argument(
@@ -90,6 +92,7 @@ parser.add_argument(
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli, hydra_args = parser.parse_known_args()
+args_cli.kit_args = exclude_isaac_telemetry(args_cli.kit_args)
 
 # clear out sys.argv for Hydra
 sys.argv = [sys.argv[0]] + hydra_args

@@ -17,6 +17,8 @@ import sys
 
 from isaaclab.app import AppLauncher
 
+from isaac_startup import exclude_isaac_telemetry
+
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with skrl.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
@@ -136,6 +138,7 @@ parser.add_argument(
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli, hydra_args = parser.parse_known_args()
+args_cli.kit_args = exclude_isaac_telemetry(args_cli.kit_args)
 # always enable cameras to record video
 if args_cli.video:
     args_cli.enable_cameras = True
