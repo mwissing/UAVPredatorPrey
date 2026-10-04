@@ -122,6 +122,7 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
 
     # Action/velocity penalties (prevent wild oscillations)
     lin_vel_penalty = -0.05
+    predator_lin_vel_penalty_free_speed = 0.0  # [m/s], zero preserves legacy behavior
     ang_vel_penalty = -0.01              # legacy default; kept for older configs/tools
     predator_ang_vel_penalty = -0.01
     prey_ang_vel_penalty = -0.03
@@ -291,6 +292,15 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressEnvCfg(
     """Late-stage ablation with weaker direct-pursuit shaping."""
 
     predator_distance_progress_reward_scale = 2.0
+
+
+@configclass
+class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressSpeedMarginEnvCfg(
+    Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressEnvCfg
+):
+    """Low-progress variant that leaves predator speeds up to 6 m/s unpenalized."""
+
+    predator_lin_vel_penalty_free_speed = 6.0  # [m/s]
 
 
 @configclass

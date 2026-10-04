@@ -20,6 +20,8 @@ CFG_CLASS = "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnPhysics50HzEnvCfg"
 TASK_ID = "3v1-survival-soft-oob-teammate-vel-random-spawn-50hz-physics-v0"
 LOW_PROGRESS_CFG_CLASS = "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressEnvCfg"
 LOW_PROGRESS_TASK_ID = "3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-v0"
+SPEED_MARGIN_CFG_CLASS = "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressSpeedMarginEnvCfg"
+SPEED_MARGIN_TASK_ID = "3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-speed-margin-v0"
 
 
 def _class_node(module: ast.Module, name: str) -> ast.ClassDef:
@@ -97,3 +99,23 @@ def test_low_progress_task_is_registered_separately() -> None:
 
     assert LOW_PROGRESS_TASK_ID in init_source
     assert LOW_PROGRESS_CFG_CLASS in init_source
+
+
+def test_speed_margin_task_changes_only_the_predator_free_speed_of_low_progress() -> None:
+    module = ast.parse(CFG_PATH.read_text(encoding="utf-8"))
+    class_node = _class_node(module, SPEED_MARGIN_CFG_CLASS)
+
+    assert len(class_node.bases) == 1
+    assert _attribute_path(class_node.bases[0]) == (LOW_PROGRESS_CFG_CLASS,)
+
+    assignments = [node for node in class_node.body if isinstance(node, (ast.Assign, ast.AnnAssign))]
+    assert len(assignments) == 1
+    free_speed = _assignment_value(class_node, "predator_lin_vel_penalty_free_speed")
+    assert isinstance(free_speed, ast.Constant) and free_speed.value == 6.0
+
+
+def test_speed_margin_task_is_registered_separately() -> None:
+    init_source = INIT_PATH.read_text(encoding="utf-8")
+
+    assert SPEED_MARGIN_TASK_ID in init_source
+    assert SPEED_MARGIN_CFG_CLASS in init_source

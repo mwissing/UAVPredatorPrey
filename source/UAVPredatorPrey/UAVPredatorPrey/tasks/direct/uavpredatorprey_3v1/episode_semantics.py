@@ -1,8 +1,22 @@
-"""Pure tensor helpers for 3v1 crash rewards and episode termination."""
+"""Pure tensor helpers for 3v1 rewards and episode termination."""
 
 from __future__ import annotations
 
 import torch
+
+
+def shifted_squared_speed_penalty(
+    speed_squared: torch.Tensor,
+    *,
+    free_speed: float,
+    penalty_scale: float,
+    dt: float,
+) -> torch.Tensor:
+    """Penalize squared speed only above a free-speed margin in m/s."""
+    if free_speed < 0.0:
+        raise ValueError("free_speed must be non-negative")
+    penalized_speed_squared = torch.clamp(speed_squared - float(free_speed) ** 2, min=0.0)
+    return penalized_speed_squared * float(penalty_scale) * float(dt)
 
 
 def predator_crash_event_penalty(

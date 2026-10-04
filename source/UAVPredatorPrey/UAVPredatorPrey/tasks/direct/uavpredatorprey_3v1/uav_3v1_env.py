@@ -13,7 +13,7 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import DirectMARLEnv
 from isaaclab.utils.math import subtract_frame_transforms
 
-from .episode_semantics import all_predators_inactive, predator_crash_event_penalty
+from .episode_semantics import all_predators_inactive, predator_crash_event_penalty, shifted_squared_speed_penalty
 from .motion_diagnostics import compute_motion_diagnostics
 from .uav_3v1_env_cfg import Uav3v1EnvCfg
 
@@ -521,7 +521,12 @@ class Uav3v1Env(DirectMARLEnv):
         upright = (-pred_grav_z) * self.cfg.upright_reward_scale * dt * pred_alive_reward_mask
         pred_low_height_err = torch.clamp(self.cfg.target_height - self._pred_pos_rel[:, :, 2].t(), min=0.0)  # (P, N)
         height = torch.square(pred_low_height_err) * self.cfg.height_penalty_scale * dt * pred_alive_reward_mask
-        lin_vel = pred_lin_vel_sq * self.cfg.lin_vel_penalty * dt * pred_alive_reward_mask
+        lin_vel = shifted_squared_speed_penalty(
+            pred_lin_vel_sq,
+            free_speed=self.cfg.predator_lin_vel_penalty_free_speed,
+            penalty_scale=self.cfg.lin_vel_penalty,
+            dt=dt,
+        ) * pred_alive_reward_mask
         ang_vel = pred_ang_vel_sq * self.cfg.predator_ang_vel_penalty * dt * pred_alive_reward_mask
         action_pen = (
             torch.sum(torch.square(self._pred_actions), dim=2).t()
