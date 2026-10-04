@@ -126,6 +126,11 @@ enabled.
 This isolates the scheduler, freeze logic, checkpoint discovery, and post-phase
 evaluation. It intentionally disables pool sampling and video.
 
+Pass `--mixed-precision` to enable PyTorch automatic mixed precision in every
+training phase. Deterministic evaluation remains in its normal FP32 mode, and
+the resolved setting is recorded in `run_config.json`. This option is unrelated
+to the skrl algorithm named `AMP`.
+
 ```bash
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_one_phase_100_seed42"
 OUTPUT_DIR="/workspace/artifacts/isaac/curriculum_smoke/${RUN_ID}"
@@ -141,6 +146,7 @@ env -u DISPLAY -u XAUTHORITY \
   --both-phase-iterations 100 \
   --learning-rate 1e-5 \
   --kl-threshold 0.05 \
+  --mixed-precision \
   --low 0.40 \
   --high 0.60 \
   --max-predator-oob 0.12 \
@@ -162,6 +168,7 @@ A successful smoke has:
 - one decision record in `history.jsonl` with
   `actual_phase_iterations: 100`;
 - a new `agent_2400.pt` checkpoint under the host-mounted SKRL log tree;
+- the phase run's `params/agent.yaml` containing `mixed_precision: true`;
 - `phase_001_after_eval.json` with exactly 128 completed episodes;
 - no frozen-agent fingerprint error;
 - `final_checkpoint.txt` pointing to the new checkpoint.
@@ -190,6 +197,7 @@ env -u DISPLAY -u XAUTHORITY \
   --both-phase-iterations 100 \
   --learning-rate 1e-5 \
   --kl-threshold 0.05 \
+  --mixed-precision \
   --low 0.40 \
   --high 0.60 \
   --max-predator-oob 0.12 \
@@ -253,6 +261,7 @@ env -u DISPLAY -u XAUTHORITY \
   --both-phase-iterations 2400 \
   --learning-rate 1e-5 \
   --kl-threshold 0.05 \
+  --mixed-precision \
   --low 0.40 \
   --high 0.60 \
   --max-predator-oob 0.12 \

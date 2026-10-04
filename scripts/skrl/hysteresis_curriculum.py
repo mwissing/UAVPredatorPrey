@@ -1187,6 +1187,8 @@ def _training_override_args(args: argparse.Namespace) -> list[str]:
         command.extend(["--learning-rate", str(args.learning_rate)])
     if args.kl_threshold is not None:
         command.extend(["--kl-threshold", str(args.kl_threshold)])
+    if args.mixed_precision:
+        command.append("+agent.agent.mixed_precision=true")
     return command
 
 
@@ -1533,6 +1535,14 @@ def main() -> None:
         type=float,
         default=None,
         help="Optional PPO minibatch KL early-stop threshold forwarded to every train.py phase.",
+    )
+    parser.add_argument(
+        "--mixed-precision",
+        action="store_true",
+        help=(
+            "Enable PyTorch automatic mixed precision in every train.py phase. "
+            "This is unrelated to the skrl AMP algorithm."
+        ),
     )
     parser.add_argument("--low", type=float, default=0.40, help="Train predator below this catch-rate.")
     parser.add_argument("--high", type=float, default=0.60, help="Train prey above this catch-rate.")
