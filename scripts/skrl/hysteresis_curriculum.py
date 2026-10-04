@@ -1267,6 +1267,10 @@ def _train_phase(
     frozen_source_checkpoint: Path | None = None,
     per_env_pool_prob: float | None = None,
 ) -> Path:
+    # A fresh artifact/log mount may exist without the framework-specific
+    # subdirectory yet. Training owns this run root, so initialize it before
+    # taking the snapshot used to discover the newly created SKRL run.
+    args.run_root.mkdir(parents=True, exist_ok=True)
     before = {path for path in args.run_root.iterdir() if path.is_dir()}
     command = [
         str(args.isaaclab),

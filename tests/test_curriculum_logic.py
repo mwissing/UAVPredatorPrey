@@ -255,6 +255,7 @@ def test_training_overrides_are_omitted_by_default() -> None:
 def test_train_phase_forwards_overrides_before_greedy_freeze_argument(tmp_path, monkeypatch) -> None:
     checkpoint = tmp_path / "agent_100.pt"
     checkpoint.touch()
+    run_root = tmp_path / "missing-run-root"
     captured_commands = []
 
     def capture_command(command, **_kwargs) -> None:
@@ -262,7 +263,7 @@ def test_train_phase_forwards_overrides_before_greedy_freeze_argument(tmp_path, 
 
     monkeypatch.setattr(curriculum, "_run", capture_command)
     args = SimpleNamespace(
-        run_root=tmp_path,
+        run_root=run_root,
         isaaclab=tmp_path / "isaaclab.bat",
         task="test-task-v0",
         agent="test-agent-entry-point",
@@ -287,6 +288,7 @@ def test_train_phase_forwards_overrides_before_greedy_freeze_argument(tmp_path, 
     )
 
     assert result == checkpoint
+    assert run_root.is_dir()
     assert len(captured_commands) == 1
     command = captured_commands[0]
     assert command[command.index("--learning-rate") + 1] == "1e-05"
