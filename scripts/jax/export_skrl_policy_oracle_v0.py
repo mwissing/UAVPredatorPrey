@@ -302,8 +302,8 @@ def _require_exact_state_dict(
         if not bool(torch.isfinite(value).all()):
             raise ValueError(f"{label}.{name} contains a non-finite value")
     log_std = state.get("log_std_parameter")
-    if log_std is not None and not bool(((log_std >= -2.0) & (log_std <= 0.0)).all()):
-        raise ValueError(f"{label}.log_std_parameter is outside [-2, 0]")
+    if log_std is not None and not bool(((log_std >= -3.0) & (log_std <= 0.0)).all()):
+        raise ValueError(f"{label}.log_std_parameter is outside [-3, 0]")
 
     model.load_state_dict(state, strict=True)
     model.eval()
@@ -324,7 +324,7 @@ def _models(module: Any, checkpoint_state: Mapping[str, Any]):
         "prey_attention_min_predators": 2,
         "clip_actions": False,
         "clip_log_std": True,
-        "min_log_std": -2.0,
+        "min_log_std": -3.0,
         "max_log_std": 0.0,
         "initial_log_std": -0.5,
         "reduction": "sum",
