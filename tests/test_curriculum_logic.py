@@ -269,17 +269,21 @@ def _catch_summary(catch_rate: float) -> dict:
 
 @pytest.mark.parametrize("requested", ["both", "prey"])
 def test_band_guard_trains_only_the_predator_below_the_band(requested: str) -> None:
-    phase, reason = _enforce_catch_rate_band(requested, "requested", _catch_summary(0.371), _band_args())
+    phase, reason, pool_prob = _enforce_catch_rate_band(
+        requested, "requested", 0.25, _catch_summary(0.371), _band_args()
+    )
 
     assert phase == "predator"
     assert reason.startswith("requested; band guard")
+    assert pool_prob == 0.5
 
 
 @pytest.mark.parametrize("requested", ["both", "predator"])
 def test_band_guard_trains_only_the_prey_above_the_band(requested: str) -> None:
-    phase, _ = _enforce_catch_rate_band(requested, "requested", _catch_summary(0.887), _band_args())
+    phase, _, pool_prob = _enforce_catch_rate_band(requested, "requested", 0.75, _catch_summary(0.887), _band_args())
 
     assert phase == "prey"
+    assert pool_prob == 0.5
 
 
 @pytest.mark.parametrize(
@@ -287,9 +291,9 @@ def test_band_guard_trains_only_the_prey_above_the_band(requested: str) -> None:
     [("both", 0.5), ("predator", 0.5), ("prey", 0.5), ("stop", 0.5), ("predator", 0.2), ("prey", 0.8)],
 )
 def test_band_guard_keeps_balanced_and_losing_role_decisions(requested: str, catch_rate: float) -> None:
-    result = _enforce_catch_rate_band(requested, "requested", _catch_summary(catch_rate), _band_args())
+    result = _enforce_catch_rate_band(requested, "requested", 0.25, _catch_summary(catch_rate), _band_args())
 
-    assert result == (requested, "requested")
+    assert result == (requested, "requested", 0.25)
 
 
 def test_plateau_override_below_the_band_keeps_training_the_predator() -> None:
@@ -306,9 +310,33 @@ def test_plateau_override_below_the_band_keeps_training_the_predator() -> None:
     )
     assert override is not None and override["plateau"] and override["phase"] == "both"
 
-    phase, _ = _enforce_catch_rate_band(override["phase"], override["reason"], _catch_summary(0.371), args)
+    phase, _, _ = _enforce_catch_rate_band(
+        override["phase"], override["reason"], override["per_env_pool_prob"], _catch_summary(0.371), args
+    )
 
     assert phase == "predator"
+
+
+def test_band_guard_resets_pool_exposure_chosen_for_the_other_role() -> None:
+    # 2026-10-05: a latest-focused prey repeat (pool prob 0.25, from the prey's
+    # cross-play robustness) became a predator phase at catch rate 0.285.
+    args = _band_args()
+    override = _promotion_failure_override(
+        phase="prey",
+        summary=_catch_summary(0.285),
+        promotion={"promoted": False},
+        cross_play_aggregate={"count": 2, "catch_avg": 0.201, "catch_min": 0.176, "catch_max": 0.227},
+        retry_state={},
+        args=_band_args(latest_focus_per_env_pool_prob=0.25, pool_focus_per_env_pool_prob=0.75),
+    )
+    assert override is not None and override["phase"] == "prey" and override["per_env_pool_prob"] == 0.25
+
+    phase, _, pool_prob = _enforce_catch_rate_band(
+        override["phase"], override["reason"], override["per_env_pool_prob"], _catch_summary(0.285), args
+    )
+
+    assert phase == "predator"
+    assert pool_prob == args.per_env_pool_prob
 
 
 def test_pool_robust_joint_decision_below_the_band_keeps_training_the_predator() -> None:
@@ -321,7 +349,7 @@ def test_pool_robust_joint_decision_below_the_band_keeps_training_the_predator()
     phase, reason = _decide_phase(summary, args, cross_play)
     assert phase == "both"
 
-    assert _enforce_catch_rate_band(phase, reason, summary, args)[0] == "predator"
+    assert _enforce_catch_rate_band(phase, reason, 0.5, summary, args)[0] == "predator"
 
 
 def test_training_overrides_are_forwarded_as_named_train_arguments() -> None:
