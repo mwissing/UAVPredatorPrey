@@ -39,6 +39,14 @@ role, and `history.jsonl` records the band-guard reason. Training the winning
 role widens the gap; a July 19 joint phase at catch rate `0.371` left the
 predator unchanged while the prey pushed the catch rate to `0.035`.
 
+`--balanced-action toward_center` avoids joint phases altogether. Inside the
+band it trains only the role below the band center (catch rate below `0.50`
+trains the predator). It also replaces joint phases requested by plateau
+overrides or cross-play rules. Joint phases cannot use per-env pool opponents,
+because those need one frozen role, and they skip the cross-play that
+refreshes the PFSP pool weights. During eight consecutive joint phases in
+October 2026, the predator lost much of its skill against older prey.
+
 One MAPPO update consumes the configured rollout length. For the current agent,
 `100` curriculum iterations produce `2400` trainer timesteps because the
 rollout length is `24`.

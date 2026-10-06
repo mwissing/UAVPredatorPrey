@@ -1164,9 +1164,48 @@ def _decide_phase(
         return "predator", f"prey too strong: catch_rate={catch_rate:.3f} < {args.low:.3f}"
     if catch_rate > args.high:
         return "prey", f"predator too strong: catch_rate={catch_rate:.3f} > {args.high:.3f}"
+    if args.balanced_action == "toward_center":
+        role = _band_center_role(catch_rate, args)
+        return role, (
+            f"balanced catch-rate band: {args.low:.3f} <= {catch_rate:.3f} <= {args.high:.3f}; "
+            f"training the {role} toward the band center {_band_center(args):.3f}"
+        )
     return args.balanced_action, (
         f"balanced catch-rate band: {args.low:.3f} <= {catch_rate:.3f} <= {args.high:.3f}"
     )
+
+
+def _band_center(args: argparse.Namespace) -> float:
+    return 0.5 * (float(args.low) + float(args.high))
+
+
+def _band_center_role(catch_rate: float, args: argparse.Namespace) -> str:
+    """Return the role that is losing relative to the band center."""
+    return "predator" if catch_rate < _band_center(args) else "prey"
+
+
+def _replace_joint_phase(
+    phase: str,
+    reason: str,
+    per_env_pool_prob: float,
+    summary: dict[str, Any],
+    args: argparse.Namespace,
+) -> tuple[str, str, float]:
+    """With --balanced-action toward_center, never train both roles at once.
+
+    Joint phases train each role only against the other: per-env pool
+    opponents need one frozen role, and cross-play, which refreshes the PFSP
+    pool weights, only follows single-role phases. Training the role below the
+    band center instead keeps pool rehearsal and weight refresh active.
+    """
+    if phase != "both" or args.balanced_action != "toward_center":
+        return phase, reason, per_env_pool_prob
+    catch_rate = _metric(summary, "Metrics/catch_rate")
+    role = _band_center_role(catch_rate, args)
+    return role, (
+        f"{reason}; joint phase replaced: catch_rate={catch_rate:.3f} vs band center "
+        f"{_band_center(args):.3f} trains only the {role}"
+    ), float(args.per_env_pool_prob)
 
 
 def _enforce_catch_rate_band(
@@ -1576,9 +1615,13 @@ def main() -> None:
     parser.add_argument("--high", type=float, default=0.60, help="Train prey above this catch-rate.")
     parser.add_argument(
         "--balanced-action",
-        choices=("both", "stop"),
+        choices=("both", "stop", "toward_center"),
         default="both",
-        help="Action when catch-rate is inside the hysteresis band.",
+        help=(
+            "Action when catch-rate is inside the hysteresis band. toward_center trains only the role below "
+            "the band center and also replaces joint phases requested by other rules, so every phase keeps "
+            "per-env pool opponents and cross-play weight refresh."
+        ),
     )
     parser.add_argument("--max-prey-oob", type=float, default=0.08, help="Force prey safety training above this OOB rate.")
     parser.add_argument(
@@ -2144,6 +2187,9 @@ def main() -> None:
             phase_per_env_pool_prob = args.per_env_pool_prob
         if safety_decision is None:
             phase, reason, phase_per_env_pool_prob = _enforce_catch_rate_band(
+                phase, reason, phase_per_env_pool_prob, summary, args
+            )
+            phase, reason, phase_per_env_pool_prob = _replace_joint_phase(
                 phase, reason, phase_per_env_pool_prob, summary, args
             )
         catch_rate = _metric(summary, "Metrics/catch_rate")

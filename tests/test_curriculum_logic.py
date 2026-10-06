@@ -19,6 +19,7 @@ from hysteresis_curriculum import (
     _prepare_output_dir,
     _promotion_failure_override,
     _prune_pool,
+    _replace_joint_phase,
     _training_override_args,
     _write_run_config,
 )
@@ -350,6 +351,49 @@ def test_pool_robust_joint_decision_below_the_band_keeps_training_the_predator()
     assert phase == "both"
 
     assert _enforce_catch_rate_band(phase, reason, 0.5, summary, args)[0] == "predator"
+
+
+@pytest.mark.parametrize(("catch_rate", "role"), [(0.45, "predator"), (0.55, "prey")])
+def test_toward_center_trains_the_role_below_the_band_center(catch_rate: float, role: str) -> None:
+    phase, reason = _decide_phase(_catch_summary(catch_rate), _band_args(balanced_action="toward_center"), {})
+
+    assert phase == role
+    assert "band center 0.500" in reason
+
+
+@pytest.mark.parametrize(("catch_rate", "role"), [(0.43, "predator"), (0.59, "prey")])
+def test_toward_center_replaces_requested_joint_phases_and_resets_pool_exposure(catch_rate: float, role: str) -> None:
+    args = _band_args(balanced_action="toward_center")
+
+    phase, reason, pool_prob = _replace_joint_phase("both", "plateau", 0.25, _catch_summary(catch_rate), args)
+
+    assert phase == role
+    assert reason.startswith("plateau; joint phase replaced")
+    assert pool_prob == args.per_env_pool_prob
+
+
+def test_pool_robust_joint_decision_inside_the_band_becomes_a_single_role_phase() -> None:
+    args = _band_args(balanced_action="toward_center")
+    summary = _catch_summary(0.47)
+    cross_play = {
+        "predator": {"count": 3, "catch_avg": 0.8, "catch_min": 0.6, "catch_max": 1.0},
+        "prey": {"count": 3, "catch_avg": 0.3, "catch_min": 0.1, "catch_max": 0.5},
+    }
+    phase, reason = _decide_phase(summary, args, cross_play)
+    assert phase == "both"
+
+    assert _replace_joint_phase(phase, reason, 0.5, summary, args)[0] == "predator"
+
+
+@pytest.mark.parametrize(("balanced_action", "phase"), [("both", "both"), ("toward_center", "prey")])
+def test_joint_phase_replacement_keeps_other_decisions(balanced_action: str, phase: str) -> None:
+    args = _band_args(balanced_action=balanced_action)
+
+    assert _replace_joint_phase(phase, "requested", 0.25, _catch_summary(0.45), args) == (
+        phase,
+        "requested",
+        0.25,
+    )
 
 
 def test_training_overrides_are_forwarded_as_named_train_arguments() -> None:
