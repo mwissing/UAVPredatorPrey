@@ -137,3 +137,24 @@ are those of the predator (higher = better predator, lower = better prey).
   missing opponent pool and the shared prey lineage. Without rehearsal the
   reference-prey mean fell to 0.570.
 - Evidence: `artifacts/isaac/experiments/2026-10-07_prey_agility_curriculum/`.
+
+## 2026-10-07: Training-seed noise floor
+
+- Question: how much do results move when the same training run is repeated
+  with another seed?
+- Design: arm A of the shaping A/B (seed 42) retrained with seeds 43 and 44;
+  identical configuration and evaluation.
+- Result: SD of a single run is 0.027 on the own matchup (seeds: 0.533, 0.567,
+  0.587), 0.003 on the reference mean, 0.015 on the held-out mean, 0.016 on
+  wall enclosure, and 0.009 on the lead index.
+- Re-check: all pre-registered decisions stand. The held-out losses of the
+  shaping and exploration-floor treatments are real (z -2.0 and -3.1). The
+  exploration floor's own-matchup gain is within noise (z +1.2). The agility
+  transfer gain is borderline (z +2.3) and confounded.
+- Lessons: seed 42 was the lowest of the three on the own matchup, so compare
+  against multi-seed control means. A/B margins must be at least 0.08 on the
+  own matchup (or use 3 seeds per arm). Forgetting of the old reference prey is
+  systematic (0.878 -> 0.803 in all seeds, SD 0.003), so the 50% pool with
+  PFSP weight floor 0.1 does not protect them.
+- Evidence: `artifacts/isaac/experiments/2026-10-07_training_seed_noise/`.
+

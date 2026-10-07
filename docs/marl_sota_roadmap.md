@@ -75,7 +75,11 @@ Each rule was learned from a concrete failure or near miss in this project.
   intervention that is supposed to produce it. On 2026-10-07 an intuitive
   encirclement metric turned out to be misleading in 3D (see Metrics).
 - **Pre-registered A/Bs.** Write the decision rule before training. Margins
-  must exceed the training-seed noise, not only the evaluation noise.
+  must exceed the training-seed noise, not only the evaluation noise. Measured
+  2026-10-07 (predator, 2400 updates): own matchup SD 0.027 per run, so use a
+  margin of at least 0.08 or 3 seeds per arm, and compare against multi-seed
+  control means. Reference mean 0.01, held-out mean 0.045, wall enclosure
+  0.045.
 - **No strategy-encoding rewards.** Coordination such as cornering or
   encirclement must emerge from the task, physics, opponents, and curriculum.
   Reward terms that pay for a specific strategy are out of scope.
@@ -132,8 +136,8 @@ Current bottlenecks, in order:
 
 1. Emergent coordination (cornering against boundaries) is rare.
 2. Forgetting and non-transitivity in self-play.
-3. The training-seed noise floor is unknown, which limits how small an effect
-   an A/B can resolve.
+3. Small effects need several seeds: one predator run varies by SD 0.027 on
+   its own matchup.
 
 No longer bottlenecks: basic flight and pursuit capability, evaluation
 correctness, and reproducibility.
@@ -281,8 +285,10 @@ and videos showing pursuit and evasion rather than only instant catches.
 
 ### Decision Point Before Stage 8
 
-1. **Training-seed noise floor.** Replicate one standard 2400-update arm with
-   two more seeds. Its spread sets the minimum effect an A/B can resolve.
+1. **Training-seed noise floor (done 2026-10-07).** The own-matchup SD is
+   0.027 per run; the reference mean is very stable (SD 0.003). Forgetting of
+   the old reference prey under a 50% pool with weight floor 0.1 is
+   systematic.
 2. **Action interface (decided 2026-10-07: CTBR).** Body moments make the
    policy do attitude control itself: the predators are tilted beyond 45 deg
    about 31% of the time. Body rates with a rate controller are the standard
@@ -433,7 +439,7 @@ These components are interesting, but they wait for a measured bottleneck.
 | 9 | Value-target diagnostics | done; raw return scale, explained variance, and normalizer std in TensorBoard (77ca941) |
 | 10 | Value normalizer policy | open; statistics frozen at an old scale. Keep them fixed; a PopArt-style recalibration needs its own A/B |
 | 11 | Evaluation policy vs training policy | open; deterministic evaluation of a stochastic policy (prey std about 0.45) tests a different policy. Add stochastic evaluation as a second view |
-| 12 | Training-seed noise floor | open; needed to size A/B margins |
+| 12 | Training-seed noise floor | done for the predator role (3 seeds, 2026-10-07); the prey role is not yet measured |
 
 Acceptance rule: no long league run unless the regression suite passes and the
 runbook smoke reproduces bit-exactly. Behavior-changing fixes go through
@@ -610,7 +616,7 @@ controlled A/Bs. Record throughput before and after changes to the update path.
 
 1. Prey agility curriculum: done; no coordination gain, better individual
    interception (see the experiment log).
-2. Measure the training-seed noise floor.
+2. Training-seed noise floor: done (see the experiment log).
 3. Keep the current simulation for behavior research. CTBR and FPV-class
    dynamics come later as one deployment migration (see the plan).
 4. Run a long self-play phase with the 2026-10-07 fixes and lock anchor v3
