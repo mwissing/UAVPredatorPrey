@@ -352,6 +352,21 @@ That container path is mounted from `$HOME/RL/artifacts/isaac/logs` on the
 host. Evaluation and curriculum summaries are mounted under
 `$HOME/RL/artifacts/isaac/`.
 
+Each trained role also logs its value targets in raw reward units:
+`Diagnostics / Raw return mean|std (<role>)`,
+`Diagnostics / Value explained variance (<role>)` (`1 - Var(R - V) / Var(R)` on
+the rollout predictions), and `Diagnostics / Value normalizer std (<role>)`.
+Read these instead of `Loss / Value loss`, which is in normalized units and
+uninformative here. The anchor checkpoints' cumulative value normalizers have
+absorbed about 1e11 samples and no longer adapt. Their std is about 14,300
+for the prey and 634 for the predator, while the raw return std is about 45
+and 31, so the normalized targets have a std of only 0.003 and 0.05. An
+explained variance of 0.7-0.9 shows that the critics fit nonetheless
+(`artifacts/isaac/experiments/2026-10-07_value_normalizer_calibration/`).
+Adam takes roughly fixed-size steps in normalized units, so these statistics
+act as a hidden multiplier on the critic's effective learning rate. Keep them
+unchanged when comparing runs.
+
 To retain console output without placing a file in the scheduler directory
 before startup, enable pipeline failure propagation and write a sibling log:
 
@@ -437,6 +452,12 @@ without `--mixed-precision`, matching the archived anchor recipe. Its start
 and phase-1 evaluations (`0.6484375` and `0.6015625`) reproduced the July 12
 episode metrics and all 28 per-step reward terms bit-exactly. The restored
 configuration therefore trains exactly like the validated July 12 state.
+
+On 2026-10-07, commit `77ca941`, which added the raw value-target diagnostics,
+reran the same smoke. Its start and phase-1 evaluations and all 134 training
+scalars logged by the 2026-10-04 phase run matched bit-exactly at every step.
+The only new tags are the four diagnostics, so the logging does not change
+learning.
 
 The interruption procedure was also validated. `Ctrl-C` during phase 2 returned
 status `130`; the completed phase-1 evaluation and checkpoint remained valid,
