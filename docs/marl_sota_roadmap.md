@@ -287,8 +287,10 @@ and videos showing pursuit and evasion rather than only instant catches.
    policy do attitude control itself: the predators are tilted beyond 45 deg
    about 31% of the time. Body rates with a rate controller are the standard
    for agile quadrotor RL and sim-to-real (OPEN, Swift), and they are what an
-   MPC layer would build on. The change invalidates every checkpoint; the
-   plan proposes a behavior-cloning warm start from anchor v2
+   MPC layer would build on. The target is a well-motorized FPV quad. Every
+   realism change invalidates all checkpoints, so CTBR, FPV-class dynamics,
+   latency, and an optional motor model come together as one deployment
+   migration, after the behavior research in the current simulation
    ([`ctbr_action_interface_plan.md`](ctbr_action_interface_plan.md)).
 3. **Coordination (answered 2026-10-07).** The prey agility curriculum did
    not create cornering in the empty arena, so look for coordination where
@@ -609,8 +611,8 @@ controlled A/Bs. Record throughput before and after changes to the update path.
 1. Prey agility curriculum: done; no coordination gain, better individual
    interception (see the experiment log).
 2. Measure the training-seed noise floor.
-3. Implement and validate the CTBR interface (controller tests, hover
-   smoke), then a behavior-cloning or scratch pilot.
+3. Keep the current simulation for behavior research. CTBR and FPV-class
+   dynamics come later as one deployment migration (see the plan).
 4. Run a long self-play phase with the 2026-10-07 fixes and lock anchor v3
    with the full Stage 7 evidence.
 5. Add obstacles as entities (Stage 8) with obstacle-aware strategy metrics.

@@ -2,7 +2,16 @@
 
 Status: proposal (2026-10-07), nothing implemented yet. Decision: the policies
 should use an interface that real flight controllers accept, so that a later
-deployment on real quadrotors is possible.
+deployment on real quadrotors is possible. The target platform is a
+well-motorized FPV quadrotor (larger than a Crazyflie, Betaflight-style rate
+control).
+
+**Timing (user decision, 2026-10-07):** first establish which behaviors can
+be learned at all in the current simulation (Crazyflie-scale dynamics, direct
+thrust and moments). Every realism change below invalidates all checkpoints,
+so they will be made together as **one deployment migration** later: CTBR,
+FPV-class dynamics, latency, and optionally a motor model. That means one
+retraining instead of several.
 
 ## Why change the interface
 
@@ -111,10 +120,38 @@ Every existing checkpoint outputs torques and cannot be reused directly.
 4. A new self-play lineage on CTBR toward anchor v3. This is a long run and
    needs approval.
 
-## Open questions
+## Simulation rate vs policy rate
 
-- Target platform: Crazyflie (matching the simulated `cf2x` and the
-  Crazyflow/JAX path) or a larger PX4 quadrotor? This sets mass, inertia,
-  thrust-to-weight, rate limits, and loop gains.
-- Physics rate: keep 100 Hz, or move to 200 Hz for a faster inner loop?
-- Motor-level allocation now, or only in the deployment track?
+The physics rate is not the policy's inference rate. The policy keeps deciding
+at 50 Hz (a 20 ms budget per decision; a network of this size runs in about a
+millisecond on embedded hardware). The real rate loop runs on the flight
+controller at kHz rates, without the network. For training, the simulation
+does not need the real controller's frequency, only its closed-loop
+**response**:
+
+- model the achieved body rates as a first-order lag plus a delay, with
+  randomized time constant and delay (ranges from flight logs of the target
+  quad),
+- add the end-to-end command latency (state estimation, inference, radio) as a
+  randomized action delay,
+- choose a physics step well below the time constant: 100 Hz suffices for
+  time constants of about 30 ms or more; faster FPV motors may need 200 Hz,
+  which still leaves the policy at 50 Hz (decimation 4).
+
+## FPV-class dynamics (part of the same migration)
+
+Compared with the Crazyflie-scale model, a 5-inch FPV quad has a much larger
+mass and inertia, a much higher thrust-to-weight ratio, high body-rate limits,
+and far higher top speeds. The task must be rescaled with it: arena size,
+catch radius, episode length, and the predator/prey agility asymmetry should be
+redefined in relation to speed and reaction time, so that the game stays
+comparable rather than becoming trivially fast or cramped.
+
+## Open questions (for the migration)
+
+- Concrete target quad: frame size, motor and propeller class, so that mass,
+  inertia, thrust-to-weight, rate limits, and response times come from real
+  data.
+- A motor-level model (shared saturation of thrust and torque): only if the
+  migration's validation shows that the first-order response model is not
+  enough.
