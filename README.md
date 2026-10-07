@@ -423,6 +423,7 @@ or raising. Artifacts are written under
 
 ## Additional Documentation
 
+- [`docs/anchor_v2_2026-10-06.md`](docs/anchor_v2_2026-10-06.md): current reference predator-prey pair
 - [`docs/marl_sota_roadmap.md`](docs/marl_sota_roadmap.md): model and league roadmap
 - [`docs/curriculum_learning_plan.md`](docs/curriculum_learning_plan.md): curriculum principles
 - [`docs/training_3v1_obstacles.md`](docs/training_3v1_obstacles.md): obstacle-task workflow
