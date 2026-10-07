@@ -60,6 +60,12 @@ parser.add_argument(
 )
 parser.add_argument("--json", type=str, default=None, help="Optional path to write the evaluation summary as JSON.")
 parser.add_argument(
+    "--trajectory-npz",
+    type=str,
+    default=None,
+    help="Optional .npz path recording every environment's first episode (positions, velocities, outcomes).",
+)
+parser.add_argument(
     "--scripted-prey",
     choices=["none", "escape", "arena_escape"],
     default="none",
@@ -116,6 +122,7 @@ import torch
 from packaging import version
 
 from evaluation_accounting import BalancedEpisodeSelector, accepted_payload_rows, payload_metric_name
+from trajectory_recorder import FirstEpisodeRecorder
 
 # check for minimum supported skrl version
 SKRL_VERSION = "1.4.3"
@@ -226,6 +233,17 @@ def _deterministic_actions(env, outputs):
     if hasattr(env, "possible_agents"):
         return {agent: outputs[-1][agent].get("mean_actions", outputs[0][agent]) for agent in env.possible_agents}
     return outputs[-1].get("mean_actions", outputs[0])
+
+
+def _trajectory_frame(raw_env) -> dict[str, torch.Tensor]:
+    """Snapshot the 3v1 state used for failure analysis, relative to each env origin."""
+    return {
+        "predator_pos": raw_env._pred_pos_rel,
+        "prey_pos": raw_env._prey_pos_rel,
+        "predator_vel": torch.stack([predator.data.root_lin_vel_w for predator in raw_env._predators], dim=1),
+        "prey_vel": raw_env._prey.data.root_lin_vel_w,
+        "predator_alive": raw_env._pred_alive,
+    }
 
 
 def _scripted_prey_escape(obs: dict[str, torch.Tensor], actions: dict[str, torch.Tensor], env_cfg, raw_env) -> None:
@@ -457,6 +475,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     vector_steps = 0
     episode_accounting: str | None = None
     obs, _ = env.reset()
+    recorder = None
+    if args_cli.trajectory_npz:
+        recorder = FirstEpisodeRecorder(raw_env.num_envs, raw_env.device)
+        recorder.record(_trajectory_frame(raw_env))
 
     try:
         while simulation_app.is_running() and completed_episodes < args_cli.episodes and vector_steps < max_steps:
@@ -475,6 +497,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             done = _done_mask(terminated) | _done_mask(truncated)
             if hasattr(runner.agent, "reset_recurrent_states"):
                 runner.agent.reset_recurrent_states(done)
+            if recorder is not None and not recorder.complete:
+                payload = extras.get("pool_episode") if isinstance(extras, dict) else None
+                if bool(done.any()) and isinstance(payload, dict) and "env_ids" in payload:
+                    recorder.finish(payload["env_ids"], payload)
+                recorder.record(_trajectory_frame(raw_env))
             done_count = int(done.sum().item())
             if done_count <= 0:
                 continue
@@ -507,6 +534,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 completed_episodes += done_count
     finally:
         env.close()
+
+    if recorder is not None:
+        recorder.save(args_cli.trajectory_npz)
+        print(f"[INFO] Wrote first-episode trajectories to: {args_cli.trajectory_npz}")
 
     summary = {
         "checkpoint": resume_path,
