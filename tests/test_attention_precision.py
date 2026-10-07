@@ -52,3 +52,23 @@ def test_pairwise_attention_matches_fp32_reference() -> None:
     assert weights.dtype == torch.float32
     assert torch.isfinite(weights).all()
     assert torch.equal(weights, reference)
+
+
+def test_role_specific_log_std_floor_applies_only_to_its_role() -> None:
+    model_class = attention_models.RecurrentPredatorPreyAttentionGaussianModel
+    # 3 predators with teammate velocities: 3 x (12 + 6 + 2 x 6) observations, 3 x 4 actions.
+    predator = model_class(90, 12, device="cpu", min_log_std=-2.0, predator_min_log_std=-1.5, prey_min_log_std=-3.0)
+    # Prey observing 3 predators: 12 + 3 x 6 observations, 4 actions.
+    prey = model_class(30, 4, device="cpu", min_log_std=-2.0, predator_min_log_std=-1.5)
+    shared = model_class(90, 12, device="cpu", min_log_std=-2.0)
+
+    assert (predator.mode, prey.mode, shared.mode) == ("predator", "prey", "predator")
+    assert predator._g_log_std_min == -1.5
+    assert prey._g_log_std_min == -2.0
+    assert shared._g_log_std_min == -2.0
+
+    # The projection after loading and after every optimizer step uses the role floor.
+    with torch.no_grad():
+        predator.log_std_parameter.fill_(-1.9)
+    predator.project_log_std_parameter_()
+    assert torch.equal(predator.log_std_parameter, torch.full((4,), -1.5))

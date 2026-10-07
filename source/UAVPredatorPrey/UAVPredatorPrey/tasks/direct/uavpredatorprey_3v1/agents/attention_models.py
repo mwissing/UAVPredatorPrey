@@ -469,6 +469,8 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         fallback_activation: str = "elu",
         attention_min_predators: int = 2,
         prey_attention_min_predators: int = 2,
+        predator_min_log_std: float | None = None,
+        prey_min_log_std: float | None = None,
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
@@ -487,6 +489,15 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             self.num_actions,
             prey_attention_min_predators,
         )
+        # Optional role-specific floor: widen one role's exploration while the
+        # other role keeps exactly the action noise it was trained with.
+        role_min_log_std = None
+        if predator_layout is not None:
+            role_min_log_std = predator_min_log_std
+        elif prey_num_predators is not None:
+            role_min_log_std = prey_min_log_std
+        if role_min_log_std is not None:
+            self._g_log_std_min = float(role_min_log_std)
 
         self.mode = "fallback"
         self.rnn_sequence_length = int(rnn_sequence_length)
