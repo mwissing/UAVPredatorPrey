@@ -22,10 +22,10 @@ partial observability:
   share what they see (communication or a shared belief),
 - all agents must satisfy flight stability and collision-safety constraints.
 
-Open decision: whether the policies should eventually fly real quadrotors. The
-answer determines the action interface and the deployment track below, and it
-should be settled before large new training investments (see Decision Point
-Before Stage 8).
+Decision (2026-10-07): the policies should use an interface that real flight
+controllers accept, so that deployment on real quadrotors stays possible. The
+action interface moves to collective thrust plus body rates; see
+[`ctbr_action_interface_plan.md`](ctbr_action_interface_plan.md).
 
 The progression adds one new difficulty per step:
 
@@ -283,13 +283,13 @@ and videos showing pursuit and evasion rather than only instant catches.
 
 1. **Training-seed noise floor.** Replicate one standard 2400-update arm with
    two more seeds. Its spread sets the minimum effect an A/B can resolve.
-2. **Action interface.** Body moments make the policy do attitude control
-   itself: the predators are tilted beyond 45 deg about 31% of the time. Body
-   rates with a rate controller are the standard for agile quadrotor RL and
-   sim-to-real (OPEN, Swift), and they are what an MPC layer would build on.
-   Changing the interface invalidates every checkpoint, so decide before
-   further large training runs. The deciding question is whether real flight
-   is a goal.
+2. **Action interface (decided 2026-10-07: CTBR).** Body moments make the
+   policy do attitude control itself: the predators are tilted beyond 45 deg
+   about 31% of the time. Body rates with a rate controller are the standard
+   for agile quadrotor RL and sim-to-real (OPEN, Swift), and they are what an
+   MPC layer would build on. The change invalidates every checkpoint; the
+   plan proposes a behavior-cloning warm start from anchor v2
+   ([`ctbr_action_interface_plan.md`](ctbr_action_interface_plan.md)).
 3. **Coordination (answered 2026-10-07).** The prey agility curriculum did
    not create cornering in the empty arena, so look for coordination where
    obstacles create traps. Agility training still improved the predators'
@@ -609,8 +609,8 @@ controlled A/Bs. Record throughput before and after changes to the update path.
 1. Prey agility curriculum: done; no coordination gain, better individual
    interception (see the experiment log).
 2. Measure the training-seed noise floor.
-3. Decide the action interface (body moments vs body rates) and whether real
-   flight is a goal.
+3. Implement and validate the CTBR interface (controller tests, hover
+   smoke), then a behavior-cloning or scratch pilot.
 4. Run a long self-play phase with the 2026-10-07 fixes and lock anchor v3
    with the full Stage 7 evidence.
 5. Add obstacles as entities (Stage 8) with obstacle-aware strategy metrics.

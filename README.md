@@ -426,6 +426,7 @@ or raising. Artifacts are written under
 - [`docs/anchor_v2_2026-10-06.md`](docs/anchor_v2_2026-10-06.md): current reference predator-prey pair
 - [`docs/marl_sota_roadmap.md`](docs/marl_sota_roadmap.md): long-term plan, design rules, and status snapshot
 - [`docs/experiment_log.md`](docs/experiment_log.md): dated experiments, results, and decisions
+- [`docs/ctbr_action_interface_plan.md`](docs/ctbr_action_interface_plan.md): plan for the thrust + body-rate action interface
 - [`docs/curriculum_learning_plan.md`](docs/curriculum_learning_plan.md): curriculum principles
 - [`docs/training_3v1_obstacles.md`](docs/training_3v1_obstacles.md): obstacle-task workflow
 - [`docs/1v1_hysteresis_curriculum_runbook.md`](docs/1v1_hysteresis_curriculum_runbook.md): legacy Windows 1v1 history
