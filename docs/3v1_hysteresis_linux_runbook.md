@@ -470,6 +470,12 @@ scalars logged by the 2026-10-04 phase run matched bit-exactly at every step.
 The only new tags are the four diagnostics, so the logging does not change
 learning.
 
+After the preset switched to bootstrapped time-outs (`837e0aa`), the same
+smoke with `--no-time-limit-bootstrap` again reproduced the evaluations and
+all 134 training scalars bit-exactly
+(`curriculum_smoke/2026-10-07_13-33-24_archived_recipe_no_bootstrap_check`).
+The archived recipe therefore remains exactly reproducible.
+
 The interruption procedure was also validated. `Ctrl-C` during phase 2 returned
 status `130`; the completed phase-1 evaluation and checkpoint remained valid,
 and the interrupted directory correctly had no `final_checkpoint.txt`. A fresh
