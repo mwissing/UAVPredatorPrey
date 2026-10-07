@@ -42,6 +42,18 @@ def _compute_gae(
     return returns, normalized_advantages
 
 
+def _explained_variance(returns: torch.Tensor, values: torch.Tensor) -> float:
+    """Fraction of the return variance explained by the critic's rollout predictions.
+
+    1 means a perfect critic, 0 means no better than predicting the mean
+    return, and negative values mean worse than that.
+    """
+    return_variance = returns.var()
+    if return_variance <= 0:
+        return float("nan")
+    return float((1.0 - (returns - values).var() / return_variance).item())
+
+
 class RecurrentMAPPO(MAPPO):
     """MAPPO variant that preserves rollout sequences for recurrent models.
 
@@ -337,6 +349,18 @@ class RecurrentMAPPO(MAPPO):
                 discount_factor=self._discount_factor[uid],
                 lambda_coefficient=self._lambda[uid],
             )
+
+            # Raw (unnormalized) targets show whether the value normalizer's running
+            # statistics still match the return scale the critic has to fit.
+            self.track_data(f"Diagnostics / Raw return mean ({uid})", float(returns.mean().item()))
+            self.track_data(f"Diagnostics / Raw return std ({uid})", float(returns.std().item()))
+            self.track_data(f"Diagnostics / Value explained variance ({uid})", _explained_variance(returns, values))
+            running_variance = getattr(self._value_preprocessor[uid], "running_variance", None)
+            if running_variance is not None:
+                self.track_data(
+                    f"Diagnostics / Value normalizer std ({uid})",
+                    float(running_variance.sqrt().item()),
+                )
 
             memory.set_tensor_by_name("values", self._value_preprocessor[uid](values, train=True))
             memory.set_tensor_by_name("returns", self._value_preprocessor[uid](returns, train=True))

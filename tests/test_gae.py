@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
+
 import torch
 
-from recurrent_mappo import _compute_gae
+from recurrent_mappo import _compute_gae, _explained_variance
 
 
 def test_gae_bootstraps_only_across_nonterminal_steps() -> None:
@@ -39,3 +41,14 @@ def test_gae_terminal_final_step_ignores_last_value() -> None:
     )
 
     assert torch.allclose(returns, torch.tensor([[[2.0]], [[3.0]]]))
+
+
+def test_explained_variance_reference_points() -> None:
+    returns = torch.tensor([[[1.0]], [[2.0]], [[3.0]], [[6.0]]])
+
+    assert _explained_variance(returns, returns.clone()) == 1.0
+    assert abs(_explained_variance(returns, torch.full_like(returns, 3.0))) < 1.0e-6
+    # Predicting the negated deviation doubles the error: 1 - Var(2(r - mean)) / Var(r) = -3.
+    assert abs(_explained_variance(returns, 6.0 - returns) + 3.0) < 1.0e-5
+    # Constant returns carry no variance to explain.
+    assert math.isnan(_explained_variance(torch.ones(4, 1, 1), torch.zeros(4, 1, 1)))
