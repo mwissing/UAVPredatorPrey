@@ -1256,6 +1256,8 @@ def _training_override_args(args: argparse.Namespace) -> list[str]:
         command.extend(["--kl-threshold", str(args.kl_threshold)])
     if args.mixed_precision:
         command.append("+agent.agent.mixed_precision=true")
+    if args.time_limit_bootstrap:
+        command.append("agent.agent.time_limit_bootstrap=true")
     return command
 
 
@@ -1609,6 +1611,14 @@ def main() -> None:
         help=(
             "Enable PyTorch automatic mixed precision in every train.py phase. "
             "This is unrelated to the skrl AMP algorithm."
+        ),
+    )
+    parser.add_argument(
+        "--time-limit-bootstrap",
+        action="store_true",
+        help=(
+            "Bootstrap time-out transitions with gamma * V(s) in every train.py phase, so the "
+            "episode time limit is not treated as a terminal state. The archived recipe trains without it."
         ),
     )
     parser.add_argument("--low", type=float, default=0.40, help="Train predator below this catch-rate.")

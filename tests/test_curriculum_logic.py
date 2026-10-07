@@ -397,7 +397,7 @@ def test_joint_phase_replacement_keeps_other_decisions(balanced_action: str, pha
 
 
 def test_training_overrides_are_forwarded_as_named_train_arguments() -> None:
-    args = SimpleNamespace(learning_rate=1.0e-5, kl_threshold=0.05, mixed_precision=True)
+    args = SimpleNamespace(learning_rate=1.0e-5, kl_threshold=0.05, mixed_precision=True, time_limit_bootstrap=True)
 
     assert _training_override_args(args) == [
         "--learning-rate",
@@ -405,11 +405,12 @@ def test_training_overrides_are_forwarded_as_named_train_arguments() -> None:
         "--kl-threshold",
         "0.05",
         "+agent.agent.mixed_precision=true",
+        "agent.agent.time_limit_bootstrap=true",
     ]
 
 
 def test_training_overrides_are_omitted_by_default() -> None:
-    args = SimpleNamespace(learning_rate=None, kl_threshold=None, mixed_precision=False)
+    args = SimpleNamespace(learning_rate=None, kl_threshold=None, mixed_precision=False, time_limit_bootstrap=False)
 
     assert _training_override_args(args) == []
 
@@ -435,6 +436,7 @@ def test_train_phase_forwards_overrides_before_greedy_freeze_argument(tmp_path, 
         learning_rate=1.0e-5,
         kl_threshold=0.05,
         mixed_precision=True,
+        time_limit_bootstrap=True,
         per_env_pool_prob=0.0,
         auto_pool_path=None,
         opponent_pool=None,
@@ -460,6 +462,7 @@ def test_train_phase_forwards_overrides_before_greedy_freeze_argument(tmp_path, 
     assert command.index("--learning-rate") < command.index("--freeze-agents")
     assert command.index("--kl-threshold") < command.index("--freeze-agents")
     assert command.index("+agent.agent.mixed_precision=true") < command.index("--freeze-agents")
+    assert command.index("agent.agent.time_limit_bootstrap=true") < command.index("--freeze-agents")
 
 
 def test_phase_video_forwards_clarity_preset(tmp_path, monkeypatch) -> None:

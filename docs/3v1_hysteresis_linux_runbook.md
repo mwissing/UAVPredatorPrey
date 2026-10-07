@@ -265,6 +265,21 @@ and the legacy `low-progress-v0` reward. Add `--mixed-precision` only after an
 A/B run isolates its effect on learning. The July 17-19 Linux scratch lineage
 changed AMP together with the learning rate, log-std floor, and phase lengths.
 
+`--time-limit-bootstrap` forwards `agent.agent.time_limit_bootstrap=true` to
+every phase. A 10 s time-out then bootstraps with `gamma * V(s)` instead of
+acting as a terminal state, so value targets do not depend on how much time
+is left. This matches the design rule that the policies must work for any
+episode length and get no time-to-go observation. The 2026-10-07 A/B
+(prey-only, 2400 updates from anchor v2; see
+`artifacts/isaac/experiments/2026-10-07_time_limit_bootstrap_ab/`) was equal at
+the 10 s training horizon. Against its training predator the prey conceded
+0.367 with bootstrapping vs 0.387 without, and the reference and held-out
+means moved by at most 0.006. It was better beyond the horizon: 0.597 vs
+0.633 at 20 s and 0.739 vs 0.789 at 30 s. Without bootstrapping, the critic's
+explained variance collapsed from about 0.93 to 0.21 in updates where many
+environments timed out together; with it, it stayed at 0.92. Use the switch for
+new lineages, and omit it to reproduce the archived recipe bit-exactly.
+
 The complete proposed command is:
 
 ```bash
