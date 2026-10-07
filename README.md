@@ -423,7 +423,8 @@ or raising. Artifacts are written under
 
 ## Additional Documentation
 
-- [`docs/anchor_v2_2026-10-06.md`](docs/anchor_v2_2026-10-06.md): current reference predator-prey pair
+- [`docs/anchor_v3_2026-10-08.md`](docs/anchor_v3_2026-10-08.md): current reference predator-prey pair
+- [`docs/anchor_v2_2026-10-06.md`](docs/anchor_v2_2026-10-06.md): previous reference pair
 - [`docs/marl_sota_roadmap.md`](docs/marl_sota_roadmap.md): long-term plan, design rules, and status snapshot
 - [`docs/experiment_log.md`](docs/experiment_log.md): dated experiments, results, and decisions
 - [`docs/ctbr_action_interface_plan.md`](docs/ctbr_action_interface_plan.md): plan for the thrust + body-rate action interface

@@ -158,3 +158,27 @@ are those of the predator (higher = better predator, lower = better prey).
   PFSP weight floor 0.1 does not protect them.
 - Evidence: `artifacts/isaac/experiments/2026-10-07_training_seed_noise/`.
 
+## 2026-10-07/08: Rehearsal pre-test and anchor v3 (pre-registered, overnight)
+
+- Pre-test: one predator arm with a 75% pool and PFSP floor 0.3 removed the
+  forgetting (reference mean 0.882 vs 0.803), but cost 0.16 against the
+  current opponent (0.402 vs 0.562). By the rule, the run used a 60% pool with
+  floor 0.3.
+- Anchor v3 run: `toward_center`, 12 x 1200 updates from the anchor v2
+  predator plus the bootstrap-trained arm B prey (9 predator, 3 prey phases).
+- Result: predator 0.367 -> 0.562 against the start prey; held-out mean
+  0.691 -> 0.812; reference mean 0.869 (guardrail 0.868 held). The prey
+  conceded less on every measure (0.312 to the anchor v2 predator, reference
+  0.164, held-out 0.295), but missed its strict criterion (0.287).
+  League: anchor v3 is strongest in both roles (predator +1.13, prey +1.09
+  logits; anchor v2 +0.81 / +0.50).
+- Decision: accept anchor v3 as the new reference. It is frozen as
+  `.pretrained_checkpoints/anchor_v3_2026-10-08`, and the bundled copy
+  reproduced the evaluation bit-exactly ([doc](anchor_v3_2026-10-08.md)).
+- Strategy against the same prey: as strong as a single training phase (0.562
+  vs the 3-seed mean 0.562), with much less forgetting, less wall enclosure
+  (0.112 vs about 0.17), and slightly more lead pursuit. Coordination still
+  did not emerge.
+- Evidence: `artifacts/isaac/experiments/2026-10-07_anchor_v3_overnight/`,
+  `artifacts/isaac/diagnostics/league_2026-10-08/`.
+

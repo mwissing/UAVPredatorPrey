@@ -92,7 +92,7 @@ Each rule was learned from a concrete failure or near miss in this project.
 - **Do not add all SOTA components at once.** A new component must address a
   measured bottleneck.
 
-## Status Snapshot (2026-10-07)
+## Status Snapshot (2026-10-08)
 
 | Item | Status |
 |---|---|
@@ -100,16 +100,18 @@ Each rule was learned from a concrete failure or near miss in this project.
 | Attention actors, entity-attention critic, prey attention, GRU memory (Stages 1-4) | implemented and in use; ablations against the simpler variants are still open |
 | Spawn robustness (Stage 5) | random spawn in the spherical arena; no initial-velocity randomization yet |
 | League hardening (Stage 6) | pools, cross-play, PFSP weights, per-env mixing, rehearsal; forgetting and non-transitivity are measured but unsolved; no exploiters |
-| Locked obstacle-free baseline (Stage 7) | anchor v2 ([doc](anchor_v2_2026-10-06.md)); training-seed replicates missing |
+| Locked obstacle-free baseline (Stage 7) | anchor v3 ([doc](anchor_v3_2026-10-08.md)), accepted 2026-10-08 by a pre-registered rule; training-seed replicates missing |
 | Obstacles, partial observability, perception (Stages 8-10) | not started |
 | Correctness gate | all items closed except three open ones (see Correctness Gate) |
 
 Key findings:
 
-- **Anchor v2 is the strongest pair** in a 9x9 league of historical
-  checkpoints (predator +0.93, prey +0.47 logits relative to the Windows anchor
-  prey). Its predator catches the five reference prey in 0.878 of episodes on
-  average, and its prey concedes 0.264 (1024 episodes per matchup).
+- **Anchor v3 is the strongest pair** in a 10x10 league of historical
+  checkpoints (predator +1.13, prey +1.09 logits relative to the Windows
+  anchor prey; anchor v2 +0.81 / +0.50). Its predator catches the five
+  reference prey in 0.869 of episodes on average and the held-out prey in
+  0.812, and its prey concedes 0.164 to the reference predators (1024 episodes
+  per matchup).
 - **The game is strongly non-transitive.** Many matchups deviate from a
   single-rating model by more than 10 standard errors, so a single opponent is
   a misleading benchmark.
@@ -128,9 +130,11 @@ Key findings:
   generalization, but not this geometry. Against the agile prey the predators
   learned better individual interception (steering toward the prey's heading)
   instead.
-- **Self-play forgets.** Whenever old opponents get small pool shares (weight
-  floor 0.1, or top-k truncation), the trained role loses against them. A 75%
-  rehearsal pool reverses this.
+- **Self-play forgets unless rehearsal is strong enough.** With a 50% pool
+  and weight floor 0.1, all three seeds lost against the old reference prey
+  (0.878 -> 0.803). A 75% pool prevents it but costs about 0.16 against the
+  current opponent. The 60% pool with floor 0.3 used for anchor v3 kept the
+  reference prey (0.869) at no measurable cost.
 
 Current bottlenecks, in order:
 
@@ -303,8 +307,9 @@ and videos showing pursuit and evasion rather than only instant catches.
    obstacles create traps. Agility training still improved the predators'
    individual interception. Randomizing prey agility per environment, combined
    with a rehearsal pool, is a candidate ingredient for anchor v3.
-4. **Anchor v3.** A long self-play run with the 2026-10-07 fixes (bootstrapped
-   time-outs, stronger rehearsal), locked with the full Stage 7 evidence.
+4. **Anchor v3 (done 2026-10-08).** The overnight run with bootstrapped
+   time-outs and a 60% rehearsal pool (floor 0.3) was accepted; see the
+   [anchor v3 doc](anchor_v3_2026-10-08.md).
 
 ### Stage 8: Obstacles as Entities
 
@@ -619,8 +624,7 @@ controlled A/Bs. Record throughput before and after changes to the update path.
 2. Training-seed noise floor: done (see the experiment log).
 3. Keep the current simulation for behavior research. CTBR and FPV-class
    dynamics come later as one deployment migration (see the plan).
-4. Run a long self-play phase with the 2026-10-07 fixes and lock anchor v3
-   with the full Stage 7 evidence.
+4. Anchor v3: done and frozen (2026-10-08).
 5. Add obstacles as entities (Stage 8) with obstacle-aware strategy metrics.
 6. Add line-of-sight masking with the simple belief baselines, then the GRU,
    the estimator, and belief sharing (Stage 9).
