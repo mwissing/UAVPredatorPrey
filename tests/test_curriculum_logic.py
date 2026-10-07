@@ -410,9 +410,16 @@ def test_training_overrides_are_forwarded_as_named_train_arguments() -> None:
 
 
 def test_training_overrides_are_omitted_by_default() -> None:
-    args = SimpleNamespace(learning_rate=None, kl_threshold=None, mixed_precision=False, time_limit_bootstrap=False)
+    args = SimpleNamespace(learning_rate=None, kl_threshold=None, mixed_precision=False, time_limit_bootstrap=None)
 
     assert _training_override_args(args) == []
+
+
+def test_disabled_time_limit_bootstrap_is_forwarded_explicitly() -> None:
+    # --no-time-limit-bootstrap must override a preset that bootstraps by default.
+    args = SimpleNamespace(learning_rate=None, kl_threshold=None, mixed_precision=False, time_limit_bootstrap=False)
+
+    assert _training_override_args(args) == ["agent.agent.time_limit_bootstrap=false"]
 
 
 def test_train_phase_forwards_overrides_before_greedy_freeze_argument(tmp_path, monkeypatch) -> None:

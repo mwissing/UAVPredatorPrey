@@ -146,6 +146,10 @@ training phase. Deterministic evaluation remains in its normal FP32 mode, and
 the resolved setting is recorded in `run_config.json`. This option is unrelated
 to the skrl algorithm named `AMP`.
 
+To compare a rerun bit-exactly with the verified smoke evidence at the end of
+this runbook, drop `--mixed-precision` and add `--no-time-limit-bootstrap`. That
+evidence predates the preset's time-limit bootstrapping.
+
 ```bash
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_one_phase_100_seed42"
 OUTPUT_DIR="/workspace/artifacts/isaac/curriculum_smoke/${RUN_ID}"
@@ -261,24 +265,31 @@ evaluation:   512 environments and 512 completed episodes
 
 The command keeps the archived training recipe of the reference anchor: FP32,
 learning rate `1e-5`, KL threshold `0.05`, the preset's `-2.0` log-std floor,
-and the legacy `low-progress-v0` reward. Add `--mixed-precision` only after an
-A/B run isolates its effect on learning. The July 17-19 Linux scratch lineage
-changed AMP together with the learning rate, log-std floor, and phase lengths.
+and the legacy `low-progress-v0` reward. The one deliberate change is that,
+since 2026-10-07, time-outs are bootstrapped (below). Add `--mixed-precision`
+only after an A/B run isolates its effect on learning. The July 17-19 Linux
+scratch lineage changed AMP together with the learning rate, log-std floor,
+and phase lengths.
 
-`--time-limit-bootstrap` forwards `agent.agent.time_limit_bootstrap=true` to
-every phase. A 10 s time-out then bootstraps with `gamma * V(s)` instead of
-acting as a terminal state, so value targets do not depend on how much time
-is left. This matches the design rule that the policies must work for any
-episode length and get no time-to-go observation. The 2026-10-07 A/B
-(prey-only, 2400 updates from anchor v2; see
+The large GRU preset sets `time_limit_bootstrap: True`. A 10 s time-out then
+bootstraps with `gamma * V(s)` instead of acting as a terminal state, so value
+targets do not depend on how much time is left. This matches the design rule
+that the policies must work for any episode length and get no time-to-go
+observation. The 2026-10-07 A/B (prey-only, 2400 updates from anchor v2; see
 `artifacts/isaac/experiments/2026-10-07_time_limit_bootstrap_ab/`) was equal at
 the 10 s training horizon. Against its training predator the prey conceded
 0.367 with bootstrapping vs 0.387 without, and the reference and held-out
 means moved by at most 0.006. It was better beyond the horizon: 0.597 vs
 0.633 at 20 s and 0.739 vs 0.789 at 30 s. Without bootstrapping, the critic's
 explained variance collapsed from about 0.93 to 0.21 in updates where many
-environments timed out together; with it, it stayed at 0.92. Use the switch for
-new lineages, and omit it to reproduce the archived recipe bit-exactly.
+environments timed out together; with it, it stayed at 0.92.
+
+The archived recipe and every checkpoint trained before 2026-10-07, including
+both anchors, treated time-outs as terminal. To reproduce them bit-exactly,
+pass `--no-time-limit-bootstrap` to the scheduler, or
+`agent.agent.time_limit_bootstrap=false` to `train.py`.
+`--time-limit-bootstrap` forces bootstrapping on for presets that default to
+off. Without either flag, the preset decides.
 
 The complete proposed command is:
 

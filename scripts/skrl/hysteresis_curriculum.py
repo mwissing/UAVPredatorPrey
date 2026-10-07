@@ -1256,8 +1256,8 @@ def _training_override_args(args: argparse.Namespace) -> list[str]:
         command.extend(["--kl-threshold", str(args.kl_threshold)])
     if args.mixed_precision:
         command.append("+agent.agent.mixed_precision=true")
-    if args.time_limit_bootstrap:
-        command.append("agent.agent.time_limit_bootstrap=true")
+    if args.time_limit_bootstrap is not None:
+        command.append(f"agent.agent.time_limit_bootstrap={str(args.time_limit_bootstrap).lower()}")
     return command
 
 
@@ -1615,10 +1615,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--time-limit-bootstrap",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help=(
-            "Bootstrap time-out transitions with gamma * V(s) in every train.py phase, so the "
-            "episode time limit is not treated as a terminal state. The archived recipe trains without it."
+            "Force bootstrapping of time-out transitions with gamma * V(s) on or off in every train.py "
+            "phase. Without either flag the agent config decides; the large GRU preset bootstraps. "
+            "Pass --no-time-limit-bootstrap to reproduce the archived recipe."
         ),
     )
     parser.add_argument("--low", type=float, default=0.40, help="Train predator below this catch-rate.")

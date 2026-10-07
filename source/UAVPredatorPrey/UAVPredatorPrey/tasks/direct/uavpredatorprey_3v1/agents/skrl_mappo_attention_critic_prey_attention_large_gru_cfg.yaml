@@ -65,7 +65,9 @@ agent:
   value_loss_scale: 2.0
   kl_threshold: 0.0
   rewards_shaper_scale: 1.0
-  time_limit_bootstrap: False
+  # The 10 s time limit is a truncation, not part of the task: policies observe no
+  # time-to-go and must work for any episode length (A/B 2026-10-07 in the runbook).
+  time_limit_bootstrap: True
   experiment:
     directory: "uav_3v1_direct"
     experiment_name: "attention_critic_prey_attention_large_gru"
