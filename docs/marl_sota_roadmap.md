@@ -1,44 +1,48 @@
-# MARL SOTA Roadmap for UAV Predator-Prey
+# MARL Roadmap for UAV Predator-Prey
 
-This note records the long-term architecture and training direction for the UAV
-predator-prey project. It is a roadmap, not a commitment to implement every
-component immediately.
-
-The practical goal is to move from controlled 1v1 and 2v1 experiments toward a
-modern, scalable multi-agent robotics setup that can handle 3v1, obstacles,
-partial observability, and robust self-play.
+This is the long-term plan for the project and changes slowly. The dated status
+snapshot below records where the project stands. Results and decisions of
+individual experiments are in [`experiment_log.md`](experiment_log.md), and the
+commands for training and evaluation are in the
+[runbook](3v1_hysteresis_linux_runbook.md).
 
 ## North Star: Visual Occluded Pursuit
 
-The long-term end goal is a predator team that can catch a prey using only
-on-board perception, even when the prey is temporarily hidden behind obstacles.
+The long-term goal is a predator team that catches an agile prey using only
+on-board perception, even when the prey is temporarily hidden behind
+obstacles. The end problem is therefore multi-agent visual pursuit under
+partial observability:
 
-This means the final problem is not just full-state continuous-control MARL. It
-is multi-agent visual pursuit under partial observability:
-
-- predators receive camera-based or local sensor observations instead of perfect
-  prey coordinates,
+- predators receive camera-based or local sensor observations instead of
+  perfect prey coordinates,
 - obstacles can occlude the prey,
 - predators must maintain a belief over where the hidden prey is likely to be,
 - predators must predict likely prey motion and intercept paths,
-- predators must coordinate without relying on perfect global state,
-- all agents must still satisfy flight stability and collision-safety
-  constraints.
+- predators must coordinate without relying on perfect global state, and can
+  share what they see (communication or a shared belief),
+- all agents must satisfy flight stability and collision-safety constraints.
 
-The roadmap should therefore progress in controlled steps:
+Open decision: whether the policies should eventually fly real quadrotors. The
+answer determines the action interface and the deployment track below, and it
+should be settled before large new training investments (see Decision Point
+Before Stage 8).
 
-1. full-state 1v1 / 2v1 / 3v1 pursuit,
+The progression adds one new difficulty per step:
+
+1. full-state 3v1 pursuit in an empty arena (done: anchor v2),
 2. obstacle-aware full-state pursuit,
 3. line-of-sight masked state observations,
-4. recurrent belief-based policies,
-5. camera- or depth-based observations,
-6. JEPA-style or other world-model representation learning for predictive
-   latent scene understanding.
+4. belief over the hidden prey: memory, an explicit estimator, and belief
+   sharing between predators,
+5. camera or depth observations, reached by distilling the full-state policy
+   into a perception policy (teacher-student),
+6. optional: predictive latent world models (JEPA-style) for representation
+   learning.
 
-The closest current external reference for this direction is Chen et al.,
-"Multi-UAV Pursuit-Evasion with Online Planning in Unknown Environments by Deep
-Reinforcement Learning" (OPEN). It should be treated as the main domain
-comparator for obstacle-aware, partially observable, 3D UAV pursuit-evasion:
+The closest current external reference is Chen et al., "Multi-UAV
+Pursuit-Evasion with Online Planning in Unknown Environments by Deep
+Reinforcement Learning" (OPEN). It is the main domain comparator for
+obstacle-aware, partially observable, 3D UAV pursuit-evasion:
 
 - MAPPO trained in a GPU-parallel UAV simulator,
 - collective thrust and body-rate commands as the policy output,
@@ -53,93 +57,130 @@ different strength than OPEN, but the missing OPEN-style pieces are clear:
 evader prediction, adaptive scenario generation, obstacle/occlusion
 generalization, and deployment-oriented reward/control refinement.
 
-JEPA-style world models are not the immediate next step, but they are a
-candidate research module once partial observability and visual perception
-become the bottleneck. The likely role is representation learning or auxiliary
-prediction in latent space, not replacing MAPPO/self-play as the control
-training backbone.
+JEPA-style world models are not an immediate step. They are a candidate
+research module once partial observability and visual perception become the
+bottleneck. The likely role is representation learning or auxiliary prediction
+in latent space, not replacing MAPPO/self-play as the control training backbone.
 
-## Target End State
+## Design Rules
+
+Each rule was learned from a concrete failure or near miss in this project.
+
+- **One new difficulty per stage.** A stage counts as done only when its gate
+  passes, so that failures stay attributable.
+- **Evaluation before architecture.** Every claim is measured against frozen
+  references and held-out opponents with deterministic, paired evaluation
+  (shared initial states, 1024 episodes per matchup).
+- **Metrics before mechanisms.** Define the behavior metric before the
+  intervention that is supposed to produce it. On 2026-10-07 an intuitive
+  encirclement metric turned out to be misleading in 3D (see Metrics).
+- **Pre-registered A/Bs.** Write the decision rule before training. Margins
+  must exceed the training-seed noise, not only the evaluation noise.
+- **No strategy-encoding rewards.** Coordination such as cornering or
+  encirclement must emerge from the task, physics, opponents, and curriculum.
+  Reward terms that pay for a specific strategy are out of scope.
+- **Length-independent policies.** No time-to-go observation. Time-outs are
+  truncations and are bootstrapped (preset default since 2026-10-07).
+- **The prey is more agile on purpose** (thrust-to-weight 2.2 vs 1.9 for the
+  predators), so that plain pursuit is not enough.
+- **Reproducibility.** Archived results must stay bit-exactly reproducible.
+  The runbook smoke checks this after every relevant change.
+- **Do not add all SOTA components at once.** A new component must address a
+  measured bottleneck.
+
+## Status Snapshot (2026-10-07)
+
+| Item | Status |
+|---|---|
+| Evaluation anchors (Stage 0) | done: reference set, held-out opponents, 9x9 league with Bradley-Terry ratings, deterministic paired evaluation that stays bit-identical under GPU load |
+| Attention actors, entity-attention critic, prey attention, GRU memory (Stages 1-4) | implemented and in use; ablations against the simpler variants are still open |
+| Spawn robustness (Stage 5) | random spawn in the spherical arena; no initial-velocity randomization yet |
+| League hardening (Stage 6) | pools, cross-play, PFSP weights, per-env mixing, rehearsal; forgetting and non-transitivity are measured but unsolved; no exploiters |
+| Locked obstacle-free baseline (Stage 7) | anchor v2 ([doc](anchor_v2_2026-10-06.md)); training-seed replicates missing |
+| Obstacles, partial observability, perception (Stages 8-10) | not started |
+| Correctness gate | all items closed except three open ones (see Correctness Gate) |
+
+Key findings:
+
+- **Anchor v2 is the strongest pair** in a 9x9 league of historical
+  checkpoints (predator +0.93, prey +0.47 logits relative to the Windows anchor
+  prey). Its predator catches the five reference prey in 0.878 of episodes on
+  average, and its prey concedes 0.264 (1024 episodes per matchup).
+- **The game is strongly non-transitive.** Many matchups deviate from a
+  single-rating model by more than 10 standard errors, so a single opponent is
+  a misleading benchmark.
+- **Time-outs were treated as terminal.** This specification error is fixed in
+  837e0aa. The bootstrapped prey held up better beyond the 10 s training
+  horizon (30 s catch rate 0.739 vs 0.789), and the critic no longer collapses
+  at time-outs.
+- **The value normalizer is frozen at an old return scale** (about 300x too
+  wide for the prey), but the critics still explain 72-87% of the return
+  variance. It is documented and must stay fixed in comparisons.
+- **Coordination is rare and has not responded to two levers.** In 3D, three
+  predators can only corner the prey against the arena wall. Enclosure on the
+  wall occurs in about 19% of the last second before catches (13% in
+  escapes). Removing the pursuit shaping and widening predator exploration
+  changed performance and generalization, but not this geometry. A prey
+  agility curriculum is being tested.
+- **Self-play forgets.** Whenever old opponents get small pool shares (weight
+  floor 0.1, or top-k truncation), the trained role loses against them. A 75%
+  rehearsal pool reverses this.
+
+Current bottlenecks, in order:
+
+1. Emergent coordination (cornering against boundaries) is rare.
+2. Forgetting and non-transitivity in self-play.
+3. The training-seed noise floor is unknown, which limits how small an effect
+   an A/B can resolve.
+
+No longer bottlenecks: basic flight and pursuit capability, evaluation
+correctness, and reproducibility.
+
+## Target Architecture
 
 ### Actor
 
-- Shared per-predator parameters.
-- Entity or graph attention over visible objects:
-  - own UAV state,
-  - prey state,
-  - teammate predator states,
-  - later: obstacles, arena features, line-of-sight masks.
-- Prey actor should also use entity attention over predator entities:
-  - own prey state as the controlled agent state,
-  - predator relative states as entities,
-  - later: obstacles and line-of-sight masks as additional entities.
-- Recurrent memory only when partial observability is real:
-  - GRU as the first practical option,
-  - GTrXL / Transformer-XL style memory as a later option,
-  - Mamba / Mamba-2 style state-space sequence models only as a
-    research-level extension,
-  - xLSTM as another modern recurrent-memory research option.
-- Gaussian continuous-action head.
-- Optional late-stage model-based actor:
-  - keep MAPPO/self-play/league training as the outer learning loop,
-  - replace only the low-level action head with an MPC-structured action
-    layer after strong direct-action baselines exist,
-  - let the neural actor output physically meaningful MPC cost parameters or
-    local references rather than direct normalized collective-thrust/body-moment
-    commands,
-  - use MPC to enforce short-horizon dynamics, action limits, smoothness, and
-    safety constraints,
-  - compare against the direct Gaussian normalized-wrench actor under the same
-    self-play, cross-play, and robustness evaluation protocol.
+- Shared per-predator parameters. Today they live inside one team agent: one
+  skrl agent controls all three predators with shared per-drone weights.
+  Decentralized execution under partial observability needs a per-UAV
+  interface in which each drone acts on its own local observation.
+- Entity or graph attention over visible objects: own UAV state, prey state,
+  teammate predator states, and later obstacles, arena features, and
+  line-of-sight masks.
+- Prey actor with entity attention over predator entities (own prey state as
+  the controlled agent; later obstacles and line-of-sight masks as additional
+  entities).
+- Recurrent memory where partial observability is real; GRU first. A GRU also
+  lets a policy infer elapsed time from its hidden state, which is why
+  time-out handling mattered even without a time observation.
+- Tanh-squashed Gaussian continuous-action head.
+- Action interface: currently normalized collective thrust plus body moments,
+  so the policy stabilizes attitude itself. The candidate alternative is
+  collective thrust plus body rates with a low-level rate controller (see
+  Decision Point Before Stage 8).
 
 ### Critic
 
 - Centralized critic for MAPPO-style training.
 - Global entity encoder over all agents and environment objects.
-- Attention or graph network over:
-  - predators,
-  - prey,
-  - obstacles,
-  - arena/boundary features.
+- Attention or graph network over predators, prey, obstacles, and
+  arena/boundary features.
 - Optional temporal memory when observations become history-dependent.
-- Scalar value head.
+- Scalar value head. Read critic quality from explained variance and the raw
+  return scale, not from the normalized value loss.
 
 ### Training
 
-- MAPPO as the stable baseline.
+- MAPPO with the recurrent wrapper as the stable baseline.
 - For resumed-run learning-rate ablations, apply the override after checkpoint
   loading so the new optimizer LR is used while Adam's learned moments are
   preserved. Keep the baseline YAML unchanged until the ablation wins.
-- HAPPO/HATRPO only if agents become truly heterogeneous.
-- SPO / Simple Policy Optimization as a later algorithm-update ablation:
-  - test only after the current MAPPO self-play loop is stable enough for a
-    fair comparison,
-  - keep the same checkpoint, seed, opponent pool, rollout budget, and
-    evaluation protocol as the MAPPO baseline,
-  - judge it by cross-play robustness, collapse avoidance, OOB behavior, and
-    latest-opponent recovery, not only by training reward or one current-pair
-    catch rate,
-  - treat it as an optimizer/update-rule experiment, not as a replacement for
-    the league, pooling, GRU, attention, or environment work.
-- Alternating self-play with freeze phases.
-- League / opponent-pool training to avoid cyclic forgetting.
-- Per-env opponent-pool mixing during single-agent freeze phases:
-  - most envs use the latest frozen opponent,
-  - a controlled fraction of envs use historical pool opponents,
-  - this is meant to reduce overfitting to one frozen opponent behavior inside
-    a phase.
-- PFSP-style opponent sampling as a league upgrade:
-  - sample old opponents by measured difficulty / win-rate,
-  - prefer opponents that are neither trivial nor impossible,
-  - keep this as a sampling rule before building full automated population
-    management.
-- Curriculum:
-  1. no obstacles,
-  2. 1v1,
-  3. 2v1,
-  4. 3v1,
-  5. simple obstacles,
-  6. complex obstacles / occlusion.
+- Alternating self-play with freeze phases, driven by the hysteresis scheduler
+  (band guard, `toward_center` instead of joint phases).
+- League / opponent-pool training with per-env mixing during freeze phases,
+  PFSP-style weights, and rehearsal shares large enough to prevent forgetting.
+- Curriculum: no obstacles, 1v1, 2v1, 3v1 (done), then simple obstacles, then
+  complex obstacles and occlusion.
 - Reward shaping lifecycle:
   - use dense helper rewards early when sparse task rewards are too hard,
   - explicitly ablate or anneal helper rewards once the behavior is learnable,
@@ -148,634 +189,270 @@ training backbone.
     still improve final behavior,
   - watch for shaping rewards creating local optima such as hovering near the
     prey, clustering, boundary surfing, or avoiding risk instead of solving the
-    task.
-- Domain randomization:
-  - spawn positions,
-  - initial velocities,
-  - UAV dynamics,
-  - action noise,
-  - observation noise,
-  - sensor dropout / line-of-sight masking.
+    task,
+  - never add terms that pay for a specific coordination strategy.
+- Domain randomization: spawn positions, initial velocities, UAV dynamics,
+  action noise, observation noise, sensor dropout / line-of-sight masking.
 
-## Current Implementation Status
+## Stages
 
-### Already Implemented
+### Stages 0-4: Foundations (done)
 
-- MAPPO training through skrl.
-- Alternating freeze-based self-play.
-- Hysteresis curriculum scheduler.
-- Opponent-pool / league-style checkpoint sampling.
-- Per-env opponent-pool mixing for frozen opponents during single-agent phases.
-- Auto-pool promotion into run-local `opponent_pool_auto.json`.
-- Cross-play evaluation against pool entries.
-- PFSP-style weighted opponent sampling.
-- Soft OOB arena penalties.
-- 1v1 and 2v1 survival curriculum tasks.
-- First shared per-predator attention actor for predator teams.
-- Prey-side entity-attention actor over predator entities.
-- Gaussian action policy.
-- Centralized MAPPO state input.
-- Experimental entity-attention centralized critic config.
-- Larger symmetric predator/prey entity-attention actor configuration.
-- GRU recurrent actor/critic configuration for the large entity-attention
-  setup.
-- Recurrent MAPPO wrapper for GRU rollouts and sequence-based PPO updates.
-- Recurrent-state reset/commit handling in evaluation and play scripts.
-- Random-spawn 3v1 task variant with minimum-separation constraints.
+Evaluation anchors, shared predator attention (2v1, then 3v1), the
+entity-attention centralized critic, prey-side entity attention, and the GRU
+actor/critic with recurrent MAPPO are implemented and in use.
 
-### Partially Implemented
+Open ablations, needed for rigorous claims rather than for progress:
 
-- Shared predator actor:
-  - implemented inside the current team-agent interface,
-  - not yet a fully separate per-UAV external MARL interface.
-- Entity attention:
-  - currently in both predator and prey policies,
-  - currently over prey + teammate entities for predators,
-  - currently over predator entities for prey,
-  - not yet over obstacles or line-of-sight filtered entities.
-- Centralized critic:
-  - entity-attention critic implementation exists,
-  - currently used in the attention-critic configurations,
-  - still needs systematic ablations against flat centralized critics.
-- League training:
-  - implemented as explicit checkpoint pools,
-  - supports run-local auto-pool promotion,
-  - supports cross-play-based weight updates,
-  - supports PFSP-style weighted sampling,
-  - supports per-env opponent mixing during single-agent frozen-opponent phases,
-  - not yet a full AlphaStar-style league with main agents, exploiters,
-    automatic role assignment, and population-level promotion rules.
-- Domain randomization:
-  - random-spawn 3v1 task exists,
-  - not yet a staged mixed-to-random curriculum,
-  - not yet systematic initial velocity randomization,
-  - not yet systematic dynamics/sensor randomization.
-- Recurrent memory:
-  - GRU actor/critic path exists,
-  - GRU evaluation/play state handling has been fixed and validated,
-  - currently being tested as the active 3v1 league baseline,
-  - still needs robust multi-seed league evidence and ablation against the
-    feedforward large attention baseline.
+- entity-attention critic vs flat centralized critic,
+- prey attention vs flat prey actor,
+- GRU vs feedforward attention policy under full observability.
 
-### Missing
+Controlled ablation rule: when comparing these variants, keep matched the
+learning rate and scheduler, entropy scale, initial log standard deviation,
+log standard deviation min/max, rollout length and number of environments,
+reward scales, and termination rules.
 
-- Neural belief-state estimator for occluded prey position, velocity, and
-  uncertainty.
-- Obstacle-aware attention.
-- Partial observability / line-of-sight masking.
-- Locked 3v1 GRU league baseline with seed/cross-play robustness evidence.
-- MPC-structured actor or local controller interface as a late-stage
-  architecture experiment.
-- HAPPO/HATRPO experiments.
-- SPO / Simple Policy Optimization ablation against the locked MAPPO baseline.
-- Full automated league population scoring, pruning, and role assignment.
-- Initial velocity randomization curriculum.
+### Stage 5: Spawn and Initial-State Robustness (partial)
 
-## Current Active Status: 3v1 Large GRU League
+Goal: prevent opening-book strategies that only work from one spawn geometry.
+Random spawn in the elevated spherical arena (with minimum separations) is the
+active training task. Still missing:
 
-Current focus:
-
-- task: `3v1-survival-soft-oob-teammate-vel-random-spawn-v0`
-- agent: `skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point`
-- architecture:
-  - shared per-predator entity-attention actor,
-  - prey entity-attention actor,
-  - entity-attention centralized critic,
-  - GRU memory in actor/critic,
-  - Gaussian continuous-action heads.
-- reward configuration:
-  - proximity reward disabled to reduce predator clustering,
-  - catch and distance-progress remain the main predator pursuit signals,
-  - prey has alive/evasion/distance and stability penalties.
-- training setup:
-  - MAPPO,
-  - hysteresis freeze phases,
-  - per-env opponent-pool mixing during freeze phases,
-  - run-local auto-pool promotion,
-  - elite/recent opponent pool tracking,
-  - cross-play and PFSP-style weight updates,
-  - longer predator recovery phases when the latest prey becomes hard.
-
-Important implementation note:
-
-- GRU evaluation/play originally did not commit recurrent hidden states between
-  inference steps.
-- This caused deterministic eval to behave almost memoryless and produced
-  misleading prey-OOB collapses.
-- The eval/play recurrent-state path now:
-  - keeps the new hidden state for continuing envs,
-  - zeros hidden state for terminated/truncated envs.
-- After the fix, `agent_576000.pt` from the joint GRU run changed from
-  `prey_oob_rate ~= 0.955` in eval to `prey_oob_rate ~= 0.012`, matching the
-  TensorBoard rollout behavior much more closely.
-
-Current GRU league status:
-
-- The GRU stack is no longer only an implementation experiment; it is the
-  active obstacle-free 3v1 league candidate.
-- Random-spawn and lifted-sphere arena training are active.
-- Proximity reward is disabled; catch and distance-progress are the main
-  predator pursuit signals.
-- GRU-only pool entries should be used for league training. Old feedforward
-  checkpoints remain useful for diagnostic migration tests, not as normal GRU
-  league opponents.
-- Recent curriculum runs showed that the old elite prey pool can be solved
-  while the latest prey remains difficult. This means latest-vs-latest and
-  pool cross-play must both be tracked.
-- A long frozen-prey predator recovery diagnostic from the current hard matchup
-  reached roughly `clean_catch_rate ~= 0.996` with near-zero OOB. This indicates
-  that the predator architecture/reward can solve the latest prey when given
-  enough uninterrupted gradient time.
-- Current bottleneck: curriculum/league dynamics and phase scheduling, not
-  basic predator capability.
-- Current near-term scheduler direction:
-  - use longer predator phases for hard latest-prey matchups,
-  - avoid switching to `both` too early when predator promotion plateaus,
-  - keep pool exposure modest when the old pool is already solved,
-  - keep safe non-promoted policies in a recent pool so useful recovery
-    checkpoints are not lost.
-
-## Correctness Gate Before the Next Long League Run
-
-Baseline before this audit: commit `ceef347`.
-
-The following items should be implemented as separate, testable changes rather
-than as one large training-stack rewrite:
-
-1. **Exact frozen-role semantics.** Skip loss construction, backward passes,
-   optimizer/scheduler work, and running-preprocessor updates for the frozen
-   role. Policy/value parameters and normalization statistics must remain
-   bitwise unchanged. GRU hidden state must still advance during an episode and
-   reset on termination/truncation.
-   Status: implemented and verified for latest-only and per-env-pool training;
-   each frozen run now performs a before/after state fingerprint check.
-2. **Unbiased vectorized evaluation.** Do not let fast auto-reset environments
-   contribute repeated episodes while slow initial episodes contribute none.
-   Aggregate a fixed episode quota per environment from per-env episode data and
-   test the accounting with deliberately different episode lengths.
-   Status: implemented and verified in a headless Isaac evaluation reporting
-   `episode_accounting: balanced_per_env`.
-3. **Actor/environment action contract.** Log raw-action saturation fraction
-   and clipping magnitude first. If clipping is material, make the sampled
-   action used by PPO/log-probabilities match the bounded action executed by the
-   environment, then run a controlled bounded-policy ablation.
-   Status: implemented and smoke-verified. The actor now samples a latent
-   Gaussian action `u`, executes and stores `a = tanh(u)`, and evaluates PPO
-   with the tanh change-of-variables correction. Recurrent rollouts also store
-   `u` as an auxiliary value so old and new log-probabilities refer to exactly
-   the same bounded action without numerically inverting saturated float32
-   values. Existing GRU checkpoints load without parameter migration. A
-   deterministic checkpoint smoke evaluation reported zero environment
-   clipping for both roles; `22.6%` of predator and `40.5%` of prey action
-   components were still near a limit (`|a| > 0.95`), so a short controlled
-   recovery run must precede the next long league run. PPO diagnostics now also
-   separate the first pre-optimizer replay KL/ratio values from mean and peak
-   minibatch KL, distinguishing rollout-replay mismatch from oversized updates.
-4. **Episode-level arena safety metrics.** Accumulate soft-arena outside mean,
-   maximum, and step fraction per environment. Reset these accumulators with the
-   episode and use the completed-episode values for evaluation and promotion
-   gates.
-   Status: implemented and present in balanced evaluation summaries.
-5. **Predator crash-cost semantics.** Replace an unintended persistent
-   per-step penalty for an already inactive predator with the explicitly chosen
-   crash-event cost. Verify the one-predator-sacrifice case and all-predators-OOB
-   termination independently.
-   Status: implemented and regression-tested. A newly inactive predator incurs
-   its configured per-drone cost once; already inactive predators add no later
-   reward cost. With the existing team mean, one crash contributes `-200 / 3`
-   to the 3v1 team reward. The episode continues while any predator remains
-   active and terminates independently when all predators are inactive.
-6. **RL-core regression suite.** Add deterministic tests for recurrent-state
-   reset, exact freezing, vectorized episode accounting, GAE/returns, PFSP and
-   promotion/pruning, and role-wise checkpoint composition. Stop ignoring the
-   project test directory and run the suite before long training jobs.
-   Status: implemented; 26 freeze, recurrent-state, fingerprint,
-   episode-accounting, squashed-action/log-probability, GAE, PFSP,
-   promotion/pruning, and checkpoint-composition tests pass.
-
-Acceptance rule:
-
-- do not launch another 10-15 hour league run until items 1, 2, and 4 have
-  passing regression tests,
-- treat items 3 and 5 as controlled behavior-changing ablations,
-- record throughput before and after item 1 so the speed effect is measured
-  rather than inferred.
-
-## Recommended Implementation Order
-
-### Stage 0: Establish Evaluation Anchors
-
-Goal: make self-play progress interpretable before judging architecture or
-reward changes.
-
-Reason:
-
-- Self-play catch-rate alone is ambiguous:
-  - a flat catch-rate can mean both teams stagnate,
-  - or both teams improve at the same speed,
-  - or one side exploits a temporary weakness of the other side.
-- Frozen reference opponents make progress measurable across time.
-
-Evaluation protocol:
-
-- evaluate current predator against the current prey,
-- evaluate current predator against older frozen prey checkpoints,
-- evaluate older frozen predator checkpoints against the current prey,
-- keep a small cross-play matrix for important checkpoints,
-- optionally add scripted diagnostic opponents for measurement only, not as the
-  main training target.
-
-Gate:
-
-- do not treat a run as a new reference baseline unless it has been evaluated
-  against at least the current opponent and a small frozen checkpoint set.
-
-### Controlled Ablation Rule
-
-Goal: make architecture comparisons defensible.
-
-When comparing flat MLP, predator attention, prey attention, and
-entity-attention critics, keep optimizer and exploration settings matched unless
-the experiment is explicitly about hyperparameters.
-
-Control at least:
-
-- learning rate and scheduler,
-- entropy scale,
-- initial log standard deviation,
-- log standard deviation min/max,
-- rollout length and number of environments,
-- reward scales and termination rules.
-
-### Stage 1: Stabilize 2v1 Attention Self-Play
-
-Goal: prove that the shared-attention actor can learn stable coordinated
-predator behavior and robust prey evasions.
-
-Status: completed as a stepping stone. The project has moved to 3v1.
-
-Metrics:
-
-- predator catch-rate cycles should become less extreme over pool runs,
-- predator and prey OOB should remain low,
-- predator soft-arena usage should remain low,
-- prey soft-arena usage should remain low,
-- visual behavior should show role flexibility rather than fixed slot roles.
-
-### Stage 2: Add an Entity-Attention Centralized Critic
-
-This was the first serious architecture upgrade beyond a flat centralized
-critic.
-
-Status: implemented and used in the active attention-critic configurations.
-Still needs clean ablations against the flat centralized critic.
-
-Reason:
-
-- The actor now has a relational inductive bias.
-- The critic is still a flat MLP over the centralized state.
-- A critic that understands agent-agent and agent-boundary relations should
-  produce better value estimates and cleaner advantages.
-
-Expected benefit:
-
-- more stable MAPPO updates,
-- better scaling from 2v1 to 3v1,
-- easier obstacle extension.
-
-### Stage 3: Validate 3v1 With Shared Attention
-
-Goal: check whether the shared actor actually scales better than the old flat
-team policy.
-
-Status: in progress. 3v1 behavior exists, but the active target is now a robust
-large GRU league baseline under random spawn.
-
-Key failure modes to watch:
-
-- all predators collapse into the same role,
-- one predator becomes useless,
-- policies rely on slot order,
-- catch-rate oscillates without strategic improvement.
-
-### Stage 4: Add Prey-Side Entity Attention
-
-Goal: give the prey the same relational inductive bias that the predator team
-already has, instead of relying on the older flat MLP fallback.
-
-Status: implemented in the current prey-attention and large-GRU configurations.
-Needs ablation against the earlier flat-prey baseline if the improvement must be
-claimed rigorously.
-
-Priority:
-
-- add this after stable 3v1 without obstacles,
-- do this before obstacle-aware attention if the prey remains a limiting factor,
-- use matched optimizer / exploration settings when comparing against the flat
-  prey baseline.
-
-Reason:
-
-- The prey observation is a set-like collection of predator states.
-- A flat MLP can overfit to predator slot order.
-- A prey attention actor can learn which predator is currently most dangerous,
-  which predator is cutting off the path, and which predator can be ignored.
-
-Expected benefit:
-
-- better scaling from 2v1 to 3v1,
-- more robust evasive behavior across randomized spawn orders,
-- cleaner extension to obstacle and line-of-sight entities later.
-
-Implementation direction:
-
-- keep the prey as one skrl agent with a 4D action output,
-- encode the prey's own state,
-- encode each predator relative state as an entity,
-- attend from prey state to predator entities,
-- feed own-state embedding + attention context into the Gaussian action head.
-
-### Stage 5: Spawn and Initial-State Robustness Curriculum
-
-Goal: prevent both sides from learning opening-book strategies that only work
-from the current symmetric spawn geometry.
-
-Status: random-spawn task exists and is the active 3v1 training task. A staged
-mixed-to-random curriculum and initial velocity curriculum are still missing.
-
-Reason:
-
-- If predators always spawn in fixed ring-like positions around the prey, the
-  policies can memorize common first moves.
-- Robust pursuit/evasion should work from different relative geometries, not
-  only from the current curriculum start state.
-- This should be added before obstacles so failures remain attributable to
-  start-state distribution rather than obstacle reasoning.
-
-Recommended progression:
-
-1. current ring spawn as the baseline,
-2. mixed spawn:
-   - mostly current ring spawn,
-   - some wider predator ring spawns,
-   - some random arena spawns,
-3. full random arena spawn with minimum separation constraints,
-4. small initial horizontal velocity noise,
-5. larger velocity and yaw/angular-velocity noise after position
+1. small initial horizontal velocity noise,
+2. larger velocity and yaw/angular-velocity noise once position
    randomization is stable.
 
-Required constraints:
+Constraints: minimum predator-prey distance (no trivial catches), minimum
+predator-predator distance, margin from the soft arena boundary, height near
+the target height, and an optional cap on initial speed early on.
 
-- minimum predator-prey distance to avoid immediate trivial catches,
-- minimum predator-predator distance to avoid spawn collisions,
-- margin from soft arena boundary,
-- height near target height,
-- optional cap on initial speed during early curriculum stages.
+Watch: catch rate must not be dominated by instant spawn catches, OOB must stay
+low, episode length must not collapse, and policies must still work on the
+original ring spawn.
 
-Metrics to watch:
+### Stage 6: League Hardening (partial)
 
-- catch-rate should not be dominated by instant spawn catches,
-- predator/prey OOB should remain low,
-- episode length should not collapse due to bad initial states,
-- policies should still work on the original ring spawn evaluation.
+Current mechanism: single-role phases mix the latest frozen opponent and pool
+opponents across environments. Auto-pool promotion writes new candidates into
+the run-local pool, cross-play updates pool weights, and PFSP-style sampling
+emphasizes difficult opponents.
 
-### Stage 6: League Hardening After Per-Env Pooling
+Lessons from 2026-10-05 to 2026-10-07:
 
-Goal: turn per-env pooling from a useful anti-overfitting mechanism into a
-reliable training distribution.
-
-Status: in progress. Per-env pooling, auto-promotion, cross-play, PFSP weights,
-and run-local pools exist. The current GRU league is being built from a fresh
-GRU-compatible pool.
-
-Current mechanism:
-
-- single-agent phases can mix latest frozen opponent and pool opponents across
-  envs,
-- auto-pool promotion writes new candidates into the run-local pool,
-- cross-play updates pool weights,
-- PFSP-style sampling can emphasize difficult opponents.
+- Beaten opponents fall to the PFSP weight floor, or are truncated by the
+  top-k limit, and are then forgotten. Rehearsal needs a meaningful share
+  (a 75% pool restored the reference mean from 0.596 to 0.828).
+- Pool weights refreshed only after single-role phases go stale during joint
+  phases. `toward_center` avoids joint phases altogether.
+- The measured non-transitivity means a scalar rating is only an average.
+  Pool composition should cover the cycles, not only the hardest opponents.
+- Pools may only contain GRU-compatible checkpoints. Old feedforward
+  checkpoints remain useful for diagnostic migration tests, not as league
+  opponents.
 
 Next upgrades:
 
-- start some diagnostic runs from an empty pool to verify the league can build
-  itself,
-- keep explicit evaluation against:
-  - latest opponent,
-  - current run-local pool,
-  - selected historical reference opponents,
-- add minimum-quality gates before promotion:
-  - role-specific win/catch threshold,
-  - max own OOB / soft-arena usage,
-  - max opponent exploit via OOB / crash,
-- add stale-entry pruning based on cross-play usefulness,
-- separate conceptual roles later:
-  - main agents,
-  - exploiters,
-  - historical reference policies.
+- minimum-quality gates before promotion (role-specific catch threshold,
+  maximum own OOB / soft-arena usage, no exploit via opponent OOB),
+- stale-entry pruning based on cross-play usefulness,
+- a game-theoretic pool: meta-strategy weights from the empirical payoff
+  matrix (PSRO-style), with Nash averaging as the rating,
+- conceptual roles: main agents, exploiters that only target the main agent's
+  weaknesses, and historical reference policies.
 
-Practical default for the current GRU league:
+### Stage 7: Locked Obstacle-Free Baseline (done for anchor v2)
 
-- keep phase-level pool composition disabled while validating per-env mixing,
-- use per-env pool mixing only during single-agent freeze phases,
-- use a GRU-only pool,
-- start lower while the pool is tiny and increase once several compatible
-  predator/prey entries exist,
-- compare latest-vs-latest, pool cross-play, and videos before changing pool
-  probability.
+Required evidence, with its status for anchor v2:
 
-### Stage 7: Lock A 3v1 GRU Baseline
+- one named checkpoint pair, exact training command and pool file: done
+  (read-only bundle with manifest, hashes, and provenance),
+- latest-vs-latest evaluation and a predator-vs-prey cross-play matrix: done
+  (9x9 league, 1024 episodes per matchup),
+- representative videos and behavior notes (pursuit, cornering, evasion,
+  failure modes): done (escape and wall analyses),
+- training-seed replicates of the final training step: missing.
 
-Goal: freeze one defensible obstacle-free 3v1 baseline before adding obstacles
-or perception.
+Gate: clean catch rate high enough to show predator competence, predator and
+prey OOB below 5-10%, low forced prey OOB, no catastrophic hole in cross-play,
+and videos showing pursuit and evasion rather than only instant catches.
 
-Required evidence:
+### Decision Point Before Stage 8
 
-- one named checkpoint or checkpoint pair,
-- exact training command and pool file,
-- 5-seed deterministic eval,
-- latest-vs-latest eval,
-- predator-vs-prey pool cross-play matrix,
-- representative videos,
-- brief behavior notes:
-  - pursuit behavior,
-  - intercept behavior,
-  - prey evasive behavior,
-  - failure modes.
+1. **Training-seed noise floor.** Replicate one standard 2400-update arm with
+   two more seeds. Its spread sets the minimum effect an A/B can resolve.
+2. **Action interface.** Body moments make the policy do attitude control
+   itself: the predators are tilted beyond 45 deg about 31% of the time. Body
+   rates with a rate controller are the standard for agile quadrotor RL and
+   sim-to-real (OPEN, Swift), and they are what an MPC layer would build on.
+   Changing the interface invalidates every checkpoint, so decide before
+   further large training runs. The deciding question is whether real flight
+   is a goal.
+3. **Coordination.** If the prey agility curriculum creates cornering in the
+   empty arena, add it to the long-run curriculum. If not, accept that the
+   empty sphere offers few traps, and look for coordination where obstacles
+   create them.
+4. **Anchor v3.** A long self-play run with the 2026-10-07 fixes (bootstrapped
+   time-outs, stronger rehearsal), locked with the full Stage 7 evidence.
 
-Suggested baseline gate:
+### Stage 8: Obstacles as Entities
 
-```text
-clean_catch_rate:        high enough to show predator competence
-predator_oob_rate:       below 5-10%
-prey_oob_rate:           below 5-10%
-forced_prey_oob_rate:    low
-worst-case cross-play:   no catastrophic opponent hole
-videos:                  visible pursuit/intercept/evasion, not only instant catches
-```
+Goal: extend the entity set from agents to agents plus obstacles under full
+observability.
 
-### Stage 8: Add Obstacles as Entities
+- Observations: visible obstacle relative position, obstacle radius/type,
+  optionally line-of-sight or occlusion flags, attention over all visible
+  obstacles (or nearest-k).
+- Expectation: obstacles create natural traps (corners, gaps, occluders) that
+  the empty sphere lacks, so coordination may emerge more readily.
+- Metrics: catches near obstacles, enclosure using obstacles and walls,
+  predator-obstacle and predator-predator collisions.
 
-Goal: extend the entity set from agents only to agents + obstacles.
+### Stage 9: Partial Observability, Belief, and Communication
 
-Observation direction:
+Memory becomes necessary when the prey can be hidden. Use it when agents can
+disappear behind obstacles, when velocity or intent must be inferred from
+history, when sensors become noisy, or when line-of-sight masks remove current
+state information.
 
-- visible obstacle relative position,
-- obstacle radius / type,
-- optionally line-of-sight or occlusion flags,
-- nearest-k or attention over all visible obstacles.
+- **Memory:** the GRU is the baseline. Compare other sequence models only
+  after the GRU shows a bottleneck (see Research Parking Lot).
+- **Belief estimator:** estimate compact task-relevant hidden state first (prey
+  position, velocity, optional heading/acceleration, and uncertainty), not a
+  full scene.
+  - Baselines first: last-seen position, constant-velocity extrapolation, and
+    uncertainty growing with time since the last sighting.
+  - Inputs: own state history, visible prey-state history, visibility history,
+    own action history, obstacle or occlusion indicators.
+  - Outputs: deterministic `[p_prey, v_prey]`, or mean and log standard
+    deviation for an uncertainty-aware belief.
+  - Training target in simulation: the ground-truth prey state even when the
+    policy observation is masked; supervised MSE first, then negative
+    log-likelihood if the network predicts uncertainty.
+  - Policy input: current visible observation, estimated prey position and
+    velocity, uncertainty, and a visibility flag.
+  - Later: prey-position heatmaps or dynamic occupancy maps; point-cloud
+    completion only if scene reconstruction becomes necessary for control.
+- **Shared belief:** when one predator sees the prey and the others do not,
+  the team needs the information. Start with a consensus-based distributed
+  estimator over the predators' local estimates (a control-theory baseline),
+  then compare learned communication (targeted message passing).
+- Success criteria: occluded-pursuit catch rate, collision rate,
+  generalization to longer occlusions, and inference latency.
 
-### Stage 9: Add Partial Observability and Memory
+### Stage 10: Perception by Teacher-Student Distillation
 
-Memory is now available as a GRU baseline earlier than originally planned. The
-next use case should be partial observability, where memory solves a real
-missing-information problem rather than acting only as extra capacity.
+Rendering cameras for thousands of parallel environments is not practical, so
+perception policies are trained by distillation rather than from scratch:
 
-Use memory when:
+- teacher: the full-state (privileged) policy from the previous stages,
+- student: the same task with line-of-sight-limited or camera/depth inputs,
+  trained to imitate the teacher on the student's own state distribution
+  (DAgger), then fine-tuned with RL,
+- the critic may keep privileged state (asymmetric actor-critic),
+- the rendering budget sets the number of student environments,
+- JEPA-style predictive representations are an optional research module at
+  this stage.
 
-- agents can disappear behind obstacles,
-- velocity or intent must be inferred from history,
-- sensor observations become noisy,
-- line-of-sight masks remove current state information.
+### Deployment Track (only if real flight becomes a goal)
 
-Initial memory choice:
+- Body-rate action interface with a low-level rate controller.
+- Dynamics calibration and randomization: mass, thrust coefficients, motor
+  delay, drag, latency, and sensor noise.
+- Reward refinement for smooth, feasible commands (OPEN's second stage).
+- Safety: a collision-avoidance safety filter (control barrier functions) or
+  constrained PPO, evaluated as part of the cross-play protocol.
+- Sim-to-sim checks (Crazyflow/JAX and Isaac Lab) before any real flight.
 
-- GRU first. This is now implemented and should be the baseline memory model.
+## Research Parking Lot
 
-Research memory choices:
+These components are interesting, but they wait for a measured bottleneck.
 
-- GTrXL / Transformer-XL,
-- Mamba / Mamba-2 style state-space sequence models,
-- xLSTM-style modern recurrent memory.
+- **Sequence memory beyond GRU** (GTrXL / Transformer-XL, Mamba / Mamba-2,
+  xLSTM): treat them as memory backbones, not replacements for PPO/MAPPO. Test
+  only after a GRU baseline under occlusion shows that history matters. First
+  comparison: feedforward attention policy vs GRU vs one modern sequence
+  model. Most relevant uses: occluded prey tracking, long-horizon belief over
+  hidden prey motion, and camera/depth token histories. Success: better
+  occluded-pursuit success, fewer collisions, better generalization to longer
+  occlusions, acceptable inference latency.
+- **SPO (Simple Policy Optimization):** an update-rule ablation against the
+  locked MAPPO baseline with the same checkpoint, seed, opponent pool, rollout
+  budget, and evaluation. Judge it by cross-play robustness, collapse
+  avoidance, OOB behavior, and latest-opponent recovery, not only training
+  reward.
+- **HAPPO/HATRPO:** only if agents become truly heterogeneous.
+- **Full AlphaStar-style league:** automated population scoring, pruning, and
+  role assignment, after the Stage 6 upgrades.
+- **JEPA-style world models:** see the North Star.
+- **MPC-structured actors:** keep MAPPO/self-play as the outer loop and
+  replace only the action head:
 
-Modern sequence-memory options:
+  ```text
+  observation -> neural actor -> MPC parameters/references -> MPC -> action
+  ```
 
-- Treat Mamba, Mamba-2, or xLSTM as memory/backbone modules, not as
-  replacements for PPO/MAPPO.
-- Test them only after a GRU memory baseline shows that history is useful.
-- Most relevant use case in this project:
-  - occluded prey tracking,
-  - long-horizon belief over hidden prey motion,
-  - camera/depth/lidar token histories,
-  - temporal fusion of own state, teammate states, and visible object tokens.
-- First comparison should be:
-  1. feedforward entity-attention policy,
-  2. GRU entity-attention policy,
-  3. one modern sequence-memory variant: Mamba, Mamba-2, or xLSTM.
-- Success criteria:
-  - better occluded-pursuit success rate,
-  - lower collision rate,
-  - better generalization to longer occlusions,
-  - no unacceptable inference-latency increase.
-- Do not add it for full-state predator-prey without occlusion; in that setting
-  it is likely extra complexity rather than the bottleneck.
+  The most relevant variant is an MA-AC-MPC-style actor. The network outputs
+  physically meaningful MPC parameters (state-tracking and control-effort
+  weights, local state or control references), and a short-horizon MPC
+  produces the final command while enforcing dynamics, action limits,
+  smoothness, and safety constraints. Raw MPC state must bypass observation
+  normalization. Questions to answer before implementation:
+  - Does the actor output references, cost weights, or both?
+  - Is the MPC a differentiable actor layer or an environment-side wrapper?
+  - Is the policy distribution over final actions or over MPC parameters?
+  - Which raw state does the MPC need, and how does it stay consistent between
+    Crazyflow/JAX and Isaac Lab?
+  - Does it still work when both roles co-adapt in self-play?
 
-Neural belief-state estimator option:
+  First ablation: the direct Gaussian actor vs the same architecture with an
+  MPC-structured head, with rewards, observations, self-play schedule, pool
+  evaluation, spawn distribution, steps, and seeds fixed. Success: equal or
+  better latest-vs-latest performance, no worse worst-case cross-play,
+  smoother actions, lower OOB/collision/saturation rates, and better
+  Crazyflow/JAX to Isaac Lab transfer. This builds naturally on the body-rate
+  interface.
 
-- Use this after line-of-sight masking or obstacle occlusion makes the prey
-  state genuinely hidden.
-- Estimate compact task-relevant hidden state first, not a full hidden point
-  cloud:
-  - prey position,
-  - prey velocity,
-  - optional heading/acceleration,
-  - uncertainty over the estimate.
-- Possible input:
-  - own state history,
-  - visible prey-state history,
-  - visibility / line-of-sight history,
-  - own action history,
-  - obstacle or occlusion indicators.
-- Possible output:
-  - deterministic estimate `[p_prey, v_prey]`,
-  - or mean and log standard deviation for an uncertainty-aware belief.
-- Training target in simulation:
-  - use ground-truth prey state even when the policy observation is masked,
-  - start with supervised MSE for position/velocity,
-  - upgrade to negative log likelihood if the network predicts uncertainty.
-- Policy input after estimator:
-  - current visible observation,
-  - estimated prey position and velocity,
-  - uncertainty,
-  - visibility flag.
-- Later extensions:
-  - prey-position probability heatmap,
-  - dynamic occupancy map,
-  - voxel / point-cloud completion only if visual scene reconstruction becomes
-    necessary for control.
-- First baseline before a neural estimator:
-  - last-seen prey position,
-  - constant-velocity extrapolation,
-  - uncertainty increasing with time since last seen.
+## Correctness Gate (RL Core)
 
-### Stage 10: Investigate MPC-Structured Actors
+| # | Item | Status |
+|---:|---|---|
+| 1 | Exact frozen-role semantics (no loss, optimizer, or normalizer updates; GRU state still advances) | done; fingerprint check in every frozen run |
+| 2 | Balanced vectorized evaluation (fixed episode quota per environment) | done; `episode_accounting: balanced_per_env` |
+| 3 | Actor/environment action contract (tanh-squashed actions, stored pre-tanh values) | done |
+| 4 | Episode-level arena safety metrics | done |
+| 5 | Predator crash-cost semantics (one-time cost per crash) | done |
+| 6 | RL-core regression suite | done; 162 tests (2026-10-07) |
+| 7 | Recurrent state in evaluation and play | done; the July bug made evaluation nearly memoryless |
+| 8 | Time-limit semantics | done; bootstrapped by default (837e0aa), and `--no-time-limit-bootstrap` reproduces the archived recipe bit-exactly |
+| 9 | Value-target diagnostics | done; raw return scale, explained variance, and normalizer std in TensorBoard (77ca941) |
+| 10 | Value normalizer policy | open; statistics frozen at an old scale. Keep them fixed; a PopArt-style recalibration needs its own A/B |
+| 11 | Evaluation policy vs training policy | open; deterministic evaluation of a stochastic policy (prey std about 0.45) tests a different policy. Add stochastic evaluation as a second view |
+| 12 | Training-seed noise floor | open; needed to size A/B margins |
 
-Goal: test whether model-based local control improves physical robustness
-without replacing the self-play and league stack.
+Acceptance rule: no long league run unless the regression suite passes and the
+runbook smoke reproduces bit-exactly. Behavior-changing fixes go through
+controlled A/Bs. Record throughput before and after changes to the update path.
 
-This is a final-stage research topic, not a near-term replacement for the
-active GRU league. It should only be tested after there is a strong direct
-normalized collective-thrust/body-moment baseline under random spawns,
-obstacles, and cross-play.
+## Metrics
 
-Core idea:
-
-```text
-observation -> neural actor -> MPC parameters/references -> MPC -> action
-```
-
-The most relevant variant is an MA-AC-MPC-style actor:
-
-- the neural policy observes the same local entity/state features as the
-  direct actor,
-- the network outputs structured MPC parameters such as:
-  - state tracking weights,
-  - control effort weights,
-  - local state/reference targets,
-  - control references,
-- a short-horizon MPC layer produces the final normalized
-  collective-thrust/body-moment command consumed by the environment,
-- PPO/MAPPO still trains the actor/critic using the same opponent-pool and
-  cross-play machinery,
-- raw MPC state must bypass observation normalization so the controller sees
-  physically meaningful positions, velocities, attitude, and rates.
-
-Questions to answer before implementation:
-
-- Does the actor output local references, MPC cost weights, or both?
-- Does the MPC run as a differentiable actor layer or as a non-differentiable
-  environment-side controller wrapper?
-- Is the policy distribution placed over final low-level actions or over the
-  MPC parameter vector?
-- What raw state is required by the MPC, and how is it kept consistent between
-  Crazyflow/JAX and Isaac Lab?
-- Does the method still work when both predator and prey are co-adapting
-  through self-play, not only against fixed scripted opponents?
-
-First useful ablation:
-
-```text
-direct Gaussian actor
-vs.
-same architecture + MPC-structured action head
-```
-
-Keep fixed:
-
-- reward terms,
-- observation layout,
-- self-play schedule,
-- pool/cross-play evaluation,
-- random spawn distribution,
-- number of environment steps and seeds.
-
-Success criteria:
-
-- equal or better catch/survival performance under latest-vs-latest,
-- no worse worst-case pool cross-play,
-- smoother and more physically plausible actions,
-- lower OOB/collision or control-saturation rates,
-- better transfer from Crazyflow/JAX to Isaac Lab fine-tuning.
+- **Outcome:** catch rate and OOB rates from deterministic, paired evaluation
+  (1024 episodes, seed 42), and the 10/20/30 s horizon test (constant catch
+  hazard = length-independent behavior).
+- **Robustness:** the five reference opponents, held-out opponents never used
+  in training, the league with Bradley-Terry ratings, and its non-transitive
+  residuals.
+- **Strategy** (`artifacts/isaac/diagnostics/boundary_analysis.py`): enclosure
+  on the arena wall (the largest predator gap in the wall's tangent plane is
+  below 180 deg), catches within 1 m of the wall, near misses, and the
+  catch-time distribution. In free 3D space three predators can never
+  surround the prey, because any three directions lie in a common hemisphere.
+  The horizontal angular gap of `escape_analysis.py` is therefore only a
+  legacy view. Also watch for role collapse (all predators doing the same
+  thing), a predator that becomes useless, and dependence on slot order.
+- **Training health:** explained variance, raw return scale, normalizer std,
+  KL and clip fraction, and action std relative to its floor.
+- **Videos** for qualitative checks of anything the numbers suggest.
 
 ## Reading Map
 
@@ -785,8 +462,17 @@ Success criteria:
   - Why centralized training helps with non-stationarity.
   - https://arxiv.org/abs/1706.02275
 - Yu et al., "The Surprising Effectiveness of PPO in Cooperative Multi-Agent Games"
-  - Why MAPPO is a strong baseline and what implementation details matter.
+  - Why MAPPO is a strong baseline and which implementation details matter.
   - https://arxiv.org/abs/2103.01955
+
+### RL Correctness
+
+- Pardo et al., "Time Limits in Reinforcement Learning"
+  - Time-outs as truncation vs termination; the basis of the 2026-10-07 fix.
+  - https://arxiv.org/abs/1712.00378
+- van Hasselt et al., "Learning values across many orders of magnitude"
+  - PopArt value normalization that preserves outputs when statistics change.
+  - https://arxiv.org/abs/1602.07714
 
 ### Attention and Graph Structure
 
@@ -797,7 +483,7 @@ Success criteria:
   - General graph-attention foundation.
   - https://arxiv.org/abs/1710.10903
 - Wen et al., "Multi-Agent Reinforcement Learning is a Sequence Modeling Problem"
-  - Transformer-style MARL, useful for understanding the more ambitious end state.
+  - Transformer-style MARL, useful for understanding a more ambitious end state.
   - https://arxiv.org/abs/2205.14953
 
 ### Heterogeneous MARL
@@ -820,8 +506,17 @@ Success criteria:
 - Jaderberg et al., "Population Based Training of Neural Networks"
   - Population and hyperparameter scheduling ideas.
   - https://arxiv.org/abs/1711.09846
+- Lanctot et al., "A Unified Game-Theoretic Approach to Multiagent Reinforcement Learning"
+  - PSRO: opponent mixtures from the empirical payoff matrix.
+  - https://arxiv.org/abs/1711.00832
+- Balduzzi et al., "Re-evaluating Evaluation"
+  - Nash averaging as a rating that is robust to non-transitive cycles.
+  - https://arxiv.org/abs/1806.02643
+- Balduzzi et al., "Open-ended Learning in Symmetric Zero-sum Games"
+  - Why non-transitive games need population diversity, not only a stronger agent.
+  - https://arxiv.org/abs/1901.08106
 
-### Partial Observability and Memory
+### Partial Observability, Memory, and Communication
 
 - Parisotto et al., "Stabilizing Transformers for Reinforcement Learning"
   - GTrXL as a recurrent/Transformer memory architecture for RL.
@@ -830,13 +525,13 @@ Success criteria:
   - Segment-level recurrence concept.
   - https://arxiv.org/abs/1901.02860
 - Gu and Dao, "Mamba: Linear-Time Sequence Modeling with Selective State Spaces"
-  - Research direction for long sequence memory; not an immediate implementation target.
+  - Research direction for long sequence memory.
   - https://arxiv.org/abs/2312.00752
 - Dao and Gu, "Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality"
-  - Mamba-2 / SSD direction; relevant if Mamba becomes a serious memory-backbone experiment.
+  - Mamba-2 / SSD direction.
   - https://arxiv.org/abs/2405.21060
 - Beck et al., "xLSTM: Extended Long Short-Term Memory"
-  - Modern LSTM-family sequence model; useful as a research comparison to GRU and Mamba-style memory.
+  - Modern LSTM-family sequence model; a research comparison to GRU and Mamba-style memory.
   - https://arxiv.org/abs/2405.04517
 - Mustafa et al., "Context-aware Mamba-based Reinforcement Learning for social robot navigation"
   - Example of Mamba used in robot navigation RL.
@@ -847,6 +542,35 @@ Success criteria:
 - Liu et al., "TrackingMiM: Efficient Mamba-in-Mamba Serialization for Real-time UAV Object Tracking"
   - UAV-relevant Mamba example for real-time visual tracking rather than control.
   - https://arxiv.org/abs/2507.01535
+- Olfati-Saber, "Distributed Kalman Filtering for Sensor Networks" (IEEE CDC 2007)
+  - Consensus-based distributed estimation; the baseline for a shared prey belief.
+- Foerster et al., "Learning to Communicate with Deep Multi-Agent Reinforcement Learning"
+  - Learned communication protocols.
+  - https://arxiv.org/abs/1605.06676
+- Das et al., "TarMAC: Targeted Multi-Agent Communication"
+  - Attention-based targeted message passing.
+  - https://arxiv.org/abs/1810.11187
+
+### Privileged Learning and Perception
+
+- Chen et al., "Learning by Cheating"
+  - Distilling a privileged teacher into a sensor-based student.
+  - https://arxiv.org/abs/1912.12294
+- Lee et al., "Learning Quadrupedal Locomotion over Challenging Terrain"
+  - Teacher-student training for robust robot control.
+  - https://arxiv.org/abs/2010.11251
+- Kaufmann et al., "Champion-level drone racing using deep reinforcement learning"
+  - Swift: state-based RL with body-rate commands, deployed with perception.
+  - https://www.nature.com/articles/s41586-023-06419-4
+
+### Quadrotor Control Interface and Safety
+
+- Kaufmann, Bauersfeld, and Scaramuzza, "A Benchmark Comparison of Learned Control Policies for Agile Quadrotor Flight"
+  - Compares control abstractions (rotor thrusts, body rates, velocities) for learned policies.
+  - https://arxiv.org/abs/2202.10796
+- Ames et al., "Control Barrier Functions: Theory and Applications"
+  - Safety filters for collision avoidance.
+  - https://arxiv.org/abs/1903.11199
 
 ### UAV Pursuit-Evasion and Online Planning
 
@@ -857,12 +581,13 @@ Success criteria:
     actions, an attention-based observation encoder, an LSTM evader-prediction
     module, adaptive environment generation, and reward refinement for
     zero-shot real-world deployment.
-  - Project connection: compare our current GRU self-play league against their
-    prediction-and-curriculum route. Their strongest lesson is not "replace
-    MAPPO"; it is to add explicit prey-belief prediction, hard-scenario
-    generation, and deployment-oriented action/reward refinement around MAPPO.
+  - Project connection: its strongest lesson is not "replace MAPPO"; it is to
+    add explicit prey-belief prediction, hard-scenario generation, and
+    deployment-oriented action/reward refinement around MAPPO.
   - https://arxiv.org/abs/2409.15866
   - https://sites.google.com/view/pursuit-evasion-rl
+- Isaacs, "Differential Games" (1965)
+  - Classical pursuit-evasion theory; capture conditions for faster evaders.
 
 ### Model-Based Control and MPC-Structured Actors
 
@@ -876,47 +601,27 @@ Success criteria:
     pool stack intact.
   - https://arxiv.org/abs/2606.06011
 
-## Near-Term Rule
+## Near-Term Sequence (2026-10-07)
 
-Do not add all SOTA components at once.
+1. Finish the prey agility curriculum (pre-registered; running).
+2. Measure the training-seed noise floor.
+3. Decide the action interface (body moments vs body rates) and whether real
+   flight is a goal.
+4. Run a long self-play phase with the 2026-10-07 fixes and lock anchor v3
+   with the full Stage 7 evidence.
+5. Add obstacles as entities (Stage 8) with obstacle-aware strategy metrics.
+6. Add line-of-sight masking with the simple belief baselines, then the GRU,
+   the estimator, and belief sharing (Stage 9).
+7. Distill toward perception (Stage 10).
+8. Take research branches only against a measured bottleneck.
 
-The current near-term sequence is:
+## History
 
-1. Continue the 3v1 large-GRU league from the strongest recent predator/prey
-   checkpoint pair, using a GRU-only opponent pool.
-2. Keep latest-vs-latest and pool cross-play separate:
-   - latest predator vs latest prey,
-   - latest predator vs all prey pool entries,
-   - latest prey vs all predator pool entries,
-   - selected pool predator/prey cross-play pairs.
-3. When the old pool is solved but the latest prey remains hard, prioritize
-   latest-opponent recovery over more old-pool exposure:
-   - longer predator phases,
-   - modest per-env pool probability,
-   - promotion-failure continuation toward predator instead of early `both`
-     training.
-4. Keep recent safe-but-not-elite policies as a diagnostic/training buffer, but
-   avoid treating them as elite promotion evidence until cross-play confirms
-   robustness.
-5. If behavior is visibly good, freeze a named 3v1 GRU baseline:
-   - checkpoint,
-   - pool file,
-   - command,
-   - commit,
-   - eval JSONs,
-   - representative videos.
-6. Run robustness diagnostics:
-   - seeds 42, 43, 44, 45, 46,
-   - deterministic eval,
-   - pool cross-play,
-   - visual review of representative successes and failures.
-7. If the baseline is robust, document it as the obstacle-free reference.
-8. Only then add obstacles as entities under full observability.
-9. After obstacle-aware full-state pursuit works, add line-of-sight masking and
-   partial observability.
-10. Use the GRU baseline as the first memory model for occluded pursuit; compare
-   Mamba/Mamba-2/xLSTM-style memory only after GRU shows a clear bottleneck.
-11. Treat SPO / Simple Policy Optimization as an algorithm-update ablation
-    only after the MAPPO GRU league baseline is locked.
-12. Treat MPC-structured actors as a later research branch after the direct
-    GRU/attention stack has a defensible obstacle-aware baseline.
+- July 2026: GRU evaluation and play did not commit recurrent hidden states
+  between inference steps, so deterministic evaluation behaved almost
+  memoryless. After the fix, `agent_576000.pt` went from a prey OOB rate of
+  about 0.955 to 0.012, matching the training rollouts.
+- July 2026: the correctness audit from commit `ceef347` closed gate items
+  1-6 before long league runs were allowed again.
+- Earlier status sections and near-term rules (before 2026-10-04) are
+  superseded by the snapshot above. See this file's Git history.
