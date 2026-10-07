@@ -115,14 +115,25 @@ are those of the predator (higher = better predator, lower = better prey).
   and it was unchanged by both predator interventions.
 - Evidence: `artifacts/isaac/experiments/2026-10-07_predator_exploration_floor/`.
 
-## 2026-10-07: Prey agility curriculum (pre-registered, running)
+## 2026-10-07: Prey agility curriculum (pre-registered)
 
 - Question: does a more agile prey (thrust-to-weight 2.5 instead of 2.2,
   rewards unchanged) make cornering against the wall more frequent?
-- Design: stage 1 adapts the prey at 2.5; a gate requires the anchor v2
-  predator to still catch at least 10% and the prey OOB rate to stay below 3%.
-  Stage 2 trains the predator against the adapted prey. The primary metric is
-  wall enclosure in the last second before catches, both at 2.5 and back at
-  2.2 against the control.
-- Evidence: `artifacts/isaac/experiments/2026-10-07_prey_agility_curriculum/`
-  (result pending).
+- Design: stage 1 adapted the prey at 2.5. The gate passed: the anchor v2
+  predator still caught 0.198 of episodes, and prey OOB was 0.002. Stage 2
+  trained the predator against the adapted prey only.
+- Result: the predator improved strongly against the agile prey
+  (0.198 -> 0.476), but wall enclosure in the last second before catches fell
+  (0.193 -> 0.156). At T/W 2.2 enclosure stayed at the control's level (0.182
+  vs 0.190).
+- Decision: no coordination gain; this form of option 2 does not create the
+  cornering strategy.
+- Exploratory: the predators learned better individual interception. They
+  closed the distance far better (closest approach in escapes 0.64 -> 0.45 m)
+  and steered more toward the prey's heading (lead index 0.13 -> 0.23,
+  `artifacts/isaac/diagnostics/pursuit_geometry.py`) without flying faster.
+  At T/W 2.2 the stage-2 predator caught the arm B prey more often (0.621)
+  than the control trained against it (0.533). This is confounded by the
+  missing opponent pool and the shared prey lineage. Without rehearsal the
+  reference-prey mean fell to 0.570.
+- Evidence: `artifacts/isaac/experiments/2026-10-07_prey_agility_curriculum/`.

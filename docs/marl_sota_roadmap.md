@@ -116,12 +116,14 @@ Key findings:
 - **The value normalizer is frozen at an old return scale** (about 300x too
   wide for the prey), but the critics still explain 72-87% of the return
   variance. It is documented and must stay fixed in comparisons.
-- **Coordination is rare and has not responded to two levers.** In 3D, three
-  predators can only corner the prey against the arena wall. Enclosure on the
-  wall occurs in about 19% of the last second before catches (13% in
-  escapes). Removing the pursuit shaping and widening predator exploration
-  changed performance and generalization, but not this geometry. A prey
-  agility curriculum is being tested.
+- **Coordination is rare and has not responded to three levers.** In 3D,
+  three predators can only corner the prey against the arena wall. Enclosure
+  on the wall occurs in about 15-20% of the last second before catches (11-13%
+  in escapes). Removing the pursuit shaping, widening predator exploration,
+  and training against a more agile prey (T/W 2.5) changed performance and
+  generalization, but not this geometry. Against the agile prey the predators
+  learned better individual interception (steering toward the prey's heading)
+  instead.
 - **Self-play forgets.** Whenever old opponents get small pool shares (weight
   floor 0.1, or top-k truncation), the trained role loses against them. A 75%
   rehearsal pool reverses this.
@@ -288,10 +290,11 @@ and videos showing pursuit and evasion rather than only instant catches.
    Changing the interface invalidates every checkpoint, so decide before
    further large training runs. The deciding question is whether real flight
    is a goal.
-3. **Coordination.** If the prey agility curriculum creates cornering in the
-   empty arena, add it to the long-run curriculum. If not, accept that the
-   empty sphere offers few traps, and look for coordination where obstacles
-   create them.
+3. **Coordination (answered 2026-10-07).** The prey agility curriculum did
+   not create cornering in the empty arena, so look for coordination where
+   obstacles create traps. Agility training still improved the predators'
+   individual interception. Randomizing prey agility per environment, combined
+   with a rehearsal pool, is a candidate ingredient for anchor v3.
 4. **Anchor v3.** A long self-play run with the 2026-10-07 fixes (bootstrapped
    time-outs, stronger rehearsal), locked with the full Stage 7 evidence.
 
@@ -603,7 +606,8 @@ controlled A/Bs. Record throughput before and after changes to the update path.
 
 ## Near-Term Sequence (2026-10-07)
 
-1. Finish the prey agility curriculum (pre-registered; running).
+1. Prey agility curriculum: done; no coordination gain, better individual
+   interception (see the experiment log).
 2. Measure the training-seed noise floor.
 3. Decide the action interface (body moments vs body rates) and whether real
    flight is a goal.
