@@ -101,7 +101,8 @@ Each rule was learned from a concrete failure or near miss in this project.
 | Spawn robustness (Stage 5) | random spawn in the spherical arena; no initial-velocity randomization yet |
 | League hardening (Stage 6) | pools, cross-play, PFSP weights, per-env mixing, rehearsal; forgetting and non-transitivity are measured but unsolved; no exploiters |
 | Locked obstacle-free baseline (Stage 7) | anchor v3 ([doc](anchor_v3_2026-10-08.md)), accepted 2026-10-08 by a pre-registered rule; training-seed replicates missing |
-| Obstacles, partial observability, perception (Stages 8-10) | not started |
+| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches); first training lowered crash rates, but neither role uses its pillar observations yet and no pillar strategy emerged (see Stage 8) |
+| Partial observability, perception (Stages 9-10) | not started |
 | Correctness gate | all items closed except three open ones (see Correctness Gate) |
 
 Key findings:
@@ -135,12 +136,21 @@ Key findings:
   (0.878 -> 0.803). A 75% pool prevents it but costs about 0.16 against the
   current opponent. The 60% pool with floor 0.3 used for anchor v3 kept the
   reference prey (0.869) at no measurable cost.
+- **With pillars, neither role uses its pillar observations yet**
+  (2026-10-08). Crash hazards fell by about a third, but zeroing the
+  obstacle branch does not raise crashes. Under the current rewards a crash
+  is cheap: the prey loses as much by being caught, and the predator team
+  loses a third of a catch per drone. In 600-update diagnostic arms the
+  predator improved clearly only when a higher crash price came together
+  with more exploration.
 
 Current bottlenecks, in order:
 
-1. Emergent coordination (cornering against boundaries) is rare.
-2. Forgetting and non-transitivity in self-play.
-3. Small effects need several seeds: one predator run varies by SD 0.027 on
+1. Obstacle avoidance from perception: crash incentives and exploration
+   (Stage 8).
+2. Emergent coordination (cornering against boundaries) is rare.
+3. Forgetting and non-transitivity in self-play.
+4. Small effects need several seeds: one predator run varies by SD 0.027 on
    its own matchup.
 
 No longer bottlenecks: basic flight and pursuit capability, evaluation
@@ -323,6 +333,24 @@ observability.
   the empty sphere lacks, so coordination may emerge more readily.
 - Metrics: catches near obstacles, enclosure using obstacles and walls,
   predator-obstacle and predator-predator collisions.
+
+Status (2026-10-08, [experiment log](experiment_log.md)): four vertical
+pillars with analytic collisions, per-drone body-frame pillar features, and
+zero-initialized obstacle branches in actors and critic. A 15,000-update
+joint run lowered the crash hazards by about a third, but crash rates stay
+near 0.5 per episode. Zeroing the obstacle branch shows that neither role
+uses its pillar observations yet; the gains are blind. A pre-registered
+diagnostic (600 predator updates per arm) found that the predator needs a
+higher crash price *and* more exploration together. Neither alone helps,
+even a 10x price. Open items:
+- crash incentives: for the prey a crash costs the same as being caught;
+  for the predator one lost drone costs a third of a catch. Next candidate:
+  a crash price plus exploration for both roles, later a Lagrangian crash
+  constraint;
+- a presence mask for absent obstacles: parking them far away breaks once
+  the branch is trained;
+- strategy metrics are ready: pillar proximity at catch, occlusion, and
+  luring geometry.
 
 ### Stage 9: Partial Observability, Belief, and Communication
 
@@ -625,7 +653,9 @@ controlled A/Bs. Record throughput before and after changes to the update path.
 3. Keep the current simulation for behavior research. CTBR and FPV-class
    dynamics come later as one deployment migration (see the plan).
 4. Anchor v3: done and frozen (2026-10-08).
-5. Add obstacles as entities (Stage 8) with obstacle-aware strategy metrics.
+5. Add obstacles as entities (Stage 8) with obstacle-aware strategy metrics:
+   implemented and trained once (2026-10-08). Next: crash incentives plus
+   exploration, and a presence mask (see Stage 8).
 6. Add line-of-sight masking with the simple belief baselines, then the GRU,
    the estimator, and belief sharing (Stage 9).
 7. Distill toward perception (Stage 10).

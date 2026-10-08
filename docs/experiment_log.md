@@ -182,3 +182,43 @@ are those of the predator (higher = better predator, lower = better prey).
 - Evidence: `artifacts/isaac/experiments/2026-10-07_anchor_v3_overnight/`,
   `artifacts/isaac/diagnostics/league_2026-10-08/`.
 
+
+## 2026-10-08: Obstacles (Stage 8): implementation and first training
+
+- Implementation: four vertical pillars with analytic collisions (touching a
+  pillar is a crash), per-drone body-frame pillar features, and
+  zero-initialized obstacle branches in both actors and the critic. Expanded
+  checkpoints are function-preserving (`scripts/expand_checkpoint_obstacles.py`).
+  Commits 2fd33e6, 93b8602, 9e28bbf (obstacle-branch LR multiplier, 30 in the
+  obstacle config, d2f5fb2), and 5a82556 (soft keep-out cost like the soft
+  arena wall). Checks: the obstacle-free path is bit-exact, anchor v3 with
+  parked pillars reproduces 0.4609375, and the live feature errors are about
+  1e-7.
+- Obstacle-blind start (anchor v3 with four pillars): catch 0.107, predator
+  crash 0.583, prey crash 0.485, episodes 2.2 s.
+- First training: after three restarts (sequential safety repair too slow,
+  the branch too slow at LR 1e-5, crashes too sparse a signal), a long joint
+  run of 15,000 updates at 4096 envs (8192 runs out of GPU memory).
+- Result: per second of flight, crash hazards fell 37% (predator) and 35%
+  (prey), and catch reached 0.52. Per episode, crashes stay at 0.50 / 0.42, so
+  the criterion (< 0.15) was missed. Zeroing the trained obstacle branch does
+  not raise crashes in either role: neither role uses its pillar
+  observations, so the improvements are blind. No pillar strategies emerged
+  (no trapping, hiding, or luring); the predator chases straight through
+  pillars. With pillars parked 50 m away, the trained branch drives the prey
+  out of the arena (OOB 0.90; branch zeroed 0.002).
+- Predator diagnostic (pre-registered, 600 predator-only updates each, against
+  the start prey): exploration floor -1.0 (0.541), crash cost x3 (0.531), and
+  x10 (0.549) do not beat the control (0.555). Both levers together do
+  (0.482, no catch loss). That arm is also the only one where removing the
+  branch raises crashes (+0.033).
+- Lessons: the incentives barely reward avoidance. For the prey, a crash
+  costs the same as being caught; for the predator, one lost drone costs a
+  third of a catch (the team reward is a mean, and only the catch bonus is
+  scaled by team size). A higher penalty does not buy exploration. Absent
+  entities need a mask, not a far-away position. Ablate a new pathway (zero
+  its output) before crediting it with a behavior change.
+- Next (user decision): crash price plus exploration for both roles, later
+  as a Lagrangian crash constraint; a presence mask for absent pillars.
+- Evidence: `artifacts/isaac/experiments/2026-10-08_obstacles_first_training/`
+  (PLAN.md, RESULTS.md, predator_diag/, curve/, final_eval/, videos/).
