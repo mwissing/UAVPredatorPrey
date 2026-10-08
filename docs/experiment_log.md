@@ -255,4 +255,10 @@ are those of the predator (higher = better predator, lower = better prey).
 - Lesson: a crash price teaches perception only where no blind shortcut
   exists. The prey could simply slow down; the predator could not, because
   slowing down costs catches.
+- Prey dose-response (pre-registered, prey-only, 1200 updates against the
+  frozen new predator): crash prices of -200, -350, and -600 act as a speed
+  dial (4.5 / 3.8 / 3.2 m/s). Crashes go down, catches go up, and the
+  prey's obstacle branch plays no role. The pre-registered rule picks -600,
+  but the long run shows that price makes the prey passive, so -350 is
+  recommended as the compromise (user decision).
 - Evidence: `artifacts/isaac/experiments/2026-10-08_obstacles_crash_price_exploration/`.
