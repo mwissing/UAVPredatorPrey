@@ -228,3 +228,31 @@ are those of the predator (higher = better predator, lower = better prey).
   constraint and a presence mask for absent pillars.
 - Evidence: `artifacts/isaac/experiments/2026-10-08_obstacles_first_training/`
   (PLAN.md, RESULTS.md, predator_diag/, curve/, final_eval/, videos/).
+
+## 2026-10-08: Crash price plus exploration (pre-registered, evening)
+
+- Question: does a higher crash price for both roles, plus more predator
+  exploration, lower crash hazards against fixed opponents compared with the
+  first long run? And do the agents then use their pillar observations?
+- Design: the long run repeated (same start, seed, and 15,000 updates) with
+  three overrides:
+  - predator crash cost -600 per drone, so one lost drone costs the team one
+    catch;
+  - predator log-std floor -1.0;
+  - prey crash cost -600, three times as bad as being caught.
+- Result, predator: crash hazard against the start prey 0.57x the control
+  (0.183 vs 0.321/s), with the catch rate held. Zeroing its obstacle branch
+  raises its crash hazard by 42%: this is the first perception-based
+  avoidance. Its pursuit also improved: lead index 0.395 (control 0.283),
+  wall enclosure before catches 0.165 (0.082).
+- Result, prey: crash hazard 0.42x, but the start predator catches it 2.9x
+  faster. It halved its speed and left the pillar zone, which is blind
+  avoidance. Its guard failed.
+- Decision: adopt the predator settings for obstacle training, but not the
+  prey's -600 (its price is under test in `prey_diag/`). In open space,
+  parked pillars now break the predator's branch (OOB 0.775), so a presence
+  mask is needed.
+- Lesson: a crash price teaches perception only where no blind shortcut
+  exists. The prey could simply slow down; the predator could not, because
+  slowing down costs catches.
+- Evidence: `artifacts/isaac/experiments/2026-10-08_obstacles_crash_price_exploration/`.

@@ -101,7 +101,7 @@ Each rule was learned from a concrete failure or near miss in this project.
 | Spawn robustness (Stage 5) | random spawn in the spherical arena; no initial-velocity randomization yet |
 | League hardening (Stage 6) | pools, cross-play, PFSP weights, per-env mixing, rehearsal; forgetting and non-transitivity are measured but unsolved; no exploiters |
 | Locked obstacle-free baseline (Stage 7) | anchor v3 ([doc](anchor_v3_2026-10-08.md)), accepted 2026-10-08 by a pre-registered rule; training-seed replicates missing |
-| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches); first training lowered crash rates blindly; the prey uses its pillar observations to evade (weaving among pillars at a crash cost), the predator not at all (see Stage 8) |
+| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches); first training lowered crash rates blindly. With a crash price plus exploration, the predator avoids pillars by perception (2026-10-08 evening); the prey only slowed down (see Stage 8) |
 | Partial observability, perception (Stages 9-10) | not started |
 | Correctness gate | all items closed except three open ones (see Correctness Gate) |
 
@@ -136,20 +136,23 @@ Key findings:
   (0.878 -> 0.803). A 75% pool prevents it but costs about 0.16 against the
   current opponent. The 60% pool with floor 0.3 used for anchor v3 kept the
   reference prey (0.869) at no measurable cost.
-- **With pillars, perception serves evasion, not avoidance** (2026-10-08).
-  Crash hazards fell by about a third, but zeroing the obstacle branch does
-  not raise crashes. The prey's branch makes it weave among the pillars,
-  where it is caught less but crashes more; the predator's branch is unused.
-  Under the current rewards a crash
-  is cheap: the prey loses as much by being caught, and the predator team
-  loses a third of a catch per drone. In 600-update diagnostic arms the
+- **Perception-based pillar avoidance needs a crash price, exploration, and
+  no blind shortcut** (2026-10-08). In the first run, zeroing the obstacle
+  branch did not raise crashes. The prey's branch made it weave among the
+  pillars (caught less, crashing more), and the predator's branch was
+  unused. With a crash price of -600 per drone and the log-std floor at
+  -1.0, the predator's crash hazard fell to 0.57x, and zeroing its branch
+  raises it by 42%. The prey, at a -600 price, simply slowed down and
+  became easy to catch. Under the first run's rewards a crash is cheap:
+  the prey loses as much by being caught, and the predator team loses a
+  third of a catch per drone. In 600-update diagnostic arms the
   predator improved clearly only when a higher crash price came together
   with more exploration.
 
 Current bottlenecks, in order:
 
-1. Obstacle avoidance from perception: crash incentives and exploration
-   (Stage 8).
+1. Prey behavior with pillars: a crash price that keeps it safe without
+   making it passive, plus a presence mask for absent pillars (Stage 8).
 2. Emergent coordination (cornering against boundaries) is rare.
 3. Forgetting and non-transitivity in self-play.
 4. Small effects need several seeds: one predator run varies by SD 0.027 on
@@ -355,6 +358,18 @@ together. Neither alone helps, even a 10x price. Open items:
   the branch is trained;
 - strategy metrics are ready: pillar proximity at catch, occlusion, and
   luring geometry.
+
+Update (2026-10-08 evening, pre-registered): rerunning the same long run
+with a crash cost of -600 for both roles and the predator's log-std floor at
+-1.0 split the roles.
+- The predator's crash hazard fell to 0.57x of the first run. Zeroing its
+  branch raises it by 42%, so this is perception-based avoidance. Its
+  interception (lead index 0.40) and wall enclosure (0.165) also improved.
+- The prey halved its speed and left the pillar zone. It crashed much less,
+  but was caught 2.9x faster.
+
+Adopt the predator settings. Choose the prey's price separately (a prey-only
+dose-response is in the experiment directory).
 
 ### Stage 9: Partial Observability, Belief, and Communication
 
@@ -658,8 +673,9 @@ controlled A/Bs. Record throughput before and after changes to the update path.
    dynamics come later as one deployment migration (see the plan).
 4. Anchor v3: done and frozen (2026-10-08).
 5. Add obstacles as entities (Stage 8) with obstacle-aware strategy metrics:
-   implemented and trained once (2026-10-08). Next: crash incentives plus
-   exploration, and a presence mask (see Stage 8).
+   implemented (2026-10-08). The predator learns perception-based avoidance
+   with a crash price plus exploration. Next: the prey's crash price, a
+   presence mask, then a new joint run (see Stage 8).
 6. Add line-of-sight masking with the simple belief baselines, then the GRU,
    the estimator, and belief sharing (Stage 9).
 7. Distill toward perception (Stage 10).
