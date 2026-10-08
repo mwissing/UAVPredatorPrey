@@ -237,13 +237,16 @@ def _deterministic_actions(env, outputs):
 
 def _trajectory_frame(raw_env) -> dict[str, torch.Tensor]:
     """Snapshot the 3v1 state used for failure analysis, relative to each env origin."""
-    return {
+    frame = {
         "predator_pos": raw_env._pred_pos_rel,
         "prey_pos": raw_env._prey_pos_rel,
         "predator_vel": torch.stack([predator.data.root_lin_vel_w for predator in raw_env._predators], dim=1),
         "prey_vel": raw_env._prey.data.root_lin_vel_w,
         "predator_alive": raw_env._pred_alive,
     }
+    if getattr(raw_env, "_K", 0) > 0:
+        frame["obstacle_xy"] = raw_env._obstacle_xy  # pillar axes; constant within an episode
+    return frame
 
 
 def _scripted_prey_escape(obs: dict[str, torch.Tensor], actions: dict[str, torch.Tensor], env_cfg, raw_env) -> None:

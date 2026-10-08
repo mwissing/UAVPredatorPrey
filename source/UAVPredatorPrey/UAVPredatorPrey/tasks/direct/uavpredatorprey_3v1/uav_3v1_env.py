@@ -945,6 +945,9 @@ class Uav3v1Env(DirectMARLEnv):
         }
         for i in range(self._P):
             self.extras["pool_episode"][f"predator_{i}_oob"] = self._episode_pred_oob_by_agent[env_ids, i].clone()
+        if self._K > 0:
+            self.extras["pool_episode"]["predator_obstacle_crash"] = self._episode_pred_obstacle_crash[env_ids].clone()
+            self.extras["pool_episode"]["prey_obstacle_crash"] = self._episode_prey_obstacle_crash[env_ids].clone()
         self.extras["log"]["Metrics/catch_rate"] = self._episode_catches[env_ids].mean()
         self.extras["log"]["Metrics/clean_catch_rate"] = self._episode_clean_catches[env_ids].mean()
         self.extras["log"]["Metrics/forced_prey_oob_rate"] = self._episode_forced_prey_oob[env_ids].mean()

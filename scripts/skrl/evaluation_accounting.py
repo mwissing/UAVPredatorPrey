@@ -25,6 +25,8 @@ EPISODE_PAYLOAD_METRICS = {
     "prey_soft_arena_outside": "Metrics/prey_soft_arena_outside",
     "prey_soft_arena_outside_max": "Metrics/episode_prey_soft_arena_outside_max",
     "prey_soft_arena_outside_fraction": "Metrics/episode_prey_soft_arena_outside_fraction",
+    "predator_obstacle_crash": "Metrics/predator_obstacle_crash_rate",
+    "prey_obstacle_crash": "Metrics/prey_obstacle_crash_rate",
 }
 
 

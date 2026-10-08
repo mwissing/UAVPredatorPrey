@@ -37,6 +37,7 @@ def test_invalid_environment_id_is_rejected() -> None:
 def test_payload_metric_mapping_includes_dynamic_predator_oob() -> None:
     assert payload_metric_name("catch") == "Metrics/catch_rate"
     assert payload_metric_name("predator_2_oob") == "Metrics/predator_2_oob_rate"
+    assert payload_metric_name("prey_obstacle_crash") == "Metrics/prey_obstacle_crash_rate"
     assert payload_metric_name("env_ids") is None
 
 
