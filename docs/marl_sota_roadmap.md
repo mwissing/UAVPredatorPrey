@@ -101,7 +101,7 @@ Each rule was learned from a concrete failure or near miss in this project.
 | Spawn robustness (Stage 5) | random spawn in the spherical arena; no initial-velocity randomization yet |
 | League hardening (Stage 6) | pools, cross-play, PFSP weights, per-env mixing, rehearsal; forgetting and non-transitivity are measured but unsolved; no exploiters |
 | Locked obstacle-free baseline (Stage 7) | anchor v3 ([doc](anchor_v3_2026-10-08.md)), accepted 2026-10-08 by a pre-registered rule; training-seed replicates missing |
-| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches); first training lowered crash rates, but neither role uses its pillar observations yet and no pillar strategy emerged (see Stage 8) |
+| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches); first training lowered crash rates blindly; the prey uses its pillar observations to evade (weaving among pillars at a crash cost), the predator not at all (see Stage 8) |
 | Partial observability, perception (Stages 9-10) | not started |
 | Correctness gate | all items closed except three open ones (see Correctness Gate) |
 
@@ -136,9 +136,11 @@ Key findings:
   (0.878 -> 0.803). A 75% pool prevents it but costs about 0.16 against the
   current opponent. The 60% pool with floor 0.3 used for anchor v3 kept the
   reference prey (0.869) at no measurable cost.
-- **With pillars, neither role uses its pillar observations yet**
-  (2026-10-08). Crash hazards fell by about a third, but zeroing the
-  obstacle branch does not raise crashes. Under the current rewards a crash
+- **With pillars, perception serves evasion, not avoidance** (2026-10-08).
+  Crash hazards fell by about a third, but zeroing the obstacle branch does
+  not raise crashes. The prey's branch makes it weave among the pillars,
+  where it is caught less but crashes more; the predator's branch is unused.
+  Under the current rewards a crash
   is cheap: the prey loses as much by being caught, and the predator team
   loses a third of a catch per drone. In 600-update diagnostic arms the
   predator improved clearly only when a higher crash price came together
@@ -338,8 +340,10 @@ Status (2026-10-08, [experiment log](experiment_log.md)): four vertical
 pillars with analytic collisions, per-drone body-frame pillar features, and
 zero-initialized obstacle branches in actors and critic. A 15,000-update
 joint run lowered the crash hazards by about a third, but crash rates stay
-near 0.5 per episode. Zeroing the obstacle branch shows that neither role
-uses its pillar observations yet; the gains are blind. A pre-registered
+near 0.5 per episode. Zeroing the obstacle branch shows that the crash
+reductions are blind. The prey's branch serves evasion: it weaves among
+the pillars, and is caught less but crashes more. The predator's branch is
+unused. A pre-registered
 diagnostic (600 predator updates per arm, confirmed with a second seed)
 found that the predator needs a higher crash price *and* more exploration
 together. Neither alone helps, even a 10x price. Open items:

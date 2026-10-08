@@ -202,10 +202,12 @@ are those of the predator (higher = better predator, lower = better prey).
 - Result: per second of flight, crash hazards fell 37% (predator) and 35%
   (prey), and catch reached 0.52. Per episode, crashes stay at 0.50 / 0.42, so
   the criterion (< 0.15) was missed. Zeroing the trained obstacle branch does
-  not raise crashes in either role: neither role uses its pillar
-  observations, so the improvements are blind. No pillar strategies emerged
-  (no trapping, hiding, or luring); the predator chases straight through
-  pillars. With pillars parked 50 m away, the trained branch drives the prey
+  not raise crashes in either role, so the crash reductions are blind. The
+  prey does use its pillar observations, but to evade. Its branch takes it
+  among the pillars, where it is caught less (catch hazard -23%) but crashes
+  more (+46%). This is the first pillar-related strategy. The predator does
+  not use its branch and chases straight through pillars. There is no
+  trapping, hiding, or luring. With pillars parked 50 m away, the trained branch drives the prey
   out of the arena (OOB 0.90; branch zeroed 0.002).
 - Predator diagnostic (pre-registered, 600 predator-only updates each, against
   the start prey): exploration floor -1.0 (0.541), crash cost x3 (0.531), and
@@ -220,7 +222,9 @@ are those of the predator (higher = better predator, lower = better prey).
   scaled by team size). A higher penalty does not buy exploration. Absent
   entities need a mask, not a far-away position. Ablate a new pathway (zero
   its output) before crediting it with a behavior change.
-- Next (user decision): crash price plus exploration for both roles, later
-  as a Lagrangian crash constraint; a presence mask for absent pillars.
+- Next: crash price plus exploration for both roles, started 18:39 with user
+  approval (`artifacts/isaac/experiments/2026-10-08_obstacles_crash_price_exploration/`,
+  pre-registered against this run as control). Later: a Lagrangian crash
+  constraint and a presence mask for absent pillars.
 - Evidence: `artifacts/isaac/experiments/2026-10-08_obstacles_first_training/`
   (PLAN.md, RESULTS.md, predator_diag/, curve/, final_eval/, videos/).
