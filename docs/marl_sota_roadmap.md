@@ -340,9 +340,9 @@ zero-initialized obstacle branches in actors and critic. A 15,000-update
 joint run lowered the crash hazards by about a third, but crash rates stay
 near 0.5 per episode. Zeroing the obstacle branch shows that neither role
 uses its pillar observations yet; the gains are blind. A pre-registered
-diagnostic (600 predator updates per arm) found that the predator needs a
-higher crash price *and* more exploration together. Neither alone helps,
-even a 10x price. Open items:
+diagnostic (600 predator updates per arm, confirmed with a second seed)
+found that the predator needs a higher crash price *and* more exploration
+together. Neither alone helps, even a 10x price. Open items:
 - crash incentives: for the prey a crash costs the same as being caught;
   for the predator one lost drone costs a third of a catch. Next candidate:
   a crash price plus exploration for both roles, later a Lagrangian crash

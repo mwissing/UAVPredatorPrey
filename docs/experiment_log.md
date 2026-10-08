@@ -210,8 +210,10 @@ are those of the predator (higher = better predator, lower = better prey).
 - Predator diagnostic (pre-registered, 600 predator-only updates each, against
   the start prey): exploration floor -1.0 (0.541), crash cost x3 (0.531), and
   x10 (0.549) do not beat the control (0.555). Both levers together do
-  (0.482, no catch loss). That arm is also the only one where removing the
-  branch raises crashes (+0.033).
+  (0.482, no catch loss), and a pre-registered replicate with training seed
+  43 confirmed it (0.486 vs control 0.564). Zeroing the branch changes
+  crashes by at most 0.03 in every arm and seed, so even this gain is not
+  yet clearly perception-driven.
 - Lessons: the incentives barely reward avoidance. For the prey, a crash
   costs the same as being caught; for the predator, one lost drone costs a
   third of a catch (the team reward is a mean, and only the catch bonus is
