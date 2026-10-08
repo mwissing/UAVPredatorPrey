@@ -42,6 +42,25 @@ def _compute_gae(
     return returns, normalized_advantages
 
 
+def _obstacle_param_groups(modules: list[nn.Module], learning_rate: float, multiplier: float) -> list[dict[str, Any]]:
+    """Split parameters into the pretrained part and the new obstacle_* branch.
+
+    The obstacle branch starts at zero (see attention_models.py); at a
+    fine-tuning learning rate it would take far too long to reach a useful
+    magnitude. A separate group lets it learn faster while the pretrained
+    parameters keep the conservative rate. The multiplier is stored in the
+    group so later learning-rate overrides can preserve it.
+    """
+    base, obstacle = [], []
+    for module in modules:
+        for name, parameter in module.named_parameters():
+            (obstacle if name.startswith("obstacle_") else base).append(parameter)
+    groups: list[dict[str, Any]] = [{"params": base, "lr": learning_rate}]
+    if obstacle:
+        groups.append({"params": obstacle, "lr": learning_rate * multiplier, "lr_multiplier": multiplier})
+    return groups
+
+
 def _explained_variance(returns: torch.Tensor, values: torch.Tensor) -> float:
     """Fraction of the return variance explained by the critic's rollout predictions.
 
@@ -65,6 +84,25 @@ class RecurrentMAPPO(MAPPO):
 
     def init(self, trainer_cfg: Mapping[str, Any] | None = None) -> None:
         super().init(trainer_cfg=trainer_cfg)
+
+        multiplier = float(self.cfg.get("obstacle_lr_multiplier", 1.0))
+        if multiplier != 1.0:
+            for uid in self.possible_agents:
+                optimizer = self.optimizers.get(uid)
+                if optimizer is None:
+                    continue
+                if self.schedulers.get(uid) is not None:
+                    raise NotImplementedError("obstacle_lr_multiplier does not support learning-rate schedulers")
+                policy, value = self.policies[uid], self.values[uid]
+                modules = [policy] if policy is value else [policy, value]
+                groups = _obstacle_param_groups(modules, optimizer.param_groups[0]["lr"], multiplier)
+                if len(groups) == 1:
+                    continue
+                defaults = {key: val for key, val in optimizer.defaults.items() if key != "lr"}
+                self.optimizers[uid] = type(optimizer)(groups, **defaults)
+                self.checkpoint_modules[uid]["optimizer"] = self.optimizers[uid]
+                print(f"[INFO] {uid}: {sum(p.numel() for p in groups[1]['params'])} obstacle-branch parameters "
+                      f"at learning rate x{multiplier:g}")
 
         self._rnn = False
         self._uid_rnn: dict[str, bool] = {}

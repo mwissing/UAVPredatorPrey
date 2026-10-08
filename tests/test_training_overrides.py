@@ -37,6 +37,19 @@ def test_learning_rate_override_preserves_adam_moments() -> None:
                 assert value_after == value_before
 
 
+def test_learning_rate_override_keeps_group_multipliers() -> None:
+    base, branch = torch.nn.Parameter(torch.ones(1)), torch.nn.Parameter(torch.ones(1))
+    optimizer = torch.optim.Adam(
+        [{"params": [base], "lr": 1.0e-4}, {"params": [branch], "lr": 3.0e-3, "lr_multiplier": 30.0}]
+    )
+    agent = SimpleNamespace(optimizers={"prey": optimizer}, schedulers={}, _learning_rate={"prey": 1.0e-4})
+
+    override_optimizer_learning_rate(agent, 1.0e-5)
+
+    assert optimizer.param_groups[0]["lr"] == pytest.approx(1.0e-5)
+    assert optimizer.param_groups[1]["lr"] == pytest.approx(3.0e-4)
+
+
 @pytest.mark.parametrize("learning_rate", [0.0, -1.0, float("inf"), float("nan")])
 def test_learning_rate_override_rejects_invalid_values(learning_rate: float) -> None:
     agent = SimpleNamespace(optimizers={"predator": object()})

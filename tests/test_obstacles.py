@@ -177,3 +177,21 @@ def test_checkpoint_expansion_inserts_normalizer_entries_after_each_drone_block(
     assert "optimizer" not in expanded["prey"]
     assert torch.equal(expanded["predator"]["policy"]["w"], torch.ones(1))
     assert expanded["prey"]["state_preprocessor"]["current_count"].item() == 1.0e11
+
+
+def test_obstacle_parameters_get_their_own_learning_rate_group() -> None:
+    from recurrent_mappo import _obstacle_param_groups
+
+    actor = _actor(30 + K * OBSTACLE_DIM, 4, K)
+    critic = _critic(120 + 4 * K * OBSTACLE_DIM, K)
+    groups = _obstacle_param_groups([actor, critic], 1.0e-5, 30.0)
+
+    obstacle_ids = {id(p) for module in (actor, critic) for n, p in module.named_parameters() if n.startswith("obstacle_")}
+    assert len(groups) == 2
+    assert {id(p) for p in groups[1]["params"]} == obstacle_ids
+    assert not obstacle_ids & {id(p) for p in groups[0]["params"]}
+    assert groups[0]["lr"] == 1.0e-5 and groups[1]["lr"] == 30.0 * 1.0e-5 and groups[1]["lr_multiplier"] == 30.0
+    total = sum(1 for module in (actor, critic) for _ in module.parameters())
+    assert len(groups[0]["params"]) + len(groups[1]["params"]) == total
+    # Obstacle-free models keep a single group.
+    assert len(_obstacle_param_groups([_actor(30, 4, 0)], 1.0e-5, 30.0)) == 1

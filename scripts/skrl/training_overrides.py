@@ -26,17 +26,19 @@ def override_optimizer_learning_rate(agent: Any, learning_rate: float) -> list[s
         if not param_groups:
             continue
         for group in param_groups:
-            group["lr"] = learning_rate
+            # Groups with an lr_multiplier (e.g. a new obstacle branch) keep their ratio to the base rate.
+            group["lr"] = learning_rate * float(group.get("lr_multiplier", 1.0))
 
         if isinstance(internal_learning_rates, dict) and role in internal_learning_rates:
             internal_learning_rates[role] = learning_rate
 
         scheduler = schedulers.get(role) if isinstance(schedulers, Mapping) else None
         if scheduler is not None:
+            group_lrs = [group["lr"] for group in param_groups]
             if hasattr(scheduler, "base_lrs"):
-                scheduler.base_lrs = [learning_rate] * len(param_groups)
+                scheduler.base_lrs = list(group_lrs)
             if hasattr(scheduler, "_last_lr"):
-                scheduler._last_lr = [learning_rate] * len(param_groups)
+                scheduler._last_lr = list(group_lrs)
 
         updated_roles.append(str(role))
 
