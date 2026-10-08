@@ -92,3 +92,14 @@ def axis_offsets_world(points: torch.Tensor, obstacle_xy: torch.Tensor) -> torch
     offsets = torch.zeros(*points.shape[:2], obstacle_xy.shape[1], 3, device=points.device, dtype=points.dtype)
     offsets[..., :2] = obstacle_xy[:, None, :, :] - points[:, :, None, :2]
     return offsets
+
+
+def soft_clearance_penalty(clearance: torch.Tensor, margin: float, scale: float, dt: float) -> torch.Tensor:
+    """Quadratic keep-out cost inside a band of width `margin` around pillar surfaces.
+
+    Mirrors the soft arena-wall penalty: a crash alone is a sparse signal, while
+    this cost grows smoothly as a drone approaches a pillar, so small steering
+    corrections are rewarded before a collision happens. Returns a non-positive
+    reward per step.
+    """
+    return -torch.square(torch.clamp(margin - clearance, min=0.0)) * scale * dt

@@ -8,7 +8,14 @@ from pathlib import Path
 import gymnasium
 import torch
 
-from obstacles import PARKED_DISTANCE, axis_offsets_world, collides, sample_obstacle_xy, surface_distance
+from obstacles import (
+    PARKED_DISTANCE,
+    axis_offsets_world,
+    collides,
+    sample_obstacle_xy,
+    soft_clearance_penalty,
+    surface_distance,
+)
 
 
 AGENTS_DIR = (
@@ -195,3 +202,11 @@ def test_obstacle_parameters_get_their_own_learning_rate_group() -> None:
     assert len(groups[0]["params"]) + len(groups[1]["params"]) == total
     # Obstacle-free models keep a single group.
     assert len(_obstacle_param_groups([_actor(30, 4, 0)], 1.0e-5, 30.0)) == 1
+
+
+def test_soft_clearance_penalty_is_quadratic_inside_the_margin_only() -> None:
+    clearance = torch.tensor([1.0, 0.5, 0.3, 0.1, -0.05])
+    penalty = soft_clearance_penalty(clearance, margin=0.5, scale=200.0, dt=0.02)
+    expected = -torch.square(torch.tensor([0.0, 0.0, 0.2, 0.4, 0.55])) * 200.0 * 0.02
+    assert torch.allclose(penalty, expected)
+    assert (penalty <= 0).all()

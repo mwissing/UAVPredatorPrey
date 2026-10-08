@@ -179,6 +179,8 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     obstacle_spawn_clearance = 0.5        # [m] min gap between a pillar surface and any spawning drone
     obstacle_collision_margin = 0.06      # [m] drone body radius
     obstacle_feature_scale = 5.0          # [m] observation scale
+    obstacle_soft_margin = 0.5            # [m] clearance band with a quadratic keep-out cost
+    obstacle_soft_penalty_scale = 0.0     # 0 = off; cost = scale * (margin - clearance)^2 * dt (like the soft arena wall)
 
 
 @configclass
@@ -317,12 +319,15 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg(
 ):
     """Low-progress random-spawn task with four vertical pillar obstacles (roadmap stage 8).
 
-    Rewards are unchanged; touching a pillar is a crash with the existing crash
-    penalties. Each drone observes 4 features per pillar, appended to its
-    observation block.
+    Touching a pillar is a crash with the existing crash penalties, and a
+    0.5 m band around each pillar carries the same quadratic keep-out cost as
+    the soft arena wall. Each drone observes 4 features per pillar, appended to
+    its observation block.
     """
 
     num_obstacles = 4
+    # Same quadratic keep-out cost as the soft arena wall (soft_arena_penalty_scale = 200).
+    obstacle_soft_penalty_scale = 200.0
     observation_spaces = {"predator": 90 + 3 * 4 * 4, "prey": 30 + 4 * 4}
     state_space = 120 + 3 * 4 * 4 + 4 * 4
 

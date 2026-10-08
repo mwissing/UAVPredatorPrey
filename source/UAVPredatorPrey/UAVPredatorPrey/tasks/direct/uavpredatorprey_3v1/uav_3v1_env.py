@@ -15,7 +15,13 @@ from isaaclab.utils.math import subtract_frame_transforms
 
 from .episode_semantics import all_predators_inactive, predator_crash_event_penalty, shifted_squared_speed_penalty
 from .motion_diagnostics import compute_motion_diagnostics
-from .obstacles import PARKED_DISTANCE, axis_offsets_world, collides, sample_obstacle_xy, surface_distance
+from .obstacles import (
+    PARKED_DISTANCE,
+    axis_offsets_world,
+    sample_obstacle_xy,
+    soft_clearance_penalty,
+    surface_distance,
+)
 from .uav_3v1_env_cfg import Uav3v1EnvCfg
 
 
@@ -118,6 +124,8 @@ class Uav3v1Env(DirectMARLEnv):
         self._obstacle_xy = torch.full((N, self._K, 2), PARKED_DISTANCE, device=self.device)
         self._pred_obstacle_hit = torch.zeros(N, P, dtype=torch.bool, device=self.device)
         self._prey_obstacle_hit = torch.zeros(N, dtype=torch.bool, device=self.device)
+        self._pred_obstacle_clearance = torch.full((N, P), 100.0, device=self.device)
+        self._prey_obstacle_clearance = torch.full((N,), 100.0, device=self.device)
         self._episode_pred_obstacle_crash = torch.zeros(N, device=self.device)
         self._episode_prey_obstacle_crash = torch.zeros(N, device=self.device)
 
@@ -372,13 +380,13 @@ class Uav3v1Env(DirectMARLEnv):
 
         if self._K > 0:
             # Touching a pillar is a crash: the predator becomes inactive, the prey counts as OOB.
-            self._pred_obstacle_hit[:] = collides(
-                pred_pos_rel[:, :, :2], self._obstacle_xy, self.cfg.obstacle_radius, self.cfg.obstacle_collision_margin
-            )
-            self._prey_obstacle_hit[:] = collides(
-                self._prey_pos_rel[:, None, :2], self._obstacle_xy, self.cfg.obstacle_radius,
-                self.cfg.obstacle_collision_margin,
-            )[:, 0]
+            radius = self.cfg.obstacle_radius
+            self._pred_obstacle_clearance[:] = surface_distance(pred_pos_rel[:, :, :2], self._obstacle_xy, radius).min(dim=-1).values
+            self._prey_obstacle_clearance[:] = surface_distance(
+                self._prey_pos_rel[:, None, :2], self._obstacle_xy, radius
+            ).min(dim=-1).values[:, 0]
+            self._pred_obstacle_hit[:] = self._pred_obstacle_clearance < self.cfg.obstacle_collision_margin
+            self._prey_obstacle_hit[:] = self._prey_obstacle_clearance < self.cfg.obstacle_collision_margin
             pred_oob_now = pred_oob_now | self._pred_obstacle_hit
             self._prey_oob[:] = self._prey_oob | self._prey_obstacle_hit
 
@@ -674,6 +682,11 @@ class Uav3v1Env(DirectMARLEnv):
             + proximity + predator_distance_progress_reward + catch_bonus + assist_bonus
             - boundary + oob_pen + pred_soft_arena_pen
         )
+        if self._K > 0:
+            pred_obstacle_soft_pen = soft_clearance_penalty(
+                self._pred_obstacle_clearance.t(), self.cfg.obstacle_soft_margin, self.cfg.obstacle_soft_penalty_scale, dt
+            ) * pred_alive_reward_mask
+            per_drone_reward = per_drone_reward + pred_obstacle_soft_pen
         pred_team_reward = per_drone_reward.mean(dim=0)  # (N,)
 
         # === Prey reward ===
@@ -757,6 +770,11 @@ class Uav3v1Env(DirectMARLEnv):
             + prey_alive_gated + prey_evasion + prey_distance_progress_reward + prey_boundary_progress_reward
             + prey_caught - prey_boundary + prey_oob_pen + prey_soft_arena_pen
         )
+        if self._K > 0:
+            prey_obstacle_soft_pen = soft_clearance_penalty(
+                self._prey_obstacle_clearance, self.cfg.obstacle_soft_margin, self.cfg.obstacle_soft_penalty_scale, dt
+            )
+            prey_reward = prey_reward + prey_obstacle_soft_pen
 
         # === Per-agent reward logging ===
         if self.cfg.enable_step_diagnostics:
@@ -791,6 +809,9 @@ class Uav3v1Env(DirectMARLEnv):
             log["Reward/prey_boundary"] = -prey_boundary.mean()
             log["Reward/prey_oob"] = prey_oob_pen.mean()
             log["Reward/prey_soft_arena"] = prey_soft_arena_pen.mean()
+            if self._K > 0:
+                log["Reward/predator_obstacle_soft"] = pred_obstacle_soft_pen.mean()
+                log["Reward/prey_obstacle_soft"] = prey_obstacle_soft_pen.mean()
             log["Metrics/predator_oob_step_fraction"] = self._pred_oob.any(dim=1).float().mean()
             log["Metrics/predator_oob_event_step_fraction"] = self._pred_newly_oob.any(dim=1).float().mean()
             log["Metrics/predator_inactive_step_fraction"] = self._pred_oob.any(dim=1).float().mean()
