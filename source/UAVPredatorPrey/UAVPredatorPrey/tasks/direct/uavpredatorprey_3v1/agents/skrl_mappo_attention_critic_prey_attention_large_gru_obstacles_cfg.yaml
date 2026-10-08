@@ -70,6 +70,9 @@ agent:
   # The 10 s time limit is a truncation, not part of the task: policies observe no
   # time-to-go and must work for any episode length (A/B 2026-10-07 in the runbook).
   time_limit_bootstrap: True
+  # The zero-initialized obstacle branch learns 30x faster than the pretrained
+  # parameters; at the base rate alone it stayed near zero (experiment 2026-10-08).
+  obstacle_lr_multiplier: 30.0
   experiment:
     directory: "uav_3v1_direct"
     experiment_name: "attention_critic_prey_attention_large_gru"
