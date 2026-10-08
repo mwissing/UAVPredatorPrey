@@ -261,3 +261,20 @@ gym.register(
         "skrl_mappo_finetune_cfg_entry_point": f"{agents.__name__}:skrl_mappo_finetune_cfg.yaml",
     },
 )
+
+
+gym.register(
+    id="3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-obstacles-v0",
+    entry_point=f"{__name__}.uav_3v1_env:Uav3v1Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.uav_3v1_env_cfg:"
+            "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg"
+        ),
+        # Only obstacle-aware agent configs: the obstacle-free ones would silently fall back to flat MLPs.
+        "skrl_mappo_attention_critic_prey_attention_large_gru_obstacles_cfg_entry_point": (
+            f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_obstacles_cfg.yaml"
+        ),
+    },
+)

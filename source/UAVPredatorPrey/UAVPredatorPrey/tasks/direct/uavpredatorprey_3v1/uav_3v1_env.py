@@ -9,12 +9,13 @@ import torch
 from collections.abc import Sequence
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import Articulation
+from isaaclab.assets import Articulation, RigidObject, RigidObjectCfg
 from isaaclab.envs import DirectMARLEnv
 from isaaclab.utils.math import subtract_frame_transforms
 
 from .episode_semantics import all_predators_inactive, predator_crash_event_penalty, shifted_squared_speed_penalty
 from .motion_diagnostics import compute_motion_diagnostics
+from .obstacles import PARKED_DISTANCE, axis_offsets_world, collides, sample_obstacle_xy, surface_distance
 from .uav_3v1_env_cfg import Uav3v1EnvCfg
 
 
@@ -111,6 +112,14 @@ class Uav3v1Env(DirectMARLEnv):
         self._caught = torch.zeros(N, dtype=torch.bool, device=self.device)
         self._has_nan = torch.zeros(N, dtype=torch.bool, device=self.device)
         self._intermediate_values_valid = False
+
+        # Pillar obstacles (see Uav3v1EnvCfg.num_obstacles); all of this is inert when K == 0.
+        self._K = int(cfg.num_obstacles)
+        self._obstacle_xy = torch.full((N, self._K, 2), PARKED_DISTANCE, device=self.device)
+        self._pred_obstacle_hit = torch.zeros(N, P, dtype=torch.bool, device=self.device)
+        self._prey_obstacle_hit = torch.zeros(N, dtype=torch.bool, device=self.device)
+        self._episode_pred_obstacle_crash = torch.zeros(N, device=self.device)
+        self._episode_prey_obstacle_crash = torch.zeros(N, device=self.device)
 
         # Pre-build teammate index pairs for vectorized teammate obs
         # For pred i, teammates are the other 2 predators
@@ -224,6 +233,22 @@ class Uav3v1Env(DirectMARLEnv):
 
         self._prey = Articulation(self.cfg.prey_cfg)
 
+        # Kinematic pillars for rendering only (no collision shapes; collisions are analytic).
+        self._obstacles: list[RigidObject] = []
+        for k in range(int(self.cfg.num_obstacles)):
+            obstacle_cfg = RigidObjectCfg(
+                prim_path=f"/World/envs/env_.*/Obstacle_{k}",
+                spawn=sim_utils.CylinderCfg(
+                    radius=self.cfg.obstacle_radius,
+                    height=self.cfg.obstacle_height,
+                    axis="Z",
+                    rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True, disable_gravity=True),
+                    visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.55, 0.55, 0.55)),
+                ),
+                init_state=RigidObjectCfg.InitialStateCfg(pos=(PARKED_DISTANCE, 0.0, self.cfg.arena_center_z)),
+            )
+            self._obstacles.append(RigidObject(obstacle_cfg))
+
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
         self._terrain = self.cfg.terrain.class_type(self.cfg.terrain)
@@ -235,6 +260,8 @@ class Uav3v1Env(DirectMARLEnv):
         for i, pred in enumerate(self._predators):
             self.scene.articulations[f"predator_{i}"] = pred
         self.scene.articulations["prey"] = self._prey
+        for k, obstacle in enumerate(self._obstacles):
+            self.scene.rigid_objects[f"obstacle_{k}"] = obstacle
 
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
@@ -343,6 +370,18 @@ class Uav3v1Env(DirectMARLEnv):
                 | (self._pred_horiz > self.cfg.arena_radius)
             )
 
+        if self._K > 0:
+            # Touching a pillar is a crash: the predator becomes inactive, the prey counts as OOB.
+            self._pred_obstacle_hit[:] = collides(
+                pred_pos_rel[:, :, :2], self._obstacle_xy, self.cfg.obstacle_radius, self.cfg.obstacle_collision_margin
+            )
+            self._prey_obstacle_hit[:] = collides(
+                self._prey_pos_rel[:, None, :2], self._obstacle_xy, self.cfg.obstacle_radius,
+                self.cfg.obstacle_collision_margin,
+            )[:, 0]
+            pred_oob_now = pred_oob_now | self._pred_obstacle_hit
+            self._prey_oob[:] = self._prey_oob | self._prey_obstacle_hit
+
         self._pred_newly_oob[:] = pred_oob_now & self._pred_alive
         self._pred_alive[:] = self._pred_alive & (~pred_oob_now)
         self._pred_oob[:] = ~self._pred_alive
@@ -388,6 +427,27 @@ class Uav3v1Env(DirectMARLEnv):
     # ------------------------------------------------------------------
     # Observations — fully vectorized
     # ------------------------------------------------------------------
+
+    def _obstacle_features(self, positions_rel: torch.Tensor, quats_w: torch.Tensor) -> torch.Tensor:
+        """Per-pillar features for D drones: body-frame vector to the axis and surface distance.
+
+        Args:
+            positions_rel: (N, D, 3) drone positions relative to the env origin.
+            quats_w: (N, D, 4) drone orientations.
+
+        Returns:
+            (N, D, K * 4) features, all divided by obstacle_feature_scale.
+        """
+        n, d = positions_rel.shape[:2]
+        offsets_w = axis_offsets_world(positions_rel, self._obstacle_xy)  # (N, D, K, 3)
+        # Rotate the vectors into each drone's body frame: transform the point (origin + offset).
+        flat_quat = quats_w[:, :, None, :].expand(n, d, self._K, 4).reshape(-1, 4)
+        zeros = torch.zeros(flat_quat.shape[0], 3, device=self.device)
+        offsets_b, _ = subtract_frame_transforms(zeros, flat_quat, offsets_w.reshape(-1, 3))
+        offsets_b = offsets_b.view(n, d, self._K, 3)
+        distance = surface_distance(positions_rel[..., :2], self._obstacle_xy, self.cfg.obstacle_radius)
+        features = torch.cat((offsets_b, distance.unsqueeze(-1)), dim=-1) / self.cfg.obstacle_feature_scale
+        return features.reshape(n, d, self._K * 4)
 
     def _get_observations(self) -> dict[str, torch.Tensor]:
         if not self._intermediate_values_valid:
@@ -441,6 +501,10 @@ class Uav3v1Env(DirectMARLEnv):
             teammate_b = torch.zeros(0, N, 3, device=self.device)
             teammate_vel = torch.zeros(0, N, 3, device=self.device)
 
+        if self._K > 0:
+            pred_obstacle_obs = self._obstacle_features(self._pred_pos_rel, pred_quat_w.permute(1, 0, 2))  # (N, P, K*4)
+            prey_obstacle_obs = self._obstacle_features(self._prey_pos_rel[:, None, :], prey_quat_w[:, None, :])[:, 0]
+
         # Assemble per-predator observations and stack them for the shared predator agent.
         pred_obs_parts = []
         tm_idx = 0
@@ -459,6 +523,9 @@ class Uav3v1Env(DirectMARLEnv):
                 if self.cfg.predator_teammate_velocity_observation:
                     pred_parts.append(teammate_vel[tm_idx])
                 tm_idx += 1
+            if self._K > 0:
+                # Obstacle features come last in each per-drone block; inactive drones see zeros.
+                pred_parts.append(torch.where(alive_i, pred_obstacle_obs[:, i], torch.zeros_like(pred_obstacle_obs[:, i])))
             pred_obs_parts.append(torch.cat(pred_parts, dim=-1))
 
         predator_obs = torch.cat(pred_obs_parts, dim=-1)
@@ -480,6 +547,8 @@ class Uav3v1Env(DirectMARLEnv):
         ]
         for i in range(P):
             prey_obs_parts.extend([to_pred_b[i], to_pred_vel[i]])
+        if self._K > 0:
+            prey_obs_parts.append(prey_obstacle_obs)
         prey_obs = torch.cat(prey_obs_parts, dim=-1)
 
         # NaN guard
@@ -768,6 +837,14 @@ class Uav3v1Env(DirectMARLEnv):
             self._pred_newly_oob.float(),
         )
         self._episode_prey_oob += self._prey_oob.float()
+        if self._K > 0:
+            self._episode_pred_obstacle_crash = torch.maximum(
+                self._episode_pred_obstacle_crash,
+                (self._pred_obstacle_hit & self._pred_newly_oob).any(dim=1).float(),
+            )
+            self._episode_prey_obstacle_crash = torch.maximum(
+                self._episode_prey_obstacle_crash, self._prey_obstacle_hit.float()
+            )
         self._episode_min_predator_height = torch.minimum(self._episode_min_predator_height, self._pred_min_height)
         self._episode_min_prey_height = torch.minimum(self._episode_min_prey_height, self._prey_pos_rel[:, 2])
         self._episode_min_teammate_distance = torch.minimum(
@@ -905,6 +982,12 @@ class Uav3v1Env(DirectMARLEnv):
         ).mean()
         for i in range(self._P):
             self.extras["log"][f"Metrics/predator_{i}_oob_rate"] = self._episode_pred_oob_by_agent[env_ids, i].mean()
+        if self._K > 0:
+            # Subsets of the OOB rates above that were caused by pillars.
+            self.extras["log"]["Metrics/predator_obstacle_crash_rate"] = self._episode_pred_obstacle_crash[env_ids].mean()
+            self.extras["log"]["Metrics/prey_obstacle_crash_rate"] = self._episode_prey_obstacle_crash[env_ids].mean()
+            self._episode_pred_obstacle_crash[env_ids] = 0.0
+            self._episode_prey_obstacle_crash[env_ids] = 0.0
 
         self._episode_catches[env_ids] = 0.0
         self._episode_clean_catches[env_ids] = 0.0
@@ -984,4 +1067,27 @@ class Uav3v1Env(DirectMARLEnv):
         self._prev_min_pred_prey_distance[env_ids] = pred_prey_distances.min(dim=1).values
         prey_pos_rel = prey_pos_w - self._terrain.env_origins[env_ids]
         self._prev_prey_horiz[env_ids] = torch.linalg.norm(prey_pos_rel[:, :2], dim=1)
+
+        if self._K > 0:
+            # Place pillars uniformly (no bias toward any strategy), clear of every spawned drone.
+            origins = self._terrain.env_origins[env_ids]
+            drone_xy = torch.cat((pred_pos_w[:, :, :2], prey_pos_w[:, None, :2]), dim=1) - origins[:, None, :2]
+            obstacle_xy, parked = sample_obstacle_xy(
+                drone_xy,
+                self._K,
+                placement_radius=self.cfg.obstacle_placement_radius,
+                obstacle_radius=self.cfg.obstacle_radius,
+                min_axis_separation=self.cfg.obstacle_min_axis_separation,
+                spawn_clearance=self.cfg.obstacle_spawn_clearance,
+            )
+            self._obstacle_xy[env_ids] = obstacle_xy
+            self.extras["log"]["Metrics/obstacle_parked_fraction"] = parked.float().mean() / self._K
+            pose = torch.zeros(n, 7, device=self.device)
+            pose[:, 2] = self.cfg.arena_center_z
+            pose[:, 3] = 1.0  # identity quaternion (w, x, y, z)
+            pose[:, :3] += origins
+            for k, obstacle in enumerate(self._obstacles):
+                pose_k = pose.clone()
+                pose_k[:, :2] += obstacle_xy[:, k]
+                obstacle.write_root_pose_to_sim(pose_k, env_ids)
         self._intermediate_values_valid = False

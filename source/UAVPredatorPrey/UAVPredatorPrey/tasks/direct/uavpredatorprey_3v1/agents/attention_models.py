@@ -123,15 +123,21 @@ def _infer_predator_layout(num_observations: int, num_actions: int, min_predator
     return None
 
 
-def _infer_centralized_state_layout(num_states: int, max_predators: int = 6) -> tuple[int, int, int, int] | None:
-    """Infer centralized state layout: stacked predator observations plus prey observation."""
+def _infer_centralized_state_layout(
+    num_states: int, max_predators: int = 6, obstacle_block: int = 0
+) -> tuple[int, int, int, int] | None:
+    """Infer centralized state layout: stacked predator observations plus prey observation.
+
+    `obstacle_block` obstacle features are appended to every per-drone block
+    (each predator block and the prey block); the returned sizes exclude them.
+    """
 
     for num_predators in range(1, max_predators + 1):
         prey_obs_dim = 12 + 6 * num_predators
         for teammate_dim in (6, 3):
             per_predator_obs = 12 + 6 + teammate_dim * (num_predators - 1)
-            predator_obs_dim = num_predators * per_predator_obs
-            if num_states == predator_obs_dim + prey_obs_dim:
+            predator_obs_dim = num_predators * (per_predator_obs + obstacle_block)
+            if num_states == predator_obs_dim + prey_obs_dim + obstacle_block:
                 return num_predators, per_predator_obs, teammate_dim, prey_obs_dim
     return None
 
@@ -471,6 +477,8 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         prey_attention_min_predators: int = 2,
         predator_min_log_std: float | None = None,
         prey_min_log_std: float | None = None,
+        num_obstacles: int = 0,
+        obstacle_dim: int = 4,
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
@@ -483,9 +491,17 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             reduction=reduction,
         )
 
-        predator_layout = _infer_predator_layout(self.num_observations, self.num_actions, attention_min_predators)
+        # Obstacle features (num_obstacles x obstacle_dim) are appended to every
+        # per-drone observation block; the remaining layout is unchanged.
+        self.num_obstacles = int(num_obstacles)
+        self.obstacle_dim = int(obstacle_dim)
+        obstacle_block = self.num_obstacles * self.obstacle_dim
+        team_size = self.num_actions // 4 if self.num_actions % 4 == 0 else 0
+        predator_layout = _infer_predator_layout(
+            self.num_observations - team_size * obstacle_block, self.num_actions, attention_min_predators
+        )
         prey_num_predators = _infer_prey_layout(
-            self.num_observations,
+            self.num_observations - obstacle_block,
             self.num_actions,
             prey_attention_min_predators,
         )
@@ -540,6 +556,20 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             self.net = _mlp(self.rnn_hidden_size, fallback_layers[-1:], self.num_actions, fallback_activation)
             self.log_std_parameter = nn.Parameter(torch.full((self.num_actions,), float(initial_log_std)))
 
+        # Obstacle branch, created last so that the existing modules keep their
+        # initialization. Its output projection starts at zero: a policy loaded
+        # from an obstacle-free checkpoint initially acts exactly as before and
+        # learns to use the obstacles from there.
+        self.per_predator_block = self.per_predator_obs + obstacle_block
+        if self.num_obstacles > 0 and self.mode in ("predator", "prey"):
+            self.obstacle_encoder = _mlp(self.obstacle_dim, (hidden_size,), attention_size, fallback_activation)
+            self.obstacle_query = nn.Linear(attention_size, attention_size)
+            self.obstacle_key = nn.Linear(attention_size, attention_size)
+            self.obstacle_value = nn.Linear(attention_size, attention_size)
+            self.obstacle_out = nn.Linear(attention_size, attention_size)
+            nn.init.zeros_(self.obstacle_out.weight)
+            nn.init.zeros_(self.obstacle_out.bias)
+
     def get_specification(self) -> Mapping[str, Any]:
         if self.mode == "predator":
             hidden_size = self.num_predators * self.rnn_hidden_size
@@ -548,7 +578,9 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         return {"rnn": {"sizes": [(1, 0, hidden_size)], "sequence_length": self.rnn_sequence_length}}
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
-        result = _strict_load_allow_missing_prefixes(self, state_dict, ("gru.",), strict=strict, assign=assign)
+        result = _strict_load_allow_missing_prefixes(
+            self, state_dict, ("gru.", "obstacle_"), strict=strict, assign=assign
+        )
         self.project_log_std_parameter_()
         return result
 
@@ -559,9 +591,30 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             with torch.no_grad():
                 self.log_std_parameter.clamp_(self._g_log_std_min, self._g_log_std_max)
 
+    def _obstacle_context(self, own_emb: torch.Tensor, obstacles: torch.Tensor) -> torch.Tensor:
+        """Attention from each drone's own embedding over its obstacle entities.
+
+        Args:
+            own_emb: (B, A) own-state embeddings.
+            obstacles: (B, K, obstacle_dim) obstacle features.
+
+        Returns:
+            (B, A) projected obstacle context (zero at initialization).
+        """
+        batch, num_obstacles, _ = obstacles.shape
+        obstacle_emb = self.obstacle_encoder(obstacles.reshape(batch * num_obstacles, self.obstacle_dim))
+        obstacle_emb = obstacle_emb.view(batch, num_obstacles, -1)
+        query = self.obstacle_query(own_emb).unsqueeze(1)
+        key = self.obstacle_key(obstacle_emb)
+        value = self.obstacle_value(obstacle_emb)
+        weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
+        context = (weights.unsqueeze(-1) * value).sum(dim=1)
+        return self.obstacle_out(context)
+
     def _predator_features(self, states: torch.Tensor) -> torch.Tensor:
         batch_size = states.shape[0]
-        predator_obs = states.view(batch_size, self.num_predators, self.per_predator_obs)
+        blocks = states.view(batch_size, self.num_predators, self.per_predator_block)
+        predator_obs = blocks[:, :, : self.per_predator_obs]
         own = predator_obs[:, :, :12]
         prey = predator_obs[:, :, 12:18]
         teammates = predator_obs[:, :, 18:].view(
@@ -586,12 +639,19 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         value = self.value(entities)
         weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=2)
+        if self.num_obstacles > 0:
+            obstacles = blocks[:, :, self.per_predator_obs :].reshape(
+                batch_size * self.num_predators, self.num_obstacles, self.obstacle_dim
+            )
+            obstacle_context = self._obstacle_context(own_emb.reshape(batch_size * self.num_predators, -1), obstacles)
+            context = context + obstacle_context.view(batch_size, self.num_predators, -1)
         return torch.cat((own_emb, context), dim=-1)
 
     def _prey_features(self, states: torch.Tensor) -> torch.Tensor:
         batch_size = states.shape[0]
         own = states[:, :12]
-        predators = states[:, 12:].view(batch_size, self.num_predators, 6)
+        predator_end = 12 + 6 * self.num_predators
+        predators = states[:, 12:predator_end].view(batch_size, self.num_predators, 6)
 
         own_emb = self.own_encoder(own)
         predator_emb = self.predator_encoder(predators.reshape(batch_size * self.num_predators, 6))
@@ -602,6 +662,9 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         value = self.value(predator_emb)
         weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=1)
+        if self.num_obstacles > 0:
+            obstacles = states[:, predator_end:].view(batch_size, self.num_obstacles, self.obstacle_dim)
+            context = context + self._obstacle_context(own_emb, obstacles)
         return torch.cat((own_emb, context), dim=-1)
 
     def compute(self, inputs, role=""):
@@ -810,12 +873,19 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
         fallback_layers: Sequence[int] = (256, 128, 64),
         fallback_activation: str = "elu",
         max_predators: int = 6,
+        num_obstacles: int = 0,
+        obstacle_dim: int = 4,
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
         DeterministicMixin.__init__(self, clip_actions=clip_actions)
 
-        layout = _infer_centralized_state_layout(self.num_observations, max_predators=max_predators)
+        self.num_obstacles = int(num_obstacles)
+        self.obstacle_dim = int(obstacle_dim)
+        self.obstacle_block = self.num_obstacles * self.obstacle_dim
+        layout = _infer_centralized_state_layout(
+            self.num_observations, max_predators=max_predators, obstacle_block=self.obstacle_block
+        )
         self.uses_entity_attention = layout is not None
         self.rnn_sequence_length = int(rnn_sequence_length)
         self.rnn_hidden_size = int(rnn_hidden_size or attention_size)
@@ -850,20 +920,28 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
             self.gru = nn.GRU(self.rnn_hidden_size, self.rnn_hidden_size)
             self.net = _mlp(self.rnn_hidden_size, fallback_layers[-1:], 1, fallback_activation)
 
+        # Obstacle summary, created last; its zero-initialized projection keeps
+        # a critic loaded from an obstacle-free checkpoint unchanged at first.
+        if self.num_obstacles > 0 and self.uses_entity_attention:
+            self.obstacle_encoder = _mlp(self.obstacle_dim, (hidden_size,), attention_size, fallback_activation)
+            self.obstacle_out = nn.Linear(attention_size, self.feature_size)
+            nn.init.zeros_(self.obstacle_out.weight)
+            nn.init.zeros_(self.obstacle_out.bias)
+
     def get_specification(self) -> Mapping[str, Any]:
         return {"rnn": {"sizes": [(1, 0, self.rnn_hidden_size)], "sequence_length": self.rnn_sequence_length}}
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
-        return _strict_load_allow_missing_prefixes(self, state_dict, ("gru.",), strict=strict, assign=assign)
+        return _strict_load_allow_missing_prefixes(
+            self, state_dict, ("gru.", "obstacle_"), strict=strict, assign=assign
+        )
 
     def _attention_feature(self, states: torch.Tensor) -> torch.Tensor:
         batch_size = states.shape[0]
-        predator_state_dim = self.num_predators * self.per_predator_obs
-        predator_obs = states[:, :predator_state_dim].view(
-            batch_size,
-            self.num_predators,
-            self.per_predator_obs,
-        )
+        block = self.per_predator_obs + self.obstacle_block
+        predator_state_dim = self.num_predators * block
+        predator_blocks = states[:, :predator_state_dim].view(batch_size, self.num_predators, block)
+        predator_obs = predator_blocks[:, :, : self.per_predator_obs]
         prey_obs = states[:, predator_state_dim : predator_state_dim + self.prey_obs_dim]
 
         predator_emb = self.predator_encoder(predator_obs.reshape(-1, self.per_predator_obs))
@@ -876,7 +954,20 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
         value = self.value(entities)
         weights = _pairwise_attention_weights(query, key).to(dtype=value.dtype)
         attended = torch.matmul(weights, value)
-        return attended.mean(dim=1)
+        feature = attended.mean(dim=1)
+        if self.num_obstacles > 0:
+            # Every drone's view of every pillar, mean-pooled into one summary.
+            obstacles = torch.cat(
+                (
+                    predator_blocks[:, :, self.per_predator_obs :].reshape(batch_size, -1, self.obstacle_dim),
+                    states[:, predator_state_dim + self.prey_obs_dim :].reshape(batch_size, -1, self.obstacle_dim),
+                ),
+                dim=1,
+            )
+            summary = self.obstacle_encoder(obstacles.reshape(-1, self.obstacle_dim))
+            summary = summary.view(batch_size, obstacles.shape[1], -1).mean(dim=1)
+            feature = feature + self.obstacle_out(summary)
+        return feature
 
     def compute(self, inputs, role=""):
         states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))

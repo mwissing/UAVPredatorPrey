@@ -166,6 +166,20 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     predator_teammate_close_distance = 0.5  # diagnostics only: flags near teammate contact
     predator_teammate_velocity_observation = False
 
+    # Vertical pillar obstacles (0 = none). Collisions are analytic: touching a
+    # pillar counts as a crash (predator inactive, or prey OOB). Rendered
+    # cylinders have no collision shapes. Each drone observes, per pillar, the
+    # body-frame vector to the pillar axis at its own height and the surface
+    # distance, both divided by obstacle_feature_scale.
+    num_obstacles = 0
+    obstacle_radius = 0.4                 # [m]
+    obstacle_height = 12.0                # [m] rendered height, centred on arena_center_z
+    obstacle_placement_radius = 3.5       # [m] max horizontal axis distance from the arena centre
+    obstacle_min_axis_separation = 1.6    # [m] between pillar axes, so drones can pass between pillars
+    obstacle_spawn_clearance = 0.5        # [m] min gap between a pillar surface and any spawning drone
+    obstacle_collision_margin = 0.06      # [m] drone body radius
+    obstacle_feature_scale = 5.0          # [m] observation scale
+
 
 @configclass
 class Uav1v1SurvivalEasyEnvCfg(Uav3v1EnvCfg):
@@ -295,6 +309,22 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressEnvCfg(
     """Late-stage ablation with weaker direct-pursuit shaping."""
 
     predator_distance_progress_reward_scale = 2.0
+
+
+@configclass
+class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg(
+    Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressEnvCfg
+):
+    """Low-progress random-spawn task with four vertical pillar obstacles (roadmap stage 8).
+
+    Rewards are unchanged; touching a pillar is a crash with the existing crash
+    penalties. Each drone observes 4 features per pillar, appended to its
+    observation block.
+    """
+
+    num_obstacles = 4
+    observation_spaces = {"predator": 90 + 3 * 4 * 4, "prey": 30 + 4 * 4}
+    state_space = 120 + 3 * 4 * 4 + 4 * 4
 
 
 @configclass
