@@ -291,3 +291,13 @@ are those of the predator (higher = better predator, lower = better prey).
   moving outward; here the belt still was one.
 - Evidence: `artifacts/isaac/experiments/2026-10-09_prey_ghost_skill_stage/`;
   v2 in `artifacts/isaac/experiments/2026-10-09_prey_ghost_stage_v2/`.
+- v2 result (pre-registered: neither arm uses perception):
+  - With pillars up to the wall and ghost speeds of 3.5-6.5 m/s, the prey
+    became a fast, excellent evader (catch hazard 0.054/s, 5.5 m/s) and no
+    longer uses the belt. But its crashes barely fell (0.240/s, zeroing
+    ratio 0.99).
+  - The layout-only control reduced crashes blindly.
+  - Explanation: for the prey, a crash costs the same as being caught, so
+    under fast ghosts it escapes at speed and accepts crashes.
+  - v3 (user's suggestion, running): the same with a prey crash cost of
+    -300 (1.5x being caught).
