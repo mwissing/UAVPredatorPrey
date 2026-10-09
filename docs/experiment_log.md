@@ -307,7 +307,12 @@ are those of the predator (higher = better predator, lower = better prey).
     about to be caught.
   - But no perception emerged (ratio 1.05), and against the start predator
     crashes fell only 7%.
-  - Reading: perception appeared only with slow ghosts (v1), where evasion
-    was solved and avoidance was the remaining pressure. Next candidate: a
-    curriculum from slow to fast ghosts.
+  - Reading: perception appeared only in v1, where evasion was easy. v1
+    had slow ghosts and the pillar-free belt, so the two causes are
+    confounded.
+  - Correction (user's point, confirmed by the overnight cycle 0): without
+    the belt, v1's prey crashes about twice as often (0.196 vs 0.102/s),
+    and its ablation ratio drops from 2.08 to 1.28. Much of its safety came
+    from the belt, but some genuine perception transfers. Next candidate: a
+    curriculum from easy to hard evasion.
   - The overnight self-play starts from v1's prey (pre-registered rule).
