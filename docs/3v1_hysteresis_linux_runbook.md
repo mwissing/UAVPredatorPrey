@@ -328,14 +328,20 @@ env -u DISPLAY -u XAUTHORITY \
   --phase-video-every 1 \
   --phase-video-length 500 \
   --phase-video-num-envs 1 \
-  --phase-video-camera-eye 8 -8 12 \
-  --phase-video-camera-target 0 0 6 \
+  --phase-video-camera-eye 10 -10 12.5 \
+  --phase-video-camera-target 0 0 5 \
   --no-phase-video-markers \
   --output-dir "$OUTPUT_DIR"
 ```
 
 Drone markers are disabled by default and must remain explicitly disabled in
-documented commands. Benchmark `4096` against `8192` training environments
+documented commands. The camera frames the whole elevated arena (sphere of
+radius 5 m around z = 6). Before 2026-10-09 the documented camera was eye
+`8 -8 12`, target `0 0 6`, which cut off the lower part of the arena near
+the camera. The new camera sits 25% further back along the same viewing
+direction, 0.5 m higher. That keeps the same top edge and shows the full
+bottom (checked with a pinhole model of the 60 deg viewport camera against
+rendered frames). Benchmark `4096` against `8192` training environments
 before committing to this long run.
 
 ## Outputs And Provenance
