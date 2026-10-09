@@ -262,3 +262,32 @@ are those of the predator (higher = better predator, lower = better prey).
   but the long run shows that price makes the prey passive, so -350 is
   recommended as the compromise (user decision).
 - Evidence: `artifacts/isaac/experiments/2026-10-08_obstacles_crash_price_exploration/`.
+
+## 2026-10-09: Prey skill stage against scripted ghost pursuers (pre-registered)
+
+- Idea (user): learn the flying skill first, then the game. Implementation:
+  "ghost" predators (918c401). They are kinematic, scripted lead pursuers
+  (leads 0, 0.25, and 0.5 s), speed and acceleration limited, with no
+  colliders. They never crash and fly through pillars, so pillars give the
+  prey no cover and slowing down gets it caught. Off by default; with the
+  flag off, existing evaluations reproduce bit-exactly.
+- Design: prey-only, 9600 updates from the pre-treatment prey. G trained
+  against 3.5 m/s ghosts (speed set by a pre-registered calibration). The
+  control K trained against the frozen predator from the 2026-10-08 evening
+  run.
+- Result: G passes all four criteria; K fails the perception criterion.
+  - G: crash hazard against the start predator 0.102/s (from 0.272).
+    Zeroing the obstacle branch doubles it (ratio 2.08). Median speed
+    5.2 m/s; catch hazard 0.115/s (from 0.134).
+  - K: 0.160/s, ratio 0.92 (blind), 4.27 m/s.
+  - G's perception emerged between 3840 and 5760 updates. It also evades the
+    trained predator far better (catch hazard 0.067 vs 0.175/s).
+- Caveat: G's prey increasingly circles the pillar-free outer belt. Its time
+  in the pillar zone against the start predator fell 62% -> 43%. A second
+  version places pillars up to the wall and draws ghost speeds from
+  3.5-6.5 m/s per episode (b250977), with a layout-only control.
+- Lesson: perception-based avoidance appears only when no blind shortcut is
+  left. Earlier shortcuts were slowing down, weaving at a crash cost, and
+  moving outward; here the belt still was one.
+- Evidence: `artifacts/isaac/experiments/2026-10-09_prey_ghost_skill_stage/`;
+  v2 in `artifacts/isaac/experiments/2026-10-09_prey_ghost_stage_v2/`.

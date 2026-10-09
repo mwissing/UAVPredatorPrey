@@ -101,7 +101,7 @@ Each rule was learned from a concrete failure or near miss in this project.
 | Spawn robustness (Stage 5) | random spawn in the spherical arena; no initial-velocity randomization yet |
 | League hardening (Stage 6) | pools, cross-play, PFSP weights, per-env mixing, rehearsal; forgetting and non-transitivity are measured but unsolved; no exploiters |
 | Locked obstacle-free baseline (Stage 7) | anchor v3 ([doc](anchor_v3_2026-10-08.md)), accepted 2026-10-08 by a pre-registered rule; training-seed replicates missing |
-| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches); first training lowered crash rates blindly. With a crash price plus exploration, the predator avoids pillars by perception (2026-10-08 evening); the prey only slowed down (see Stage 8) |
+| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches); first training lowered crash rates blindly. With a crash price plus exploration, the predator avoids pillars by perception (2026-10-08 evening). The prey learns it in a skill stage against scripted ghost pursuers (2026-10-09; see Stage 8) |
 | Partial observability, perception (Stages 9-10) | not started |
 | Correctness gate | all items closed except three open ones (see Correctness Gate) |
 
@@ -151,8 +151,9 @@ Key findings:
 
 Current bottlenecks, in order:
 
-1. Prey behavior with pillars: a crash price that keeps it safe without
-   making it passive, plus a presence mask for absent pillars (Stage 8).
+1. Obstacle layout without blind shortcuts (the pillar-free outer belt),
+   then self-play from the ghost-trained prey; presence mask for absent
+   pillars (Stage 8).
 2. Emergent coordination (cornering against boundaries) is rare.
 3. Forgetting and non-transitivity in self-play.
 4. Small effects need several seeds: one predator run varies by SD 0.027 on
@@ -370,6 +371,14 @@ with a crash cost of -600 for both roles and the predator's log-std floor at
 
 Adopt the predator settings. Choose the prey's price separately (a prey-only
 dose-response is in the experiment directory).
+
+Update (2026-10-09, pre-registered): a prey skill stage against scripted
+"ghost" pursuers teaches the prey perception-based avoidance. Ghosts fly
+through pillars and catch a slow prey. After 9600 prey-only updates, zeroing
+the prey's obstacle branch doubles its crash hazard, at 5.2 m/s. A control
+against the frozen trained predator stayed blind. The prey also exploits the
+pillar-free outer belt (pillar axes lie within 3.5 m), so a version with
+pillars up to the wall and faster ghosts is running.
 
 ### Stage 9: Partial Observability, Belief, and Communication
 
