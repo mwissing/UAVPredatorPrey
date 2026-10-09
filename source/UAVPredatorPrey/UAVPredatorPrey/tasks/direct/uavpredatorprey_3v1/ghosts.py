@@ -19,7 +19,7 @@ def ghost_pursuit_velocity(
     target_velocity: torch.Tensor,
     lead_times: torch.Tensor,
     *,
-    max_speed: float,
+    max_speed: float | torch.Tensor,
     max_accel: float,
     dt: float,
     min_aim_height: float,
@@ -35,6 +35,7 @@ def ghost_pursuit_velocity(
         target_position: (N, 3) prey position relative to the env origin [m].
         target_velocity: (N, 3) prey velocity [m/s].
         lead_times: (P,) per-ghost lead times [s].
+        max_speed: speed limit [m/s], a scalar or an (N, 1, 1) tensor of per-env limits.
         min_aim_height: lowest aim point [m], so ghosts never chase a diving prey into the ground.
 
     Returns:

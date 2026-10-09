@@ -133,6 +133,7 @@ class Uav3v1Env(DirectMARLEnv):
         # Scripted ghost predators (see Uav3v1EnvCfg.ghost_predators); inert when off.
         self._ghosts = bool(cfg.ghost_predators)
         self._ghost_velocity = torch.zeros(N, P, 3, device=self.device)
+        self._ghost_speed = torch.full((N,), float(cfg.ghost_max_speed), device=self.device)
         lead_times = cfg.ghost_lead_times
         self._ghost_lead_times = torch.tensor(
             [float(lead_times[i % len(lead_times)]) for i in range(P)], device=self.device
@@ -329,7 +330,11 @@ class Uav3v1Env(DirectMARLEnv):
                 self._prey.data.root_pos_w - origins,
                 self._prey.data.root_lin_vel_w,
                 self._ghost_lead_times,
-                max_speed=self.cfg.ghost_max_speed,
+                max_speed=(
+                    self._ghost_speed[:, None, None]
+                    if self.cfg.ghost_max_speed_range is not None
+                    else self.cfg.ghost_max_speed
+                ),
                 max_accel=self.cfg.ghost_max_accel,
                 dt=self.step_dt,
                 min_aim_height=self.cfg.ghost_min_aim_height,
@@ -1077,6 +1082,10 @@ class Uav3v1Env(DirectMARLEnv):
         self._pred_oob[env_ids] = False
         self._pred_newly_oob[env_ids] = False
         self._ghost_velocity[env_ids] = 0.0
+        if self._ghosts and self.cfg.ghost_max_speed_range is not None:
+            # A new ghost speed per episode: fast ghosts punish slowing down, slow ones keep episodes winnable.
+            low, high = self.cfg.ghost_max_speed_range
+            self._ghost_speed[env_ids] = low + (high - low) * torch.rand(len(env_ids), device=self.device)
 
         # Reset actions
         self._pred_actions[env_ids] = 0.0

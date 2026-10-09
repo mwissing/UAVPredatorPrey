@@ -187,6 +187,7 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     # crashes, and passes through pillars. Train with the predator agent frozen.
     ghost_predators = False
     ghost_max_speed = 4.5                 # [m/s]
+    ghost_max_speed_range = None          # (min, max) [m/s]: if set, each episode draws its ghost speed uniformly
     ghost_max_accel = 12.0                # [m/s^2], about what T/W 1.9 allows after attitude lag
     ghost_lead_times = (0.0, 0.25, 0.5)   # [s] per predator: aim at prey position + lead * prey velocity
     ghost_min_aim_height = 0.6            # [m] relative to the env origin

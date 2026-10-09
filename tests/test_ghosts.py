@@ -87,3 +87,18 @@ def test_catches_a_slower_target_on_a_straight_line():
             caught = True
             break
     assert caught
+
+
+def test_per_env_speed_limits():
+    n, p = 4, 3
+    caps = torch.tensor([3.5, 4.5, 5.5, 6.5]).view(n, 1, 1)
+    limits = {**LIMITS, "max_speed": caps}
+    position = torch.zeros(n, p, 3)
+    velocity = torch.zeros(n, p, 3)
+    target_position = torch.tensor([[30.0, 0.0, 1.0]]).repeat(n, 1)
+    lead = torch.tensor([0.0, 0.25, 0.5])
+    for _ in range(60):
+        velocity = ghost_pursuit_velocity(position, velocity, target_position, torch.zeros(n, 3), lead, **limits)
+        position = position + velocity * DT
+    speed = torch.linalg.norm(velocity, dim=-1)
+    assert torch.allclose(speed, caps.view(n, 1).expand(n, p), atol=1e-4)
