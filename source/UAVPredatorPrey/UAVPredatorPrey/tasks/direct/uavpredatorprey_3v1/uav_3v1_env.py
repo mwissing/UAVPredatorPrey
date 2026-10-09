@@ -14,6 +14,7 @@ from isaaclab.envs import DirectMARLEnv
 from isaaclab.utils.math import subtract_frame_transforms
 
 from .episode_semantics import all_predators_inactive, predator_crash_event_penalty, shifted_squared_speed_penalty
+from .ghosts import ghost_pursuit_velocity
 from .motion_diagnostics import compute_motion_diagnostics
 from .obstacles import (
     PARKED_DISTANCE,
@@ -129,6 +130,14 @@ class Uav3v1Env(DirectMARLEnv):
         self._episode_pred_obstacle_crash = torch.zeros(N, device=self.device)
         self._episode_prey_obstacle_crash = torch.zeros(N, device=self.device)
 
+        # Scripted ghost predators (see Uav3v1EnvCfg.ghost_predators); inert when off.
+        self._ghosts = bool(cfg.ghost_predators)
+        self._ghost_velocity = torch.zeros(N, P, 3, device=self.device)
+        lead_times = cfg.ghost_lead_times
+        self._ghost_lead_times = torch.tensor(
+            [float(lead_times[i % len(lead_times)]) for i in range(P)], device=self.device
+        )
+
         # Pre-build teammate index pairs for vectorized teammate obs
         # For pred i, teammates are the other 2 predators
         # teammate_src[k] = which predator is the "observer", teammate_dst[k] = which is observed
@@ -237,6 +246,14 @@ class Uav3v1Env(DirectMARLEnv):
         self._predators: list[Articulation] = []
         for i in range(self.cfg.num_predators):
             cfg_attr = getattr(self.cfg, f"predator_{i}_cfg")
+            if self.cfg.ghost_predators:
+                # Ghosts must not touch anything: without colliders they pass through each other and
+                # the prey, so contacts cannot disturb the pursuit velocity (catches are distance-based).
+                cfg_attr = cfg_attr.replace(
+                    spawn=cfg_attr.spawn.replace(
+                        collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False)
+                    )
+                )
             self._predators.append(Articulation(cfg_attr))
 
         self._prey = Articulation(self.cfg.prey_cfg)
@@ -301,6 +318,24 @@ class Uav3v1Env(DirectMARLEnv):
         pred_alive_wrench = self._pred_alive[:, :, None, None].float()
         self._pred_thrust *= pred_alive_wrench
         self._pred_moment *= pred_alive_wrench
+        if self._ghosts:
+            # Ghosts ignore their actions. Hover thrust cancels gravity, so the pursuit velocity that
+            # _apply_action writes before every physics substep is exactly what the ghost flies.
+            origins = self._terrain.env_origins
+            pred_pos = torch.stack([p.data.root_pos_w for p in self._predators], dim=1) - origins[:, None, :]
+            self._ghost_velocity[:] = ghost_pursuit_velocity(
+                pred_pos,
+                self._ghost_velocity,
+                self._prey.data.root_pos_w - origins,
+                self._prey.data.root_lin_vel_w,
+                self._ghost_lead_times,
+                max_speed=self.cfg.ghost_max_speed,
+                max_accel=self.cfg.ghost_max_accel,
+                dt=self.step_dt,
+                min_aim_height=self.cfg.ghost_min_aim_height,
+            )
+            self._pred_thrust[:, :, 0, 2] = self._robot_weight
+            self._pred_moment.zero_()
 
         # Prey
         prey_raw_actions = actions["prey"]
@@ -330,6 +365,11 @@ class Uav3v1Env(DirectMARLEnv):
         self._prey.permanent_wrench_composer.set_forces_and_torques(
             body_ids=self._prey_body_id, forces=self._prey_thrust, torques=self._prey_moment
         )
+        if self._ghosts:
+            # Kinematic ghosts: linear velocity from the pursuit law, no rotation.
+            no_rotation = torch.zeros_like(self._ghost_velocity[:, 0])
+            for i, pred in enumerate(self._predators):
+                pred.write_root_link_velocity_to_sim(torch.cat((self._ghost_velocity[:, i], no_rotation), dim=-1))
 
     def _compute_intermediate_values(self) -> None:
         """Update state-derived caches used by dones, rewards and observations."""
@@ -390,6 +430,9 @@ class Uav3v1Env(DirectMARLEnv):
             pred_oob_now = pred_oob_now | self._pred_obstacle_hit
             self._prey_oob[:] = self._prey_oob | self._prey_obstacle_hit
 
+        if self._ghosts:
+            # Ghosts never crash: they fly through pillars and stay active for the whole episode.
+            pred_oob_now = torch.zeros_like(pred_oob_now)
         self._pred_newly_oob[:] = pred_oob_now & self._pred_alive
         self._pred_alive[:] = self._pred_alive & (~pred_oob_now)
         self._pred_oob[:] = ~self._pred_alive
@@ -1033,6 +1076,7 @@ class Uav3v1Env(DirectMARLEnv):
         self._pred_alive[env_ids] = True
         self._pred_oob[env_ids] = False
         self._pred_newly_oob[env_ids] = False
+        self._ghost_velocity[env_ids] = 0.0
 
         # Reset actions
         self._pred_actions[env_ids] = 0.0

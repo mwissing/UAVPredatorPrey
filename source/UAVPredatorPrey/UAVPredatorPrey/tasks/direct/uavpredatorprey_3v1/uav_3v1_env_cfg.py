@@ -182,6 +182,15 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     obstacle_soft_margin = 0.5            # [m] clearance band with a quadratic keep-out cost
     obstacle_soft_penalty_scale = 0.0     # 0 = off; cost = scale * (margin - clearance)^2 * dt (like the soft arena wall)
 
+    # Scripted "ghost" predators for training the prey alone (see ghosts.py). Predator actions are
+    # ignored: each predator flies a speed- and acceleration-limited lead pursuit of the prey, never
+    # crashes, and passes through pillars. Train with the predator agent frozen.
+    ghost_predators = False
+    ghost_max_speed = 4.5                 # [m/s]
+    ghost_max_accel = 12.0                # [m/s^2], about what T/W 1.9 allows after attitude lag
+    ghost_lead_times = (0.0, 0.25, 0.5)   # [s] per predator: aim at prey position + lead * prey velocity
+    ghost_min_aim_height = 0.6            # [m] relative to the env origin
+
 
 @configclass
 class Uav1v1SurvivalEasyEnvCfg(Uav3v1EnvCfg):
