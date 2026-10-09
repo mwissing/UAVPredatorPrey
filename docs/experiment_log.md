@@ -301,3 +301,13 @@ are those of the predator (higher = better predator, lower = better prey).
     under fast ghosts it escapes at speed and accepts crashes.
   - v3 (user's suggestion, running): the same with a prey crash cost of
     -300 (1.5x being caught).
+- v3 result (pre-registered: no perception):
+  - Against ghosts, the higher crash price works as intended: 38% fewer
+    crashes, 2.3x more catches, so the prey no longer takes the crash when
+    about to be caught.
+  - But no perception emerged (ratio 1.05), and against the start predator
+    crashes fell only 7%.
+  - Reading: perception appeared only with slow ghosts (v1), where evasion
+    was solved and avoidance was the remaining pressure. Next candidate: a
+    curriculum from slow to fast ghosts.
+  - The overnight self-play starts from v1's prey (pre-registered rule).
