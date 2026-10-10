@@ -452,3 +452,31 @@ are those of the predator (higher = better predator, lower = better prey).
     Candidate fixes: max-pooling over pillars, a distance prior, or
     normalized multi-head attention.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v6_dense8/`.
+
+## 2026-10-10: Multi-head obstacle attention, prey ghost stage v7 (pre-registered, running)
+
+- Direction chosen by the user: the most advanced long-term solution, a
+  modern multi-head attention block (option 3 of the probe's candidates).
+- Code (cbb8753): `ObstacleMultiHeadAttention`, enabled with
+  `+agent.models.policy.obstacle_attention_heads=4`. It is added next to the
+  single-head path with a zero-initialized output:
+  - 4 heads, layer-normalized pillar tokens;
+  - cosine scores times a learnable temperature (start 5, cap 30), so the
+    scores stay bounded;
+  - the presence mask.
+- Checks, all bit-exact live: block off (reference pair) and block on (G6)
+  reproduce their evaluations. A 48-update smoke run shows the prey's block
+  learning while the frozen predator's block stays exactly zero.
+- Untrained block on G6 (step-0 probe): soft attention (entropy 0.95-0.99).
+  One head already favors the later-hit pillar (weight 0.205 vs chance
+  0.125), from its random initialization alone.
+- Design: G6's prey with the block continues for 9600 updates in the dense
+  ghost stage, seed 45. There is no parallel control arm, because two runs do
+  not fit in GPU memory (about 15 GB each). The block's share is measured
+  within the run by zeroing only the block.
+- Decision criteria in the plan:
+  - dense ablation ratio >= 1.2 at the last two checkpoints;
+  - block-only ratio >= 1.2;
+  - dense crash hazard <= 0.8x G6;
+  - guards on the standard yardstick and on speed.
+- Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v7_mha/`.
