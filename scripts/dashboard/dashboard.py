@@ -291,9 +291,8 @@ def explorer_point(m: dict) -> dict:
     return point
 
 
-def load_explorer(exp_dir: Path) -> dict | None:
+def load_explorer(evals: dict, is_cycle: bool) -> dict | None:
     """Every eval series of one experiment, for the per-experiment chart with matchup and metric pickers."""
-    evals, is_cycle = load_evals(exp_dir)
     if not evals:
         return None
     points = {key: {x: explorer_point(m) for x, m in by_x.items()} for key, by_x in evals.items()}
@@ -324,6 +323,35 @@ def load_explorer(exp_dir: Path) -> dict | None:
             for (arm, matchup), by_x in sorted(points.items())
         ],
     }
+
+
+# How episodes end, from the per-episode rates every evaluation records. Together they partition the episodes:
+# prey_oob includes the prey's pillar crashes, and a catch ends an episode before the prey could leave.
+OUTCOME_SEGMENTS = (  # key, label, colour token: predators win in their orange, the prey survives in its blue
+    ("catch", "caught", "s2"),
+    ("prey_crash", "prey hit a pillar", "s3"),
+    ("prey_out", "prey left the arena", "s4"),
+    ("survived", "prey survived", "s1"),
+)
+# Evaluations where the prey leaves the arena at least this often get a warning on their experiment card.
+PREY_OUT_WARN = 0.10
+
+
+def outcome_split(m: dict) -> dict:
+    catch = m.get("Metrics/catch_rate", 0.0)
+    crash = m.get("Metrics/prey_obstacle_crash_rate", 0.0)
+    oob = m.get("Metrics/prey_oob_rate", 0.0)
+    return {"catch": catch, "prey_crash": crash, "prey_out": max(0.0, oob - crash),
+            "survived": max(0.0, 1.0 - catch - oob), "predator_down": m.get("Metrics/predator_oob_rate")}
+
+
+def load_outcomes(evals: dict, is_cycle: bool) -> list[dict]:
+    """The latest evaluation of every (arm, matchup) series of one experiment, split by how its episodes ended."""
+    rows = []
+    for (arm, matchup), by_x in sorted(evals.items()):
+        x = max(by_x)
+        rows.append({"arm": arm, "matchup": matchup, "x": x, "cycle": is_cycle, **outcome_split(by_x[x])})
+    return rows
 
 
 def featured_lines(spec: dict) -> dict | None:
@@ -467,6 +495,7 @@ def load_experiment_dirs() -> dict[str, dict]:
         if plan and re.search(r"(?mi)^# .*pre-registered", plan):
             pre = True
         live, progress = live_state(exp_dir, now)
+        evals = load_evals(exp_dir)  # read once, for the curves and for how episodes end
         dirs[exp_dir.name] = {
             "name": exp_dir.name,
             "dir": exp_dir,
@@ -481,7 +510,8 @@ def load_experiment_dirs() -> dict[str, dict]:
                 (p.relative_to(exp_dir).as_posix().removesuffix(".status.txt"), p.read_text().strip())
                 for p in sorted(exp_dir.rglob("*.status.txt"))
             ],
-            "explorer": load_explorer(exp_dir),
+            "explorer": load_explorer(*evals),
+            "outcomes": load_outcomes(*evals),
             "videos": videos_under(exp_dir),
         }
     return dirs
@@ -940,6 +970,7 @@ ICONS = {
     "cross": '<svg viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
     "dot": '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.5" fill="currentColor"/></svg>',
     "ring": '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    "alert": '<svg viewBox="0 0 16 16"><path d="M8 2.2l6.3 11.3H1.7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 6.4v3.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="11.9" r="1" fill="currentColor"/></svg>',
 }
 VERDICTS = {
     "worked": ("good", ICONS["check"], "worked"),
@@ -952,6 +983,7 @@ VERDICTS = {
     "verified": ("good", ICONS["check"], "verified"),
     "reconstructed": ("warning", ICONS["half"], "reconstructed, untested"),
     "gap": ("critical", ICONS["cross"], "never run"),
+    "alert": ("warning", ICONS["alert"], "check"),
 }
 
 
@@ -959,9 +991,10 @@ def esc(value) -> str:
     return html.escape(str(value))
 
 
-def badge(verdict: str, label: str | None = None) -> str:
+def badge(verdict: str, label: str | None = None, title: str | None = None) -> str:
     tone, icon, default = VERDICTS.get(verdict, ("muted", ICONS["ring"], verdict))
-    return f'<span class="badge {tone}"><span class="badge-icon" aria-hidden="true">{icon}</span>{esc(label or default)}</span>'
+    hint = f' title="{esc(title)}"' if title else ""
+    return f'<span class="badge {tone}"{hint}><span class="badge-icon" aria-hidden="true">{icon}</span>{esc(label or default)}</span>'
 
 
 def md(text: str) -> str:
@@ -1286,6 +1319,36 @@ def render_results(content: dict) -> tuple[str, dict]:
     return f'<section id="results">{section_head("Key results", "Results", lead)}<div class="charts-grid">{"".join(figures)}</div></section>', data
 
 
+def outcomes_html(rows: list[dict]) -> str:
+    """One stacked bar per evaluation series (last checkpoint), plus how often a predator went down."""
+    if not rows:
+        return ""
+    legend = "".join(f'<span style="--c: var(--{tok})">{esc(label)}</span>' for _, label, tok in OUTCOME_SEGMENTS)
+    bars, table = [], []
+    for r in rows:
+        name = r["matchup"].replace("_", " ") if r["arm"] == "run" else f'{r["arm"]} · {r["matchup"].replace("_", " ")}'
+        when = f'cycle {r["x"]}' if r["cycle"] else f'{r["x"]:,} updates'
+        segs, parts = [], []
+        for key, label, tok in OUTCOME_SEGMENTS:
+            v = r[key]
+            parts.append(f"{label} {v:.1%}")
+            if v > 0.0005:
+                text = f"{v:.0%}" if v >= 0.12 else ""  # a label only where it fits; the tooltip and table carry the rest
+                ink = ' class="seg dark"' if tok == "s4" else ' class="seg"'  # dark text on the yellow segment
+                segs.append(f'<span{ink} style="flex: {v:.4f} 1 0; --c: var(--{tok})" title="{esc(label)}: {v:.1%}">{text}</span>')
+        down = f'{r["predator_down"]:.0%}' if r["predator_down"] is not None else "–"
+        bars.append(f'<div class="oc-row"><span class="oc-name">{esc(name)} <span class="muted small">{esc(when)}</span></span>'
+                    f'<span class="oc-bar" role="img" aria-label="{esc(name)}: {esc(", ".join(parts))}">{"".join(segs)}</span>'
+                    f'<span class="oc-down">{down}</span></div>')
+        table.append(f'<tr><td>{esc(name)}</td><td>{esc(when)}</td>' + "".join(f"<td>{r[k]:.1%}</td>" for k, _, _ in OUTCOME_SEGMENTS)
+                     + f"<td>{down}</td></tr>")
+    head = "".join(f"<th>{esc(label)}</th>" for _, label, _ in OUTCOME_SEGMENTS)
+    return (f'<div class="outcomes"><div class="oc-head"><h5>How episodes end · last checkpoint of each evaluation</h5>'
+            f'<div class="oc-legend">{legend}</div><span class="oc-down-h">predator down</span></div>{"".join(bars)}'
+            f'<details class="table-toggle"><summary>Show numbers</summary><div class="table-wrap"><table><thead><tr><th>evaluation</th>'
+            f'<th>checkpoint</th>{head}<th>predator down</th></tr></thead><tbody>{"".join(table)}</tbody></table></div></details></div>')
+
+
 def render_experiments(cards: list[dict]) -> tuple[str, dict]:
     articles, explorers = [], {}
     for c in cards:
@@ -1297,6 +1360,10 @@ def render_experiments(cards: list[dict]) -> tuple[str, dict]:
             tags.append(f'<span class="tag">{n_videos} video{"s" if n_videos > 1 else ""}</span>')
         if any(d["explorer"] for d in c["dirs"]):
             tags.append('<span class="tag">eval curves</span>')
+        # The prey leaving the arena is not part of most decision rules, so it gets its own warning.
+        worst = max((r for d in c["dirs"] for r in d["outcomes"]), key=lambda r: r["prey_out"], default=None)
+        if worst and worst["prey_out"] >= PREY_OUT_WARN:
+            tags.append(badge("alert", f'prey leaves the arena in {worst["prey_out"]:.0%}', worst["matchup"].replace("_", " ")))
         # Log bullets read "Result: the drop came …"; start the shown sentence with a capital letter.
         rows = "".join(
             (f'<div class="qrd-row"><dt>{esc(label)}</dt>' if label else '<div class="qrd-row plain">')
@@ -1311,7 +1378,7 @@ def render_experiments(cards: list[dict]) -> tuple[str, dict]:
         if c["body"]:
             body.append(f'<div class="doc">{markdown_to_html(c["body"], EXPERIMENT_LOG.parent, 2)}</div>')
         for d in c["dirs"]:
-            sub = []
+            sub = [outcomes_html(d["outcomes"])]
             if d["explorer"]:
                 explorers[d["name"]] = d["explorer"]
                 sub.append(f'<div class="card chart-card explorer" data-explorer="{esc(d["name"])}"></div>')
