@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UAV Predator-Prey</title>
+<meta name="description" content="Three predator drones learn to hunt one: multi-agent reinforcement learning in Isaac Lab, with live training status, experiments, results and videos.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='5' fill='%232a78d6'/%3E%3Cg fill='%23eb6834'%3E%3Cpath d='M12 3h8l-4 6z'/%3E%3Cpath d='M12 3h8l-4 6z' transform='rotate(120 16 16)'/%3E%3Cpath d='M12 3h8l-4 6z' transform='rotate(240 16 16)'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+/* Tokens: the dataviz reference palette (light and dark steps validated as sets), plus page chrome. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --raised: #ffffff; --sunken: #f2f1ed;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --border-strong: rgba(11,11,11,0.18);
+  --accent: #2a78d6; --accent-ink: #1c5cab; --accent-wash: #e6f0fc;
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  --deemph: #cfcec6; --code-bg: #f0efec;
+  --shadow: 0 1px 2px rgba(11,11,11,0.04), 0 6px 20px rgba(11,11,11,0.05);
+  --shadow-lg: 0 2px 8px rgba(11,11,11,0.06), 0 24px 60px rgba(11,11,11,0.14);
+  --glow: rgba(42,120,214,0.13); --glow-2: rgba(235,104,52,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --raised: #222220; --sunken: #141413;
+    --ink: #f2f1ee; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.09); --border-strong: rgba(255,255,255,0.18);
+    --accent: #3987e5; --accent-ink: #86b6ef; --accent-wash: rgba(57,135,229,0.15);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --deemph: #474643; --code-bg: #262624;
+    --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 6px 20px rgba(0,0,0,0.25);
+    --shadow-lg: 0 2px 8px rgba(0,0,0,0.5), 0 24px 60px rgba(0,0,0,0.5);
+    --glow: rgba(57,135,229,0.20); --glow-2: rgba(217,89,38,0.10);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --raised: #222220; --sunken: #141413;
+  --ink: #f2f1ee; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.09); --border-strong: rgba(255,255,255,0.18);
+  --accent: #3987e5; --accent-ink: #86b6ef; --accent-wash: rgba(57,135,229,0.15);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --deemph: #474643; --code-bg: #262624;
+  --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 6px 20px rgba(0,0,0,0.25);
+  --shadow-lg: 0 2px 8px rgba(0,0,0,0.5), 0 24px 60px rgba(0,0,0,0.5);
+  --glow: rgba(57,135,229,0.20); --glow-2: rgba(217,89,38,0.10);
+}
+
+/* ------------------------------------------------------------------ base */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; color: var(--ink);
+  /* The hero glow lives on the page background, so nothing extends past the viewport edge. */
+  background:
+    radial-gradient(640px 360px at 70% 190px, var(--glow), transparent 70%),
+    radial-gradient(520px 300px at 18% 60px, var(--glow-2), transparent 70%),
+    var(--page);
+  background-repeat: no-repeat;
+  font: 15.5px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+code { font: 0.85em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 0.12em 0.38em; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); padding: 12px 14px; border-radius: 10px; overflow-x: auto; margin: 10px 0; }
+pre code { background: none; padding: 0; overflow-wrap: normal; }
+pre.plain { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+h1, h2, h3, h4, h5 { margin: 0; }
+.muted { color: var(--ink-2); }
+.small { font-size: 13px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+@media (min-width: 720px) { .wrap { padding: 0 28px; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+.clamp-2, .clamp-3, .clamp-4 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.clamp-2 { -webkit-line-clamp: 2; } .clamp-3 { -webkit-line-clamp: 3; } .clamp-4 { -webkit-line-clamp: 4; }
+button { font: inherit; color: var(--ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* ------------------------------------------------------------------ header */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--page) 82%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .wrap { display: flex; align-items: center; gap: 18px; height: 56px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 680; font-size: 15px; color: var(--ink); text-decoration: none; white-space: nowrap; }
+.brand svg { flex: none; }
+.nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; mask-image: linear-gradient(90deg, #000 90%, transparent); }
+.nav::-webkit-scrollbar { display: none; }
+.nav a { color: var(--ink-2); text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
+.nav a:hover { color: var(--ink); background: var(--sunken); }
+.nav a[aria-current="true"] { color: var(--ink); background: var(--accent-wash); }
+.icon-btn { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--border); background: var(--raised); cursor: pointer; color: var(--ink-2); }
+.icon-btn:hover { color: var(--ink); border-color: var(--border-strong); }
+@media (max-width: 640px) { .brand span { display: none; } }
+
+/* ------------------------------------------------------------------ sections */
+section { margin-top: 96px; }
+@media (max-width: 720px) { section { margin-top: 72px; } }
+.section-head { margin-bottom: 28px; max-width: 780px; }
+.eyebrow { margin: 0 0 8px; font-size: 12.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); }
+.section-head h2 { font-size: clamp(26px, 3.2vw, 34px); line-height: 1.15; font-weight: 700; letter-spacing: -0.015em; }
+.lead { color: var(--ink-2); font-size: 16px; margin-top: 10px; }
+.lead p { margin: 0 0 8px; }
+.sub-head { font-size: 18px; font-weight: 650; margin: 40px 0 14px; }
+
+/* ------------------------------------------------------------------ hero */
+.hero { margin-top: 0; padding-top: 56px; }
+/* minmax(0, …) lets the columns shrink below the live pill's unwrapped text width on phones. */
+.hero-grid { display: grid; gap: 36px; align-items: center; grid-template-columns: minmax(0, 1fr); }
+.hero-text { min-width: 0; }
+@media (min-width: 980px) { .hero-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.22fr); gap: 52px; } }
+.hero h1 { font-size: clamp(36px, 5.4vw, 58px); line-height: 1.03; font-weight: 750; letter-spacing: -0.03em; margin: 4px 0 18px; }
+.pitch { font-size: 17px; color: var(--ink-2); max-width: 560px; }
+.pitch p { margin: 0 0 18px; }
+.live-pill {
+  display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
+  padding: 7px 14px 7px 12px; border-radius: 999px; font-size: 13.5px; color: var(--ink); text-decoration: none;
+  background: var(--raised); border: 1px solid var(--border); box-shadow: var(--shadow);
+}
+.live-pill span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-pill:hover { border-color: var(--border-strong); }
+.pulse { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 60%, transparent); animation: pulse 2s infinite; }
+.pulse.idle { background: var(--muted); animation: none; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent); } 70% { box-shadow: 0 0 0 9px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+.facts { list-style: none; padding: 0; margin: 20px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.facts li { font-size: 12.5px; color: var(--ink-2); padding: 3px 10px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--border); }
+.hero-media { margin: 0; min-width: 0; }
+.hero-frame { position: relative; border-radius: 16px; overflow: hidden; background: #000; box-shadow: var(--shadow-lg); border: 1px solid var(--border); aspect-ratio: 16 / 9; }
+.hero-video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.hero-expand {
+  position: absolute; right: 12px; bottom: 12px; border: 0; cursor: pointer; font-size: 12.5px; font-weight: 600;
+  color: #fff; background: rgba(0,0,0,0.55); padding: 6px 12px; border-radius: 999px;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.hero-expand:hover { background: rgba(0,0,0,0.75); }
+.hero-video[controls] + .hero-expand { display: none; }
+.hero-media figcaption { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+.kpis { display: grid; gap: 14px; margin-top: 44px; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1040px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi {
+  display: flex; flex-direction: column; padding: 18px 20px; border-radius: 14px; text-decoration: none; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); transition: transform 0.15s, border-color 0.15s;
+}
+.kpi:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+.kpi-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.kpi-value { font-size: 36px; font-weight: 720; letter-spacing: -0.025em; line-height: 1.12; margin: 6px 0 6px; }
+.kpi-detail { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+
+/* ------------------------------------------------------------------ badges, tags, meters */
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 9px 2px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--raised); color: var(--ink); white-space: nowrap; line-height: 1.5; }
+.badge-icon, .stage-dot, .col-icon, .node-icon { display: inline-grid; place-items: center; }
+.badge-icon svg { width: 12px; height: 12px; display: block; }
+.badge.good .badge-icon { color: var(--good); }
+.badge.warning .badge-icon { color: var(--warning); }
+.badge.critical .badge-icon { color: var(--critical); }
+.badge.accent .badge-icon { color: var(--accent); }
+.badge.muted .badge-icon { color: var(--muted); }
+.tag { font-size: 12px; color: var(--ink-2); padding: 2px 9px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--border); white-space: nowrap; }
+.meter { height: 8px; border-radius: 999px; background: var(--accent-wash); overflow: hidden; margin: 12px 0 6px; }
+.meter > div { height: 100%; border-radius: 999px; background: var(--accent); }
+.meter.small { height: 6px; margin: 0; }
+.meter-text { font-size: 13px; color: var(--ink-2); margin: 0; }
+.meter-text strong { color: var(--ink); }
+
+/* ------------------------------------------------------------------ now */
+.now-grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 680px) { .now-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1120px) { .now-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.now-card { padding: 18px 20px; min-width: 0; }
+.now-card.accent { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.card-label { font-size: 12px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 12px; }
+.now-title { display: block; font-size: 16px; font-weight: 650; color: var(--ink); text-decoration: none; line-height: 1.35; margin: 2px 0 4px; }
+a.now-title:hover { color: var(--accent-ink); }
+.now-card p { margin: 6px 0 0; font-size: 14px; }
+.now-run + .now-run { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--grid); }
+.procs { margin-top: 14px; font-size: 13px; }
+.procs summary { color: var(--accent-ink); cursor: pointer; }
+.procs ul { padding-left: 16px; margin: 8px 0 0; }
+.procs li { margin-bottom: 8px; color: var(--ink-2); }
+.refs { list-style: none; padding: 0; margin: 0; }
+.refs li { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 0 0 12px; }
+.refs li + li { padding-top: 12px; border-top: 1px solid var(--grid); }
+.ref-name { font-weight: 650; }
+.ref-scope { flex-basis: 100%; font-size: 12px; color: var(--accent-ink); font-weight: 600; }
+.refs .small { color: var(--ink-2); }
+.gpu-head { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; margin-bottom: 10px; }
+.gauge { display: grid; grid-template-columns: 58px 1fr auto; gap: 10px; align-items: center; font-size: 12.5px; color: var(--ink-2); margin-bottom: 8px; }
+.gauge b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.git { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--grid); }
+.git .branch { font-weight: 600; }
+.git p { margin: 6px 0 0; }
+
+/* ------------------------------------------------------------------ journey */
+.chapter { margin-top: 44px; }
+.chapter:first-of-type { margin-top: 8px; }
+.chapter-head { display: flex; gap: 16px; align-items: flex-start; }
+.chapter-num { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 750; font-size: 17px; color: var(--accent-ink); background: var(--accent-wash); }
+.chapter-head h3 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+.chapter-head p { margin: 2px 0 0; }
+.chapter-intro { color: var(--ink-2); max-width: 70ch; }
+.timeline { list-style: none; margin: 22px 0 0; padding: 0 0 0 44px; position: relative; }
+.timeline::before { content: ""; position: absolute; left: 19px; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--grid); }
+@media (max-width: 600px) { .timeline { padding-left: 34px; } .timeline::before { left: 13px; } }
+.stage { position: relative; margin-bottom: 14px; }
+.stage-dot { position: absolute; left: -44px; top: 16px; width: 40px; height: 28px; }
+.stage-dot svg { width: 15px; height: 15px; display: block; }
+.stage-dot::before { content: ""; position: absolute; width: 28px; height: 28px; border-radius: 50%; background: var(--surface); border: 2px solid currentColor; z-index: -1; }
+@media (max-width: 600px) { .stage-dot { left: -34px; width: 28px; } }
+.stage { isolation: isolate; }
+.stage.good .stage-dot { color: var(--good); }
+.stage.warning .stage-dot { color: var(--warning); }
+.stage.critical .stage-dot { color: var(--critical); }
+.stage.muted .stage-dot { color: var(--muted); }
+.stage.accent .stage-dot { color: var(--accent); }
+.stage-dot.live::after { content: ""; position: absolute; width: 28px; height: 28px; border-radius: 50%; animation: pulse 2s infinite; z-index: -2; }
+.stage-card { padding: 16px 18px; display: grid; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); min-width: 0; }
+@media (min-width: 860px) { .stage-card.has-thumbs:not(.multi) { grid-template-columns: minmax(0, 1fr) 280px; } }
+/* Two or more clips sit in a row under the text instead of stacking beside it. */
+.stage-card.multi .stage-thumbs { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+@media (min-width: 860px) { .stage-card.multi .stage-thumbs { grid-template-columns: repeat(auto-fill, minmax(220px, 280px)); } }
+.stage-main { min-width: 0; }
+.stage-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.date { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.stage-title { font-size: 17px; font-weight: 680; line-height: 1.3; margin: 8px 0 4px; letter-spacing: -0.005em; }
+.takeaway { margin: 0 0 10px; color: var(--ink); }
+.metric { display: inline-block; font-size: 12.5px; font-weight: 650; padding: 3px 10px; border-radius: 8px; background: var(--sunken); border: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+details.more { margin-top: 10px; }
+details.more > summary, .exp-more > summary, .doc-toggle > summary, .table-toggle > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: var(--accent-ink);
+}
+details > summary::-webkit-details-marker { display: none; }
+details.more > summary::before, .exp-more > summary::before, .doc-toggle > summary::before, .table-toggle > summary::before,
+.gallery-group > summary::before, .recipe-step summary::before {
+  content: ""; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg); transition: transform 0.15s; flex: none;
+}
+details[open] > summary::before { transform: rotate(45deg); }
+.stage-grid { display: grid; gap: 16px; margin: 14px 0 10px; }
+@media (min-width: 900px) { .stage-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.stage-grid p, .stage-grid ul { margin: 0 0 6px; font-size: 14px; }
+.stage-grid ul { padding-left: 18px; }
+h5 { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); margin: 0 0 6px; }
+.more-link { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 600; }
+.stage-thumbs { display: grid; gap: 8px; align-content: start; }
+ul.paths { margin: 0 0 4px; padding-left: 16px; font-size: 12.5px; }
+ul.paths li { margin-bottom: 2px; }
+
+/* ------------------------------------------------------------------ video thumbnails and player */
+.thumb {
+  position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; border-radius: 10px; overflow: hidden; cursor: pointer;
+  background: radial-gradient(circle at 50% 40%, #2a2a28, #0b0b0b);
+}
+.thumb video { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.3s; }
+.thumb:hover video { transform: scale(1.035); }
+.thumb-play { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(0,0,0,0.55); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.25); transition: background 0.15s; }
+.thumb-play::after { content: ""; position: absolute; left: 18px; top: 14px; border-left: 14px solid #fff; border-top: 9px solid transparent; border-bottom: 9px solid transparent; }
+.thumb:hover .thumb-play { background: var(--accent); }
+.thumb-label { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 10px 7px; font-size: 12px; line-height: 1.35; color: #fff; text-align: left; background: linear-gradient(transparent, rgba(0,0,0,0.78)); }
+.thumb-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); margin: 14px 0; }
+dialog.player { width: min(1240px, 94vw); padding: 0; border: 0; border-radius: 16px; background: #000; color: #fff; overflow: hidden; box-shadow: 0 30px 90px rgba(0,0,0,0.6); }
+dialog.player::backdrop { background: rgba(5,5,5,0.78); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+dialog.player video { width: 100%; max-height: 80vh; display: block; background: #000; }
+dialog.player figure { margin: 0; }
+dialog.player figcaption { padding: 12px 56px 14px 16px; font-size: 14px; color: #ddd; }
+dialog.player .close { position: absolute; top: 10px; right: 10px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; border: 0; cursor: pointer; background: rgba(255,255,255,0.14); color: #fff; font-size: 18px; }
+dialog.player .close:hover { background: rgba(255,255,255,0.28); }
+
+/* ------------------------------------------------------------------ charts */
+.charts-grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+@media (min-width: 980px) { .charts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .chart-card.wide { grid-column: 1 / -1; } }
+.chart-card { margin: 0; padding: 18px 20px; position: relative; min-width: 0; }
+.chart-head h3 { font-size: 16.5px; font-weight: 680; line-height: 1.35; }
+.chart-head p { font-size: 13px; color: var(--ink-2); margin: 4px 0 0; }
+.chart-caption { font-size: 13px; color: var(--ink-2); margin: 10px 0 0; }
+.chart-controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; font-size: 13px; color: var(--ink-2); margin-bottom: 4px; }
+.chart-controls label { display: flex; gap: 6px; align-items: center; min-width: 0; max-width: 100%; }
+select { font: inherit; font-size: 13px; color: var(--ink); background: var(--raised); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; max-width: 100%; min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--ink-2); margin: 12px 0 2px; }
+.legend span::before { content: ""; display: inline-block; width: 16px; height: 2px; border-radius: 1px; background: var(--key); vertical-align: middle; margin-right: 7px; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart svg text { font: 11.5px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.chart svg text.end-label, .chart svg text.ref-label { fill: var(--ink-2); }
+.chart svg text.bar-name { fill: var(--ink-2); font-size: 12px; }
+.chart svg text.bar-name.hi { fill: var(--ink); font-weight: 650; }
+.chart svg text.bar-value { fill: var(--ink-2); }
+.chart svg text.bar-value.hi { fill: var(--ink); font-weight: 650; }
+.chart svg:focus { outline: none; }
+.chart svg:focus-visible .plot-bg { stroke: var(--accent); }
+.chart svg .bar.active { opacity: 0.8; }
+.league-panels svg .bar, .league-panels svg text { pointer-events: none; }
+.league-panels svg .row-hit:focus { outline: none; }
+.tooltip { position: absolute; pointer-events: none; background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 8px 11px; font-size: 12.5px; box-shadow: var(--shadow-lg); min-width: 150px; display: none; z-index: 3; }
+.tt-head { color: var(--ink-2); margin-bottom: 4px; }
+.tt-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.tt-row i { width: 12px; height: 2px; border-radius: 1px; background: var(--key); flex: none; }
+.tt-row b { font-variant-numeric: tabular-nums; color: var(--ink); }
+.tt-row span { color: var(--ink-2); }
+.table-toggle { margin-top: 8px; }
+.table-toggle table { margin-top: 8px; }
+.league-panels { display: grid; gap: 8px 36px; grid-template-columns: 1fr; margin-top: 8px; }
+@media (min-width: 820px) { .league-panels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.league-panels h4 { font-size: 13px; font-weight: 650; color: var(--ink-2); margin: 10px 0 2px; display: flex; align-items: center; gap: 8px; }
+.league-panels h4::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--key); }
+.explorer { margin: 16px 0; padding: 14px 16px; box-shadow: none; background: var(--raised); }
+
+/* ------------------------------------------------------------------ tables and documents */
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--grid); }
+th { font-weight: 600; color: var(--ink-2); }
+td { font-variant-numeric: tabular-nums; }
+.doc { font-size: 14.5px; }
+.doc h3, .doc h4, .doc h5, .doc h6 { margin: 18px 0 6px; font-size: 15px; font-weight: 650; text-transform: none; letter-spacing: 0; color: var(--ink); }
+.doc p, .doc ul, .doc ol { margin: 0 0 10px; }
+.doc ul, .doc ol { padding-left: 20px; }
+.doc li { margin-bottom: 4px; }
+
+/* ------------------------------------------------------------------ lessons */
+.lesson-cols { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 900px) { .lesson-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.lesson-stack { display: grid; gap: 16px; }
+.lesson-col { padding: 18px 20px 6px; }
+.lesson-col h3 { display: flex; align-items: center; gap: 10px; font-size: 16.5px; font-weight: 680; margin-bottom: 4px; }
+.col-icon { width: 28px; height: 28px; border-radius: 8px; background: var(--sunken); }
+.col-icon svg { width: 16px; height: 16px; display: block; }
+.lesson-col.good .col-icon { color: var(--good); }
+.lesson-col.warning .col-icon { color: var(--warning); }
+.lesson-col.critical .col-icon { color: var(--critical); }
+.count { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--sunken); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
+.lesson-col ul { list-style: none; padding: 0; margin: 0; }
+.lesson { padding: 12px 0; border-top: 1px solid var(--grid); }
+.lesson:first-child { border-top: 0; }
+.lesson .what { margin: 0; font-weight: 620; font-size: 14.5px; }
+.lesson .why { margin: 4px 0 6px; font-size: 13.5px; color: var(--ink-2); }
+.lesson ul.paths { font-size: 12px; }
+
+/* ------------------------------------------------------------------ experiments */
+.exp-list { display: grid; gap: 14px; }
+.exp { padding: 18px 20px; min-width: 0; }
+.exp-head { display: grid; gap: 4px 14px; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .exp-head { grid-template-columns: 1fr auto; } .exp-date { grid-column: 1 / -1; } }
+.exp-date { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.exp-title { font-size: 17px; font-weight: 680; line-height: 1.35; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.exp-progress { max-width: 520px; }
+.qrd { display: grid; gap: 8px; margin: 14px 0 0; }
+.qrd-row { display: grid; gap: 2px 14px; grid-template-columns: 1fr; }
+@media (min-width: 640px) { .qrd-row { grid-template-columns: 92px minmax(0, 1fr); } .qrd-row.plain { grid-template-columns: 1fr; } }
+.qrd dt { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); padding-top: 3px; }
+.qrd dd { margin: 0; font-size: 14.5px; }
+.exp-more { margin-top: 12px; }
+.exp-body { margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--grid); }
+.exp-dir { margin-top: 18px; }
+.dir-name { margin: 0 0 4px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.doc-toggle { margin: 10px 0; }
+.doc-toggle > .doc, .doc-toggle > pre, .doc-toggle > .table-wrap { margin-top: 10px; }
+
+/* ------------------------------------------------------------------ reproduce */
+.pipeline { padding: 18px 20px; display: grid; gap: 18px; }
+.track-label { margin: 0 0 8px; font-size: 12px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); }
+.nodes { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.nodes li { display: flex; align-items: center; gap: 8px; }
+.nodes li + li::before { content: "→"; color: var(--muted); }
+.node { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--ink); text-decoration: none; background: var(--raised); border: 1px solid var(--border); }
+.node:hover { border-color: var(--border-strong); }
+.node-num { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; background: var(--sunken); color: var(--ink-2); }
+.node-icon svg { width: 13px; height: 13px; display: block; }
+.node.good .node-icon { color: var(--good); }
+.node.warning .node-icon { color: var(--warning); }
+.node.critical .node-icon { color: var(--critical); }
+.node-end { font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 10px; color: var(--ink-2); border: 1px dashed var(--border-strong); }
+.node-end.good { border-style: solid; color: var(--ink); background: var(--accent-wash); border-color: transparent; }
+.legend-row { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.recipe { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 10px; }
+.recipe-step details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0 18px; }
+.recipe-step summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 12px; padding: 14px 0; }
+.recipe-step summary::before { color: var(--ink-2); }
+.step-title { flex: 1; font-weight: 620; font-size: 15px; }
+.recipe-step details[open] { padding-bottom: 14px; }
+.recipe-step dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0 0 10px; }
+@media (max-width: 560px) { .recipe-step dl { grid-template-columns: 1fr; } .recipe-step dt { margin-top: 6px; } }
+.recipe-step dt { color: var(--ink-2); font-size: 13px; padding-top: 2px; }
+.recipe-step dd { margin: 0; min-width: 0; font-size: 14px; }
+.recipe-step dd p { margin: 0 0 4px; }
+.cmd { position: relative; }
+.cmd .copy { position: absolute; top: 8px; right: 8px; font-size: 12px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--raised); cursor: pointer; }
+.cmd pre { padding-right: 76px; font-size: 12.5px; }
+
+/* ------------------------------------------------------------------ next, videos, footer */
+.ideas { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 640px) { .ideas { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1040px) { .ideas { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.idea { padding: 18px 20px; display: flex; flex-direction: column; }
+.idea h3 { font-size: 16px; font-weight: 680; line-height: 1.35; }
+.idea p { font-size: 14px; color: var(--ink-2); margin: 8px 0 0; }
+.idea .cost { margin-top: auto; padding-top: 12px; font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+.idea .cost::before { content: "Cost · "; color: var(--muted); font-weight: 500; }
+.feature-grid { display: grid; gap: 22px 16px; grid-template-columns: 1fr; }
+@media (min-width: 600px) { .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 980px) { .feature-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.feature { margin: 0; min-width: 0; }
+.feature .thumb { border-radius: 12px; box-shadow: var(--shadow); }
+.feature figcaption { margin-top: 10px; display: grid; gap: 2px; }
+.feature figcaption strong { font-size: 15px; font-weight: 650; }
+.feature figcaption span { font-size: 13px; color: var(--ink-2); }
+.gallery-group { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0 16px; margin-bottom: 8px; }
+.gallery-group > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 12px 0; }
+.gallery-group > summary::before { color: var(--ink-2); }
+.group-name { font-weight: 620; font-size: 14px; overflow-wrap: anywhere; }
+footer { margin-top: 110px; border-top: 1px solid var(--border); padding: 28px 0 56px; font-size: 13px; color: var(--ink-2); }
+footer p { margin: 0 0 6px; max-width: 820px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#overview" aria-label="UAV Predator-Prey, back to top">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+        <circle cx="16" cy="16" r="5" fill="var(--s1)"/>
+        <g fill="var(--s2)"><path d="M12 3h8l-4 6z"/><path d="M12 3h8l-4 6z" transform="rotate(120 16 16)"/><path d="M12 3h8l-4 6z" transform="rotate(240 16 16)"/></g>
+      </svg>
+      <span>UAV Predator-Prey</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#now">Now</a><a href="#journey">Journey</a><a href="#results">Results</a><a href="#lessons">Lessons</a>
+      <a href="#experiments">Experiments</a><a href="#reproduce">Reproduce</a><a href="#next">Next</a><a href="#videos">Videos</a>
+    </nav>
+    <button type="button" class="icon-btn" id="theme" aria-label="Switch between light and dark theme" title="Light / dark">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+<main class="wrap">
+{{SECTIONS}}
+</main>
+<footer>
+  <div class="wrap">
+    <p>Built {{BUILT}} from <code>docs/experiment_log.md</code>, the experiment directories, eval JSONs and console logs (generated on every page load), plus the curated story in <code>scripts/dashboard/content.toml</code>.</p>
+    <p>Evaluations are deterministic (1024 episodes, seed 42) unless stated otherwise. Catch rate is the predator's success; hazards are events per second of flight, h = −ln(1 − P) / L.</p>
+  </div>
+</footer>
+<dialog class="player" id="player" aria-label="Video player">
+  <button type="button" class="close" aria-label="Close video">✕</button>
+  <figure><video controls playsinline></video><figcaption></figcaption></figure>
+</dialog>
+<script type="application/json" id="chart-data">{{DATA}}</script>
+<script>
+(() => {
+  const root = document.documentElement;
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ------------------------------------------------------------------ theme: OS setting unless the button stamps a choice
+  try { const saved = localStorage.getItem("uav-theme"); if (saved) root.dataset.theme = saved; } catch (e) {}
+  document.getElementById("theme").addEventListener("click", () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("uav-theme", root.dataset.theme); } catch (e) {}
+    redrawAll();
+  });
+
+  // ------------------------------------------------------------------ videos
+  // Thumbnails fetch nothing until visible; a closed <details> has no size, so opening it starts loading.
+  const thumbObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const v = entry.target;
+      v.preload = "metadata";
+      v.src = v.dataset.src;
+      thumbObserver.unobserve(v);
+    }
+  }, { rootMargin: "300px" });
+  document.querySelectorAll("video[data-src]").forEach(v => thumbObserver.observe(v));
+
+  // The hero clip loops silently while on screen and pauses when scrolled away.
+  const hero = document.querySelector(".hero-video");
+  if (hero) {
+    if (reduceMotion) hero.controls = true;
+    else new IntersectionObserver(([e]) => { e.isIntersecting ? hero.play().catch(() => {}) : hero.pause(); }).observe(hero);
+  }
+
+  const player = document.getElementById("player");
+  const playerVideo = player.querySelector("video");
+  document.addEventListener("click", ev => {
+    const t = ev.target.closest("[data-play]");
+    if (!t) return;
+    playerVideo.src = t.dataset.play;
+    player.querySelector("figcaption").textContent = t.dataset.caption || "";
+    player.showModal();
+    playerVideo.play().catch(() => {});
+  });
+  player.querySelector(".close").addEventListener("click", () => player.close());
+  player.addEventListener("click", ev => { if (ev.target === player) player.close(); });
+  player.addEventListener("close", () => { playerVideo.pause(); playerVideo.removeAttribute("src"); playerVideo.load(); });
+
+  // ------------------------------------------------------------------ small helpers
+  document.querySelectorAll(".cmd .copy").forEach(btn => btn.addEventListener("click", async () => {
+    const code = btn.parentElement.querySelector("code");
+    try { await navigator.clipboard.writeText(code.textContent); btn.textContent = "Copied"; }
+    catch (e) { getSelection().selectAllChildren(code); btn.textContent = "Ctrl+C"; }
+    setTimeout(() => (btn.textContent = "Copy"), 1500);
+  }));
+  // Links to a recipe step open it.
+  const openTarget = hash => { const d = document.getElementById(hash.slice(1))?.querySelector("details"); if (d) d.open = true; };
+  document.querySelectorAll('a[href^="#step-"]').forEach(a => a.addEventListener("click", () => openTarget(a.getAttribute("href"))));
+  if (location.hash.startsWith("#step-")) openTarget(location.hash);
+
+  // The nav marks the section in view.
+  const navLinks = new Map([...document.querySelectorAll(".nav a")].map(a => [a.getAttribute("href").slice(1), a]));
+  const sectionObserver = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      navLinks.forEach(a => a.removeAttribute("aria-current"));
+      navLinks.get(e.target.id)?.setAttribute("aria-current", "true");
+    }
+  }, { rootMargin: "-45% 0px -50% 0px" });
+  document.querySelectorAll("main > section[id]").forEach(s => sectionObserver.observe(s));
+
+  // ------------------------------------------------------------------ charts
+  const DATA = JSON.parse(document.getElementById("chart-data").textContent);
+  const NS = "http://www.w3.org/2000/svg";
+  const css = name => getComputedStyle(root).getPropertyValue(name).trim();
+  const tone = c => c === "muted" ? "var(--muted)" : `var(--${c})`;
+  const svgEl = (tag, attrs, parent) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  const fmt = v => {
+    if (v === undefined || v === null || !isFinite(v)) return "–";
+    const a = Math.abs(v);
+    if (Number.isInteger(v)) return v.toLocaleString("en-US");
+    if (a >= 100) return v.toFixed(0);
+    if (a >= 10) return v.toFixed(1);
+    return v.toFixed(3);
+  };
+  const niceStep = (span, count) => {
+    const raw = span / count, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+    return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+  };
+  // Axis ticks get as many decimals as the step needs (0.1 not 0.100; 5,000 not 5000.0).
+  const tickFmt = step => v => Number.isInteger(step) && step >= 1 ? Math.round(v).toLocaleString("en-US") : v.toFixed(Math.max(0, -Math.floor(Math.log10(step) + 1e-9)));
+
+  // Shared table view: every value is reachable without hovering.
+  function tableView(box, header, rows) {
+    box.querySelector("table")?.remove();
+    const table = document.createElement("table");
+    const hr = table.createTHead().insertRow();
+    for (const h of header) hr.appendChild(el("th", "", h));
+    const body = table.createTBody();
+    for (const r of rows) { const tr = body.insertRow(); for (const c of r) tr.insertCell().textContent = c; }
+    box.appendChild(table);
+  }
+  function chartShell(container) {
+    container.replaceChildren();
+    const legend = el("div", "legend"), chart = el("div", "chart"), tooltip = el("div", "tooltip");
+    const tableBox = el("details", "table-toggle");
+    tableBox.appendChild(el("summary", "", "Show data table"));
+    container.append(legend, chart, tableBox, tooltip);
+    return { legend, chart, tooltip, tableBox, card: container.closest(".chart-card") || container };
+  }
+
+  // spec: { series: [{name, color, points: [[x, y]]}], x_label, y_label, refs: [{y, label}], zero }
+  function drawLineChart(ui, spec) {
+    const { chart, legend, tooltip, tableBox } = ui;
+    chart.replaceChildren(); legend.replaceChildren();
+    const series = spec.series.filter(s => s.points.length);
+    if (!series.length) { chart.textContent = "No data for this selection."; return; }
+    legend.style.display = series.length > 1 ? "" : "none";
+    for (const s of series) { const item = el("span", "", s.name); item.style.setProperty("--key", tone(s.color)); legend.appendChild(item); }
+
+    const xs = [...new Set(series.flatMap(s => s.points.map(p => p[0])))].sort((a, b) => a - b);
+    const refs = spec.refs || [];
+    const ys = series.flatMap(s => s.points.map(p => p[1])).concat(refs.map(r => r.y));
+    const W = Math.max(chart.clientWidth, 280), H = W < 480 ? 230 : 260;
+    const endLabels = series.length > 1 && series.length <= 4;
+    const m = { l: 46, r: endLabels ? 96 : 18, t: 12, b: 42 };
+    const x0 = xs[0], x1 = xs.length > 1 ? xs[xs.length - 1] : xs[0] + 1;
+    let yMin = spec.zero === false ? Math.min(...ys) : Math.min(0, ...ys);
+    let yMax = Math.max(...ys);
+    const pad = (yMax - yMin) * 0.08 || 0.1;
+    yMax += pad; if (spec.zero === false) yMin -= pad;
+    const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
+    const Y = v => H - m.b - (v - yMin) / (yMax - yMin) * (H - m.t - m.b);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, tabindex: 0, role: "img", "aria-label": `${spec.y_label} by ${spec.x_label}` }, chart);
+    svgEl("rect", { class: "plot-bg", x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" }, svg);
+
+    const yStep = niceStep(yMax - yMin, 4);
+    for (let v = Math.ceil(yMin / yStep) * yStep; v <= yMax + 1e-12; v += yStep) {
+      svgEl("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css(Math.abs(v) < 1e-12 ? "--axis" : "--grid"), "stroke-width": 1, "shape-rendering": "crispEdges" }, svg);
+      svgEl("text", { x: m.l - 8, y: Y(v) + 4, "text-anchor": "end" }, svg).textContent = tickFmt(yStep)(v);
+    }
+    const xStep = niceStep(x1 - x0, W < 480 ? 3 : 5);
+    const xTicks = xs.length <= 8 ? xs : (() => { const t = []; for (let v = Math.ceil(x0 / xStep) * xStep; v <= x1; v += xStep) t.push(v); return t; })();
+    for (const v of xTicks) svgEl("text", { x: X(v), y: H - m.b + 18, "text-anchor": "middle" }, svg).textContent = Number.isInteger(v) ? v.toLocaleString("en-US") : tickFmt(xStep)(v);
+    svgEl("text", { x: (m.l + W - m.r) / 2, y: H - 6, "text-anchor": "middle" }, svg).textContent = spec.x_label;
+
+    for (const r of refs) {
+      if (r.y > yMax || r.y < yMin) continue;
+      svgEl("line", { x1: m.l, x2: W - m.r, y1: Y(r.y), y2: Y(r.y), stroke: css("--ink-2"), "stroke-width": 1, opacity: 0.5, "shape-rendering": "crispEdges" }, svg);
+      // Labelled at the right end, where the latest points usually sit far from the reference lines.
+      svgEl("text", { class: "ref-label", x: W - m.r - 6, y: Y(r.y) - 5, "text-anchor": "end" }, svg).textContent = r.label;
+    }
+    for (const s of series) {
+      const d = s.points.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+      svgEl("path", { d, fill: "none", stroke: tone(s.color), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+      for (const p of s.points) svgEl("circle", { cx: X(p[0]), cy: Y(p[1]), r: 4, fill: tone(s.color), stroke: css("--surface"), "stroke-width": 2 }, svg);
+    }
+    if (endLabels) {
+      // Direct end labels only when they do not collide; otherwise the legend and tooltip carry identity.
+      const ends = series.map(s => { const p = s.points[s.points.length - 1]; return { s, x: X(p[0]), y: Y(p[1]) }; }).sort((a, b) => a.y - b.y);
+      if (ends.every((e, i) => i === 0 || e.y - ends[i - 1].y >= 14))
+        for (const e of ends) svgEl("text", { class: "end-label", x: e.x + 9, y: e.y + 4 }, svg).textContent = e.s.name;
+    }
+
+    // Crosshair: snaps to the nearest evaluated x and lists every series there.
+    const cross = svgEl("line", { y1: m.t, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1, visibility: "hidden" }, svg);
+    let idx = -1;
+    const show = i => {
+      idx = Math.max(0, Math.min(xs.length - 1, i));
+      const xv = xs[idx];
+      cross.setAttribute("x1", X(xv)); cross.setAttribute("x2", X(xv)); cross.setAttribute("visibility", "visible");
+      tooltip.replaceChildren(el("div", "tt-head", `${spec.x_label} ${fmt(xv)}`));
+      for (const s of series) {
+        const p = s.points.find(q => q[0] === xv);
+        const row = el("div", "tt-row"), key = el("i");
+        key.style.setProperty("--key", tone(s.color));
+        row.append(key, el("b", "", p ? fmt(p[1]) : "–"), el("span", "", s.name));
+        tooltip.appendChild(row);
+      }
+      tooltip.style.display = "block";
+      const box = ui.card.getBoundingClientRect(), cb = chart.getBoundingClientRect();
+      const px = cb.left - box.left + X(xv) * cb.width / W;
+      const left = px + 14 + tooltip.offsetWidth > box.width ? px - 14 - tooltip.offsetWidth : px + 14;
+      tooltip.style.left = `${Math.max(4, left)}px`;
+      tooltip.style.top = `${cb.top - box.top + m.t}px`;
+    };
+    const hide = () => { cross.setAttribute("visibility", "hidden"); tooltip.style.display = "none"; };
+    svg.addEventListener("pointermove", ev => {
+      const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
+      let best = 0;
+      xs.forEach((v, i) => { if (Math.abs(X(v) - px) < Math.abs(X(xs[best]) - px)) best = i; });
+      show(best);
+    });
+    svg.addEventListener("pointerleave", hide);
+    svg.addEventListener("focus", () => show(idx < 0 ? xs.length - 1 : idx));
+    svg.addEventListener("blur", hide);
+    svg.addEventListener("keydown", ev => {
+      if (ev.key === "ArrowLeft") { show(idx - 1); ev.preventDefault(); }
+      if (ev.key === "ArrowRight") { show(idx + 1); ev.preventDefault(); }
+    });
+    tableView(tableBox, [spec.x_label, ...series.map(s => s.name)],
+      xs.map(xv => [fmt(xv), ...series.map(s => { const p = s.points.find(q => q[0] === xv); return p ? fmt(p[1]) : "–"; })]));
+  }
+
+  // Horizontal bars diverging from 0, one panel per role; the highlighted entity carries the role color, the rest are context.
+  function drawLeague(container, spec) {
+    container.replaceChildren();
+    const panels = el("div", "league-panels"), tooltip = el("div", "tooltip"), tableBox = el("details", "table-toggle");
+    tableBox.appendChild(el("summary", "", "Show data table"));
+    container.append(panels, tableBox, tooltip);
+    const all = spec.groups.flatMap(g => g.bars.map(b => b.value));
+    const lo = Math.min(0, ...all), hi = Math.max(0, ...all);
+    for (const g of spec.groups) {
+      const wrap = el("div"), panel = el("div", "chart"), title = el("h4", "", g.name);
+      title.style.setProperty("--key", tone(g.color));
+      wrap.append(title, panel);
+      panels.append(wrap);
+      const W = Math.max(panel.clientWidth, 280), rowH = 26, nameW = Math.min(168, W * 0.42), gutter = 40, padR = 42, axisH = 24;
+      const H = g.bars.length * rowH + axisH + 4;
+      const x0 = nameW + gutter, x1 = W - padR;
+      const X = v => x0 + (v - lo) / (hi - lo) * (x1 - x0);
+      const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": `${g.name}: ${spec.x_label}` }, panel);
+      const step = niceStep(hi - lo, W < 480 ? 3 : 4);
+      for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+        svgEl("line", { x1: X(v), x2: X(v), y1: 0, y2: H - axisH, stroke: css(Math.abs(v) < 1e-9 ? "--axis" : "--grid"), "stroke-width": 1, "shape-rendering": "crispEdges" }, svg);
+        svgEl("text", { x: X(v), y: H - 6, "text-anchor": "middle" }, svg).textContent = (v > 1e-9 ? "+" : "") + tickFmt(step)(v);
+      }
+      g.bars.forEach((b, i) => {
+        const y = i * rowH + 6, h = 14, xa = X(0), xb = X(b.value), r = Math.min(4, Math.abs(xb - xa));
+        const dir = Math.sign(xb - xa) || 1;
+        // Square at the baseline, 4px rounded data end.
+        const d = `M${xa},${y} H${xb - dir * r} Q${xb},${y} ${xb},${y + r} V${y + h - r} Q${xb},${y + h} ${xb - dir * r},${y + h} H${xa} Z`;
+        const hit = svgEl("rect", { class: "row-hit", x: 0, y: i * rowH, width: W, height: rowH, fill: "transparent", tabindex: 0 }, svg);
+        const bar = svgEl("path", { class: "bar", d, fill: b.highlight ? tone(g.color) : css("--deemph") }, svg);
+        svgEl("text", { class: `bar-name${b.highlight ? " hi" : ""}`, x: nameW, y: y + 11, "text-anchor": "end" }, svg).textContent = b.label;
+        const val = svgEl("text", { class: `bar-value${b.highlight ? " hi" : ""}`, x: xb + dir * 6, y: y + 11, "text-anchor": dir > 0 ? "start" : "end" }, svg);
+        val.textContent = (b.value > 0 ? "+" : "") + b.value.toFixed(2);
+        const showTip = () => {
+          bar.classList.add("active");
+          tooltip.replaceChildren(el("div", "tt-head", `${g.name.replace(/s$/, "")}: ${b.label}`));
+          const row = el("div", "tt-row"), key = el("i");
+          key.style.setProperty("--key", b.highlight ? tone(g.color) : "var(--deemph)");
+          row.append(key, el("b", "", `${b.value > 0 ? "+" : ""}${b.value.toFixed(2)} ± ${b.se.toFixed(2)}`), el("span", "", "strength ± SE"));
+          tooltip.appendChild(row);
+          tooltip.style.display = "block";
+          const box = container.getBoundingClientRect(), pb = panel.getBoundingClientRect();
+          const px = pb.left - box.left + Math.max(xa, xb) * pb.width / W + 10;
+          tooltip.style.left = `${Math.min(px, box.width - tooltip.offsetWidth - 4)}px`;
+          tooltip.style.top = `${pb.top - box.top + (y + h + 6) * pb.height / H}px`;
+        };
+        const hideTip = () => { bar.classList.remove("active"); tooltip.style.display = "none"; };
+        hit.addEventListener("pointerenter", showTip); hit.addEventListener("pointerleave", hideTip);
+        hit.addEventListener("focus", showTip); hit.addEventListener("blur", hideTip);
+      });
+    }
+    tableView(tableBox, ["role", "policy", "strength (logit)", "SE"],
+      spec.groups.flatMap(g => g.bars.map(b => [g.name, b.label, b.value.toFixed(3), b.se.toFixed(3)])));
+  }
+
+  // Per-experiment explorer: pick a matchup and a metric; arms keep their color whatever the selection.
+  function setupExplorer(card) {
+    const spec = DATA.explorers[card.dataset.explorer];
+    const matchups = [...new Set(spec.series.map(s => s.matchup))];
+    const controls = el("div", "chart-controls"), body = el("div");
+    card.append(controls, body);
+    const mkSelect = (label, options) => {
+      const wrap = el("label", "", label + " "), sel = document.createElement("select");
+      for (const o of options) { const opt = el("option", "", o.replace(/_/g, " ")); opt.value = o; sel.appendChild(opt); }
+      wrap.appendChild(sel); controls.appendChild(wrap);
+      return sel;
+    };
+    const matchSel = mkSelect("Matchup", matchups);
+    matchSel.value = matchups.includes("own") ? "own" : matchups[0];
+    const metricSel = mkSelect("Metric", []);
+    const fillMetrics = () => {
+      const keys = new Set();
+      spec.series.filter(s => s.matchup === matchSel.value).forEach(s => s.points.forEach(p => Object.keys(p.m).forEach(k => keys.add(k))));
+      const prev = metricSel.value;
+      metricSel.replaceChildren(...[...keys].map(k => { const o = el("option", "", k); o.value = k; return o; }));
+      const prefer = [prev, "catch rate (per episode)"].find(k => keys.has(k));
+      if (prefer) metricSel.value = prefer;
+    };
+    const ui = chartShell(body);
+    ui.card = card;
+    card._draw = () => {
+      const metric = metricSel.value;
+      const series = spec.series.filter(s => s.matchup === matchSel.value).map(s => ({
+        name: s.arm, color: `s${(spec.arms.indexOf(s.arm) % 8) + 1}`,
+        points: s.points.filter(p => p.m[metric] !== undefined && isFinite(p.m[metric])).map(p => [p.x, p.m[metric]]),
+      }));
+      const refs = metric.includes("ratio") ? [{ y: 1.0, label: "1.0 no effect" }, { y: 1.2, label: "1.2 perception bar" }] : [];
+      drawLineChart(ui, { series, x_label: spec.x_label, y_label: metric, refs, zero: !metric.includes("ratio") });
+    };
+    matchSel.addEventListener("change", () => { fillMetrics(); card._draw(); });
+    metricSel.addEventListener("change", () => card._draw());
+    fillMetrics();
+  }
+
+  const drawers = [];
+  document.querySelectorAll("[data-featured]").forEach(box => {
+    const spec = DATA.featured[box.dataset.featured];
+    drawers.push({ box, draw: () => spec.kind === "league" ? drawLeague(box, spec) : drawLineChart(chartShell(box), spec) });
+  });
+  document.querySelectorAll("[data-explorer]").forEach(card => drawers.push({
+    box: card, draw: () => { if (!card._draw) setupExplorer(card); card._draw(); },
+  }));
+  const drawIfVisible = d => { if (d.box.offsetParent) d.draw(); };
+  function redrawAll() { drawers.forEach(drawIfVisible); }
+  // Charts inside closed <details> have no width yet: draw them when opened.
+  document.querySelectorAll("details").forEach(det => det.addEventListener("toggle", () => {
+    if (det.open) drawers.filter(d => det.contains(d.box)).forEach(drawIfVisible);
+  }));
+  let resizeTimer, lastWidth = innerWidth;
+  addEventListener("resize", () => {
+    if (innerWidth === lastWidth) return;  // mobile URL-bar resizes change only the height
+    lastWidth = innerWidth;
+    clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 150);
+  });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
+  redrawAll();
+})();
+</script>
+</body>
+</html>

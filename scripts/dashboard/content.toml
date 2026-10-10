@@ -1,0 +1,864 @@
+# Curated story for the dashboard (scripts/dashboard/dashboard.py).
+#
+# Everything about experiments, live runs, eval curves and videos is generated from the evidence on every page load
+# (docs/experiment_log.md, artifacts/isaac/experiments/*, eval JSONs, console logs) and cannot go stale. This file
+# holds only what needs judgment: the pitch, milestone numbers, the stage story, featured charts and videos, lessons,
+# the reproduction recipe and next steps. Update it when a milestone changes.
+#
+# Text fields are markdown. Video and data paths are relative to artifacts/; evidence paths start with artifacts/
+# (served, so they become links) or UAVPredatorPrey/. Numbers are copied from docs/experiment_log.md and the
+# RESULTS.md files. Unless stated otherwise: deterministic evaluation, 1024 episodes, seed 42; catch rate = predator
+# success; "u" = MAPPO updates (24 env steps each).
+
+# =========================================================================================== hero
+
+[hero]
+eyebrow = "Multi-agent RL · quadrotors · Isaac Lab"
+title = "Three drones learn to hunt one"
+pitch = """
+Three predator quadrotors learn to catch a more agile prey drone while the prey learns to escape: two teams of
+neural-network policies that train against each other in physics simulation. Since stage 8 they fly among pillars,
+where a touch is a crash. Since 7 October every change is a pre-registered experiment with a decision rule, an
+ablation and a bit-reproducible evaluation.
+"""
+video = "isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/videos/final_camera_D/rl-video-step-0.mp4"
+caption = "Final pair of the overnight self-play run (2026-10-10). Its predators are now the obstacle reference: they avoid pillars by perception."
+facts = ["3 predators vs 1 prey", "sphere arena, r = 5 m", "4 pillars", "policy at 50 Hz", "10 s episodes", "prey thrust/weight 2.2 vs 1.9", "MAPPO · attention + GRU"]
+
+# Milestone numbers. A fourth tile (experiment count) is generated from the experiment log.
+[[tile]]
+value = "−51 %"
+label = "Predator crash rate among pillars"
+detail = "0.173 → 0.085 crashes per second in overnight self-play. Zeroing its pillar branch raises crashes by 52 %, so it avoids pillars by perception."
+href = "#stage-overnight"
+
+[[tile]]
+value = "#1 of 10"
+label = "Anchor v3 in the league, both roles"
+detail = "Round-robin league of 10 predators against 10 prey with a Bradley–Terry fit: strongest predator and strongest prey."
+href = "#chart-league"
+
+[[tile]]
+value = "99.6 %"
+label = "Predators stay in the arena"
+detail = "of episodes after two-stage flight training from random init. Training the game directly from scratch: 0 %."
+href = "#stage-flight"
+
+# Frozen, read-only checkpoints that later experiments are measured against.
+[[reference]]
+name = "Anchor v3"
+scope = "open space, both roles"
+date = "2026-10-08"
+detail = "Strongest pair in both roles (league +1.13 / +1.09). Own-matchup catch 0.461, reproduced bit-exactly from the bundle."
+path = "UAVPredatorPrey/.pretrained_checkpoints/anchor_v3_2026-10-08/"
+
+[[reference]]
+name = "Obstacle predator"
+scope = "pillars, predator role only"
+date = "2026-10-10"
+detail = "First predator that avoids pillars by perception: ablation ratio 1.41 against the start prey, 1.52 in its own matchup."
+path = "UAVPredatorPrey/.pretrained_checkpoints/obstacle_predator_2026-10-10/"
+
+# =========================================================================================== featured charts
+# kind = "lines": each series is a crash/catch hazard (`matchup`) or an ablation ratio (`with` / `zeroed`: hazard
+# with the obstacle branch zeroed divided by the hazard with it) read from the experiment's eval JSONs.
+# Colors: predator = s2 (orange), prey = s1 (blue), counterfactual = muted.
+
+[[chart]]
+id = "perception"
+kind = "lines"
+title = "The predator learns to see pillars"
+subtitle = "Run T. Predator crash hazard against the fixed obstacle-blind start prey, for the same checkpoints with the obstacle branch active and with its output zeroed."
+experiment = "2026-10-08_obstacles_crash_price_exploration"
+y_label = "predator crashes per second"
+caption = "Early on both lines fall together: those gains are blind. From about 7,500 updates the zeroed line stays high while the active one keeps falling. The gap is avoidance that needs the pillar observations (ratio 0.98 → 1.51)."
+[[chart.series]]
+name = "branch active"
+color = "s2"
+matchup = "predator_vs_start_prey"
+metric = "predator_obstacle_crash_rate"
+[[chart.series]]
+name = "branch zeroed"
+color = "muted"
+matchup = "predator_zeroed_vs_start_prey"
+metric = "predator_obstacle_crash_rate"
+
+[[chart]]
+id = "selfplay"
+kind = "lines"
+title = "Self-play keeps the predator's perception and erodes the prey's"
+subtitle = "Overnight self-play. Ablation ratio per cycle: crash hazard with the obstacle branch zeroed ÷ with it, each role against its fixed start opponent."
+experiment = "2026-10-09_overnight_selfplay_ghost_rehearsal"
+y_label = "ablation ratio"
+zero = false
+caption = "Above 1.2 (the pre-registered bar) a role clearly uses its pillar observations; 1.0 means zeroing changes nothing. The prey's skill from the ghost stage was gone after the first cycle."
+refs = [{ y = 1.0, label = "1.0 no effect" }, { y = 1.2, label = "1.2 perception bar" }]
+[[chart.series]]
+name = "predator"
+color = "s2"
+with = "predator_vs_start_prey"
+zeroed = "predator_zeroed_vs_start_prey"
+metric = "predator_obstacle_crash_rate"
+[[chart.series]]
+name = "prey"
+color = "s1"
+with = "start_predator_vs_prey"
+zeroed = "start_predator_vs_prey_zeroed"
+metric = "prey_obstacle_crash_rate"
+
+[[chart]]
+id = "league"
+kind = "league"
+title = "League: anchor v3 is strongest in both roles"
+subtitle = "Bradley–Terry strength from a 10 × 10 round-robin league (2026-10-08). Catch probability ≈ σ(predator − prey): a gap of +1 means about 73 % catches. The Windows anchor prey is fixed at 0."
+path = "isaac/diagnostics/league_2026-10-08/bradley_terry.json"
+highlight = ["P_v3", "Y_v3"]
+caption = "Strongly non-transitive: older policies beat some opponents that beat them overall, which is why references are scored against a pool, not one opponent."
+[chart.labels]
+P_v3 = "anchor v3"
+P_v2 = "anchor v2"
+P_rehearsed = "rehearsed (Oct 6)"
+W_anchor = "Windows anchor"
+P8_part2 = "archived run, part 2"
+W_pool0 = "Windows pool 0"
+W_pool1 = "Windows pool 1"
+W_pool2 = "Windows pool 2"
+W_pool3 = "Windows pool 3"
+P10_jul19 = "scratch, July 19"
+Y_v3 = "anchor v3"
+Y8_v2 = "anchor v2"
+Y5_jul19 = "July 19 (Y5)"
+S015_jul18 = "scratch, July 18 (S015)"
+S021_jul18 = "scratch, July 18 (S021)"
+
+# =========================================================================================== journey
+
+[[chapter]]
+title = "Foundations"
+dates = "March → July 2026"
+intro = "Build the game, the policy architecture and a first strong pair on Windows, move to Linux, and try learning from scratch."
+
+[[chapter.stage]]
+id = "bringup"
+title = "Environment and architecture, 1v1 → 3v1"
+dates = "2026-03 → 06"
+verdict = "worked"
+takeaway = "A hysteresis curriculum keeps the game near 50/50, so both roles keep getting a learning signal."
+metric = "1v1 → 3v1"
+goal = "Build the task from the Isaac Lab drone template and grow the policy architecture with the number of agents."
+result = """
+- `1v1-empty-v0` → `3v1-empty-v0` with skrl MAPPO on MLPs, then a 1v1 **hysteresis curriculum** (catch-rate band 0.40/0.60 decides which role trains next).
+- Architecture: shared-attention actor → teammate velocities (obs 90/30/120) → entity-attention critic → prey attention + random spawn → large GRU with recurrent MAPPO.
+- Few numbers survive from this era; the Windows logs are not on Linux.
+"""
+why = """
+A role that always wins or always loses has near-zero advantage variance, so it stops learning. Attention handles a
+variable number of entities; the GRU lets the policy integrate opponent motion over time.
+"""
+evidence = ["UAVPredatorPrey/docs/1v1_hysteresis_curriculum_runbook.md", "UAVPredatorPrey/docs/curriculum_learning_plan.md", "UAVPredatorPrey/docs/marl_sota_roadmap.md"]
+
+[[chapter.stage]]
+id = "legacy-obstacles"
+title = "Legacy obstacle curriculum"
+dates = "2026-03-30 → 06-06"
+verdict = "partial"
+takeaway = "Catch rates stayed high and the prey never used obstacles as cover; a dead branch."
+metric = "catch 0.92 → 0.78"
+goal = "A first obstacle task (`3v1-obstacles-v0`, 4 obstacles in a ring) with a catch-distance curriculum 0.5 → 0.4 → 0.3 m."
+result = """
+Training-tail metrics: catch ≈ 0.92 / 0.86 / 0.78 at 0.5 / 0.4 / 0.3 m, predator OOB up to ≈ 0.15.
+"The prey is still caught relatively quickly … does not yet actively use obstacles as cover."
+"""
+why = "A separate env class with an incompatible observation layout (84/34/118), superseded by the stage 8 pillars on the 3v1 anchor stack (inferred)."
+evidence = ["UAVPredatorPrey/docs/training_3v1_obstacles.md"]
+
+[[chapter.stage]]
+id = "windows-anchor"
+title = "Elevated arena, correctness audit, Windows anchor"
+dates = "2026-07-02 → 07-11"
+verdict = "worked"
+takeaway = "Fixing evaluation bugs mattered as much as training: one GRU-state bug alone faked a 95 % failure rate."
+metric = "catch 0.678"
+goal = "Move the game into an elevated sphere (z = 6 m, r = 5 m, random spawn), fix correctness bugs, and train the reference pair."
+result = """
+- Correctness fixes: GRU hidden state was not carried in eval (prey OOB 0.955 → 0.012 once fixed), per-env balanced episode accounting, exact freezing of a frozen role, executed vs sampled action (tanh squash), one-time crash cost.
+- Windows anchor `agent_115200`: catch **0.678** (512 eps). Recipe: LR 1e-5, KL 0.05, log-std floor −2, FP32, 4800-update phases, 50 % pool.
+"""
+why = "The root of every later reference. Its recipe (FP32, LR 1e-5, floor −2, long phases) is the one that later had to be restored."
+evidence = ["UAVPredatorPrey/.pretrained_checkpoints/linux_migration_2026-07-11/", "UAVPredatorPrey/docs/linux_handoff_2026-07-11.md"]
+
+[[chapter.stage]]
+id = "linux"
+title = "Linux migration (Docker) and a JAX simulator attempt"
+dates = "2026-07-11 → 07-16"
+verdict = "partial"
+takeaway = "Docker reproduced the anchor exactly; the JAX port matched the network but not closed-loop play."
+metric = "0.677734375, bit-exact"
+goal = "Move to a pinned Linux container (Isaac Sim 5.1, Isaac Lab 2.3.2, skrl 1.4.3) and try a much faster JAX port."
+result = """
+- Docker parity: the anchor reproduced **0.677734375 exactly** at 512 eps, seed 42 (seeds 43–46: 0.656–0.703).
+- JAX port: inference parity, but closed-loop catch 0.082 vs 0.678 in Isaac (predator OOB 0.816). Not used since.
+"""
+why = "Policy-level parity does not imply closed-loop parity: small dynamics differences compound over 500 steps of feedback. The JAX gap is a physics-fidelity problem, not a learning one."
+evidence = ["artifacts/isaac/evaluations/", "UAVPredatorPreyJAX/README.md"]
+
+[[chapter.stage]]
+id = "flight"
+title = "From scratch: learn to fly first, then chase"
+dates = "2026-07-17 → 07-19"
+verdict = "partial"
+takeaway = "Flight has to come first, in the target arena. The chase stage on top drifted from the recipe and gave a weak predator."
+metric = "predator OOB 1.0 → 0.004"
+goal = "Rebuild a pair from random init without the Windows history: flight first (no competitive rewards), then the catch curriculum."
+result = """
+- Joint training on the target task from random init: catch 0, predator OOB **1.0**: the drones never learn to fly (v2).
+- Flight bootstrap at z = 1 with ring spawn: perfect on its own task, predator OOB 1.0 on the elevated target (v3).
+- **Two-stage flight** (v4): fixed spawn 750 u, then random spawn in the elevated arena 2000 u → on the target task predator OOB 0.004, episodes 494.6 of 500 steps. **Flying worked.**
+- Chase stage afterwards (hysteresis, LR 5e-5, AMP, floor −3, short phases, uncommitted code): the prey reached Windows level, but the predator scored only **0.098** vs reference prey (Windows anchor 0.854).
+"""
+why = """
+Competitive rewards on top of an unstable plant give no signal (every episode ends in a crash), so flight must come
+first, and it must be learned in the target arena's state distribution (v3 failed to transfer from z = 1).
+The weak predator came from recipe drift, not from the flight-first idea (diagnosed on 4 October).
+"""
+evidence = ["artifacts/isaac/lineages/2026-07-17_21-28-34_scratch_two_stage_flight_v4/", "artifacts/isaac/lineages/2026-07-17_20-43-59_scratch_flight_bootstrap_v3/"]
+[[chapter.stage.video]]
+path = "isaac/lineages/2026-07-17_20-43-59_scratch_flight_bootstrap_v3/videos/bootstrap_target/rl-video-step-0.mp4"
+label = "v3: a z = 1 flight policy dropped into the elevated arena"
+[[chapter.stage.video]]
+path = "isaac/lineages/2026-07-17_21-28-34_scratch_two_stage_flight_v4/videos/target_before_catch_training/rl-video-step-0.mp4"
+label = "v4: two-stage flight, before any chase training"
+
+[[chapter.stage]]
+id = "amp"
+title = "AMP takeover runs from the Windows anchor"
+dates = "2026-07-15 → 07-17"
+verdict = "open"
+takeaway = "Throughput probes from the anchor. Undocumented; mixed precision was later dropped from the recipe."
+metric = "catch 0.51–0.60"
+goal = "Throughput probes (AMP vs FP32) and short joint phases from the anchor."
+result = "Catch stayed between 0.51 and 0.60 (ended 0.582, 256 eps). No write-up exists."
+why = "Listed for completeness. AMP was later dropped from the reference recipe."
+evidence = ["artifacts/isaac/curriculum/2026-07-17_15-55-52_takeover_amp_hysteresis_5k_video/"]
+
+[[chapter]]
+title = "Back to a strong, reproducible pair"
+dates = "4 → 8 October 2026"
+intro = "Find what broke, restore the recipe that worked, stop self-play from forgetting old opponents, and measure before tuning."
+
+[[chapter.stage]]
+id = "diagnosis"
+title = "Diagnose the July 19 drop, return to the archived recipe"
+dates = "2026-10-04"
+verdict = "worked"
+takeaway = "A paired 2 × 2 role swap pinned the drop on the prey alone. The fix was restoring the recipe, not new ideas."
+metric = "prey effect 0.34 · predator 0.004"
+goal = "Find out why the catch rate collapsed after the July 19 joint update, and get back to a pair where both roles behave well."
+result = """
+- Paired 2 × 2 role swap (256 eps): prey effect 0.34, predator effect 0.004, so the prey alone caused the drop.
+- Against 5 reference prey: scratch-lineage predator 0.098 vs Windows anchor 0.854.
+- An archived-recipe smoke reproduced the July 12 smoke **bit-exactly**.
+"""
+why = """
+The Linux scratch lineage had drifted from the recipe that produced the Windows anchor (LR 5e-5 instead of 1e-5,
+AMP instead of FP32, log-std floor −3 instead of −2, short 1000-update phases, a 6 m/s speed margin in the reward).
+Fix: restore FP32, LR 1e-5, floor −2, KL 0.05, the legacy reward, plus a catch-rate band guard.
+"""
+evidence = ["artifacts/isaac/diagnostics/2026-10-04_phase5_role_swap_and_windows_reference/"]
+
+[[chapter.stage]]
+id = "long-run"
+title = "Archived-recipe long run"
+dates = "2026-10-05 → 10-06"
+verdict = "partial"
+takeaway = "Strong in its own games, but self-play forgot how to beat old opponents."
+metric = "reference mean 0.596"
+goal = "Train a new pair with the restored recipe (prey → predator → prey phases, then joint phases)."
+result = """
+- Part 1 phases: catch 0.285 / 0.621 / 0.432. Part 2 (8 joint phases): catch 0.49–0.60, OOB ≤ 1 %.
+- But the predator's reference mean fell to 0.596 (Windows anchor 0.854).
+"""
+why = """
+**Forgetting.** PFSP pushed beaten prey to the weight floor, top-4 truncation then dropped them from the pool, and
+pool weights were only refreshed after single-role phases. The predator stopped seeing old prey and lost to them.
+"""
+evidence = ["artifacts/isaac/curriculum/2026-10-05_18-25-59_3v1_pool_hysteresis_archived_recipe_part2/", "artifacts/isaac/diagnostics/reference_matrix/"]
+[[chapter.stage.video]]
+path = "isaac/curriculum/2026-10-05_18-25-59_3v1_pool_hysteresis_archived_recipe_part2/videos/phase_008_after/rl-video-step-0.mp4"
+label = "after the 8th joint phase"
+
+[[chapter.stage]]
+id = "anchor-v2"
+title = "Rehearsal pool and toward_center scheduler → anchor v2"
+dates = "2026-10-06"
+verdict = "worked"
+takeaway = "Keeping old opponents in training undid the forgetting: the self-play analogue of a replay buffer."
+metric = "reference mean 0.596 → 0.873"
+goal = "Undo the forgetting without losing strength against the current prey."
+result = """
+- Rehearsal (75 % pool of all 5 reference prey): reference mean 0.596 → 0.828, but own matchup 0.535 → 0.402 (trade-off).
+- `toward_center` scheduler (no joint phases; train the role below the band center), 6 × 1200 u: reference mean **0.873** (Windows anchor 0.854). Frozen as anchor v2.
+"""
+why = "Old opponents must stay in the training distribution; a rehearsal share is the multi-agent analogue of a replay buffer against catastrophic forgetting."
+experiment = "2026-10-06_predator_rehearsal_pool"
+evidence = ["artifacts/isaac/experiments/2026-10-06_predator_rehearsal_pool/", "UAVPredatorPrey/docs/anchor_v2_2026-10-06.md"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-06_predator_rehearsal_pool/videos/rehearsed_predator_vs_Y8/rl-video-step-0.mp4"
+label = "rehearsed predator vs its own prey (Y8)"
+
+[[chapter.stage]]
+id = "measure"
+title = "Measure before tuning"
+dates = "2026-10-07"
+verdict = "worked"
+takeaway = "League, horizon test, bootstrapping A/B, normalizer check and a seed noise floor, before any more tuning."
+metric = "seed noise SD 0.027"
+goal = "Know what the game and the training actually look like before changing anything else."
+result = """
+- League (9 × 9, Bradley–Terry): anchor v2 strongest in both roles; the game is strongly **non-transitive**.
+- Horizon: catch 0.486 / 0.724 / 0.854 at 10 / 20 / 30 s, constant hazard ≈ 0.06/s → policies are length-independent.
+- Time-limit bootstrapping A/B: equal in the own matchup, better beyond the training horizon, critic EV no longer collapses (0.93 → 0.21 without). **Adopted as default.**
+- Value normalizer is stale (targets squashed 300× / 20×) but EV stays 0.72–0.87 → not a bottleneck, left alone.
+- Seed noise floor: SD 0.027 own matchup, 0.003 reference mean → A/B margins ≥ 0.08 or 3 seeds.
+"""
+why = """
+A time-out is truncation, not termination: treating it as terminal makes the value target depend on a clock the policy
+cannot see (no time-to-go by design). Bootstrapping with γV(s′) removes that inconsistency. The noise floor tells which
+earlier "wins" were real.
+"""
+experiment = "2026-10-07_time_limit_bootstrap_ab"
+evidence = ["artifacts/isaac/diagnostics/league_2026-10-07/", "artifacts/isaac/experiments/2026-10-07_time_limit_bootstrap_ab/", "artifacts/isaac/experiments/2026-10-07_value_normalizer_calibration/", "artifacts/isaac/experiments/2026-10-07_training_seed_noise/"]
+
+[[chapter.stage]]
+id = "coordination"
+title = "Three levers for predator coordination"
+dates = "2026-10-07"
+verdict = "failed"
+takeaway = "Shaping, exploration and prey agility did not make the predators corner the prey. In 3-D, only the arena wall offers a corner."
+metric = "wall enclosure 0.193 → 0.156"
+goal = "Get the three predators to corner the prey (cut-off, enclosure) instead of chasing as a pack from one side."
+result = """
+- Removing pursuit shaping: no change in geometry (kept at 2.0).
+- Wider predator log-std floor (−1.5): faster specialization, held-out mean 0.787 → 0.719, same strategy.
+- More agile prey (T/W 2.5): the predator learned **better individual interception** (lead index 0.13 → 0.23), but wall enclosure before catches *fell* (0.193 → 0.156).
+"""
+why = """
+Three drones cannot surround a prey in free 3-D space; the only surface to corner it against is the arena sphere,
+and the prey lives near it. None of the levers changed that geometry, so the next step was **obstacles**, which
+create corners. Lesson: the right strategy metric (wall-plane enclosure) matters more than the lever.
+"""
+experiment = "2026-10-07_prey_agility_curriculum"
+evidence = ["artifacts/isaac/experiments/2026-10-07_predator_progress_shaping_ab/", "artifacts/isaac/experiments/2026-10-07_predator_exploration_floor/", "artifacts/isaac/experiments/2026-10-07_prey_agility_curriculum/"]
+
+[[chapter.stage]]
+id = "anchor-v3"
+title = "Anchor v3: rehearsal pool 60 %, overnight"
+dates = "2026-10-07 → 10-08"
+verdict = "worked"
+takeaway = "A moderate rehearsal share gave the strongest pair in both roles without forgetting."
+metric = "league #1, both roles"
+goal = "A stronger reference pair without forgetting, as the starting point for obstacles."
+result = """
+- toward_center 12 × 1200 u (9 predator, 3 prey phases). Predator vs start prey 0.367 → 0.562, held-out 0.691 → 0.812, reference mean 0.869 (guardrail held).
+- League 10 × 10: anchor v3 strongest in both roles (predator +1.13, prey +1.09 logits).
+- Coordination still absent (wall enclosure 0.112).
+"""
+why = "A moderate rehearsal share balances plasticity against retention: the pre-test with 75 % removed forgetting but cost 0.16 against the current opponent."
+experiment = "2026-10-07_anchor_v3_overnight"
+evidence = ["artifacts/isaac/experiments/2026-10-07_anchor_v3_overnight/", "artifacts/isaac/diagnostics/league_2026-10-08/", "UAVPredatorPrey/docs/anchor_v3_2026-10-08.md"]
+[[chapter.stage.video]]
+path = "isaac/curriculum/2026-10-07_20-30-23_3v1_anchor_v3_bootstrap_rehearsal/videos/phase_012_after/rl-video-step-0.mp4"
+label = "anchor v3 pair (after phase 12)"
+
+[[chapter]]
+title = "Pillars and perception"
+dates = "8 October 2026 → now"
+intro = "Pillars create corners and cover. The question is no longer only who wins, but whether each drone actually uses what it sees, tested by zeroing its obstacle branch."
+
+[[chapter.stage]]
+id = "pillars"
+title = "Four pillars, first training"
+dates = "2026-10-08"
+verdict = "partial"
+takeaway = "Crashes fell, but ablation showed the gains were blind. Only the prey used its pillar branch, and only to evade."
+metric = "crash hazard −37 % · blind"
+goal = "Add pillars (touching one is a crash) with zero-initialized obstacle branches, then learn to fly and fight among them."
+result = """
+- Obstacle-blind start: catch 0.107, predator crash 0.583, prey crash 0.485 per episode, episodes 2.2 s.
+- After 15 000 joint updates: crash hazards −37 % / −35 %, catch 0.52. Per episode still 0.50 / 0.42 crashes.
+- **Zeroing the obstacle branch does not raise crashes**: the gains were blind. The prey uses its branch only to *evade* among pillars ("weaving").
+"""
+why = """
+The incentives barely paid for avoidance: for the prey a crash cost the same as being caught; for the predator one lost
+drone cost a third of a catch (the team reward is a mean, only the catch bonus scales with team size).
+Also: pillars parked 50 m away are out of distribution for the trained branch (prey OOB 0.90), so a presence mask is needed.
+"""
+experiment = "2026-10-08_obstacles_first_training"
+evidence = ["artifacts/isaac/experiments/2026-10-08_obstacles_first_training/"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-08_obstacles_first_training/videos/start/rl-video-step-0.mp4"
+label = "start: anchor v3, obstacle-blind"
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-08_obstacles_first_training/videos/final/rl-video-step-0.mp4"
+label = "after 15 000 joint updates"
+
+[[chapter.stage]]
+id = "run-t"
+title = "Crash price plus exploration (run T)"
+dates = "2026-10-08 evening"
+verdict = "partial"
+takeaway = "The predator learned perception-based avoidance. The prey found a blind shortcut: it simply slowed down."
+metric = "ablation +42 % (predator)"
+goal = "Make crashes expensive (predator −600 per drone, prey −600) and give the predator more exploration (log-std floor −1.0)."
+result = """
+- Predator: crash hazard 0.57 × the control at equal catch; zeroing its branch raises crashes +42 % → **first perception-based avoidance**. Pursuit improved too (lead index 0.395).
+- Prey: crash hazard 0.42 ×, but caught 2.9 × faster: it halved its speed and left the pillar zone (**blind** "slow and safe").
+- Prey dose-response −200 / −350 / −600: a pure speed dial (4.5 / 3.8 / 3.2 m/s), branch unused.
+"""
+why = """
+A price teaches perception only where **no blind shortcut** exists. The prey could simply slow down; the predator could
+not, because slowing down costs catches. Adopted the predator settings, not the prey's.
+"""
+experiment = "2026-10-08_obstacles_crash_price_exploration"
+evidence = ["artifacts/isaac/experiments/2026-10-08_obstacles_crash_price_exploration/"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-08_obstacles_crash_price_exploration/videos/final/rl-video-step-0.mp4"
+label = "final pair of run T"
+
+[[chapter.stage]]
+id = "ghosts"
+title = "Prey skill stage against scripted ghost pursuers (v1 → v3)"
+dates = "2026-10-09"
+verdict = "partial"
+takeaway = "The prey learned to see pillars only when evasion was easy: slow ghosts plus a pillar-free belt."
+metric = "ablation ratio 2.08 → 0.99"
+goal = "Learn the flying skill first, then the game: train the prey alone against kinematic lead-pursuit ghosts that never crash and fly through pillars."
+result = """
+- v1 (ghosts 3.5 m/s): all four criteria passed, ablation ratio **2.08**, 5.2 m/s. But the prey increasingly circled the pillar-free outer belt.
+- v2 (pillars up to the wall, ghosts 3.5–6.5 m/s): excellent evader (catch hazard 0.054/s, 5.5 m/s) but no perception (ratio 0.99).
+- v3 (prey crash −300): fewer crashes against ghosts (−38 %), still no perception (ratio 1.05).
+- Correction: without the belt, v1's prey crashes 2 × as often and its ratio drops to 1.28; much of v1's safety came from the belt.
+"""
+why = """
+Under fast ghosts the prey escapes at speed and accepts crashes, because a crash costs about as much as being caught.
+Perception appeared only when evasion was easy, which suggests a curriculum from easy to hard evasion.
+"""
+experiment = "2026-10-09_prey_ghost_skill_stage"
+evidence = ["artifacts/isaac/experiments/2026-10-09_prey_ghost_skill_stage/", "artifacts/isaac/experiments/2026-10-09_prey_ghost_stage_v2/", "artifacts/isaac/experiments/2026-10-09_prey_ghost_stage_v3_crash_price/"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-09_prey_ghost_skill_stage/videos/ghost_trained_prey_vs_ghosts_camera_D/rl-video-step-0.mp4"
+label = "v1 prey vs ghosts (3.5 m/s)"
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-09_prey_ghost_skill_stage/videos/ghost_trained_prey_vs_trained_predator_camera_D/rl-video-step-0.mp4"
+label = "v1 prey vs the trained run-T predator"
+
+[[chapter.stage]]
+id = "overnight"
+title = "Overnight self-play with ghost rehearsal"
+dates = "2026-10-09 → 10-10"
+verdict = "partial"
+takeaway = "Self-play kept and sharpened the predator's perception, and erased the prey's within one cycle."
+metric = "ablation ratio 1.41 vs 0.71"
+goal = "Do both perception skills survive co-training? Six cycles of 2400 joint updates plus 600 prey updates against ghosts (rehearsal), pillars up to the wall, from the run-T predator and v1's ghost-trained prey."
+result = """
+- Own matchup: catch 0.16 → 0.49; predator crash hazard 0.173 → 0.085/s; prey 0.307 → 0.223/s.
+- Predator: ablation ratio 1.08 → **1.41** against the start prey (+52 % crashes without its branch in its own matchup); lead index 0.06 → 0.27, wall enclosure 0.10 → 0.17.
+- Prey: ratio 1.28 → 1.00 → **0.71**; it weaves among pillars again (77 % of its time in the pillar zone).
+- Pre-registered verdict: criterion 1 (perception in both roles) fails; speed and balance pass.
+"""
+why = """
+In self-play the prey's incentives favor evasion over safety, even with a crash costing 1.5 × a catch, and fast-ghost
+rehearsal did not protect the skill. The predator has no blind shortcut: slowing down costs catches.
+"""
+experiment = "2026-10-09_overnight_selfplay_ghost_rehearsal"
+evidence = ["artifacts/isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/videos/final_camera_D/rl-video-step-0.mp4"
+label = "final pair after six cycles (camera D)"
+
+[[chapter.stage]]
+id = "ghost-v4"
+title = "Slow ghosts without the belt (v4)"
+dates = "2026-10-10"
+verdict = "partial"
+takeaway = "Slow ghosts cut the prey's crashes, but without the pillar-free belt its perception grows only slowly."
+metric = "ratio 1.24 std · 0.93 full layout"
+goal = "Fill the missing cell of the 2 × 2 (ghost speed × layout): slow ghosts at 3.5 m/s with pillars up to the wall, so no belt."
+result = """
+- Crash hazard against the start predator 0.272 → 0.174/s (fast ghosts, v2: 0.240); catch hazard 0.046/s; 5.0 m/s.
+- Formally passes all four criteria, but the ablation ratio is marginal: 1.24 in the standard layout (1.10 one checkpoint earlier), 0.93 in its own full layout.
+"""
+why = "Both factors matter: v1's strong effect (2.08) needed slow ghosts *and* the belt. The ablation ratio also depends on pillar density, so it is a noisy perception test in sparse layouts."
+experiment = "2026-10-10_prey_ghost_stage_v4_slow_full_layout"
+evidence = ["artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v4_slow_full_layout/"]
+
+[[chapter.stage]]
+id = "obstacle-predator"
+title = "Obstacle reference predator frozen"
+dates = "2026-10-10"
+verdict = "worked"
+takeaway = "The first predator that avoids pillars by perception becomes a frozen, bit-reproducible reference."
+metric = "ratio 1.41 · lead index 0.27"
+goal = "Freeze the overnight run's predator as the reference for the pillar task."
+result = """
+- Read-only bundle `.pretrained_checkpoints/obstacle_predator_2026-10-10/` (sha256 `470c11e6…`); the bundled copy reproduces its evaluation bit-exactly.
+- Ablation ratio 1.41 against the start prey and 1.52 in its own matchup; crash hazard 0.100/s against the start prey; lead index 0.27; wall enclosure 0.165.
+- The prey role of the checkpoint is not a reference.
+"""
+why = "A fixed opponent makes every later prey experiment comparable, the role anchor v3 plays in open space."
+evidence = ["UAVPredatorPrey/docs/obstacle_predator_2026-10-10.md"]
+
+# =========================================================================================== featured videos
+
+[[featured]]
+path = "isaac/lineages/2026-07-17_20-43-59_scratch_flight_bootstrap_v3/videos/bootstrap_target/rl-video-step-0.mp4"
+title = "A hover policy from the wrong arena"
+note = "Trained at z = 1 m with ring spawn, it fails in every episode of the elevated random-spawn arena."
+
+[[featured]]
+path = "isaac/lineages/2026-07-17_21-28-34_scratch_two_stage_flight_v4/videos/target_before_catch_training/rl-video-step-0.mp4"
+title = "Learning to fly from random init"
+note = "Two-stage flight before any chase training: every predator stays in the arena in 99.6 % of episodes."
+
+[[featured]]
+path = "isaac/curriculum/2026-10-07_20-30-23_3v1_anchor_v3_bootstrap_rehearsal/videos/phase_012_after/rl-video-step-0.mp4"
+title = "Anchor v3 in open space"
+note = "The strongest pair in both roles (own-matchup catch 0.46). The predators still chase as a pack instead of cornering."
+
+[[featured]]
+path = "isaac/experiments/2026-10-08_obstacles_first_training/videos/start/rl-video-step-0.mp4"
+title = "Pillars added, nothing learned yet"
+note = "Anchor v3 with four pillars before obstacle training: 58 % of episodes lose a predator to a crash."
+
+[[featured]]
+path = "isaac/experiments/2026-10-08_obstacles_crash_price_exploration/videos/final/rl-video-step-0.mp4"
+title = "Run T: the predator starts to see pillars"
+note = "After crash price plus exploration: predator crash hazard 0.57 × the control, with perception-based avoidance."
+
+[[featured]]
+path = "isaac/experiments/2026-10-09_prey_ghost_skill_stage/videos/ghost_trained_prey_vs_ghosts_camera_D/rl-video-step-0.mp4"
+title = "Prey against scripted ghosts"
+note = "v1's prey evades lead-pursuit ghosts at 5.2 m/s and uses its pillar branch (ratio 2.08, helped by the belt)."
+
+# =========================================================================================== lessons
+
+[[lesson]]
+verdict = "worked"
+what = "Learn to fly before learning to chase, in the target arena's state distribution."
+why = "From random init, competitive rewards give no signal because every episode ends in a crash (predator OOB 1.0). Two-stage flight (fixed, then random spawn at z = 6) reached OOB 0.004."
+evidence = ["artifacts/isaac/lineages/2026-07-17_21-28-34_scratch_two_stage_flight_v4/"]
+
+[[lesson]]
+verdict = "failed"
+what = "A flight bootstrap in a different arena (z = 1, ring spawn)."
+why = "Perfect on its own task, OOB 1.0 on the elevated random-spawn target: a policy only covers the states it was trained on (inferred mechanism)."
+evidence = ["artifacts/isaac/lineages/2026-07-17_20-43-59_scratch_flight_bootstrap_v3/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Correctness audit before scaling (GRU state in eval, balanced episode accounting, exact freezing, executed vs sampled action)."
+why = "A memoryless GRU eval alone turned prey OOB 0.012 into 0.955. Evaluation bugs look exactly like learning failures."
+evidence = ["UAVPredatorPrey/docs/marl_sota_roadmap.md"]
+
+[[lesson]]
+verdict = "failed"
+what = "Recipe drift on an uncommitted tree (LR 1e-4/5e-5, AMP, floor −3, short phases)."
+why = "Five changes at once and no clean commit: the predator collapsed to 0.098 vs reference prey and no single cause could be isolated afterwards. Since October every run records its commit."
+evidence = ["artifacts/isaac/diagnostics/2026-10-04_phase5_role_swap_and_windows_reference/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Reproduce before improving: return to the archived recipe (FP32, LR 1e-5, floor −2, KL 0.05)."
+why = "Restoring the settings reproduced old smokes bit-exactly and made every later comparison meaningful."
+evidence = ["artifacts/isaac/diagnostics/2026-10-04_phase5_role_swap_and_windows_reference/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Rehearsal pool of old opponents (60 %, PFSP floor 0.3) and the `toward_center` scheduler."
+why = "Self-play forgets: PFSP drops beaten opponents and the policy then loses to them. Keeping them in the batch is replay against catastrophic forgetting."
+evidence = ["artifacts/isaac/experiments/2026-10-07_anchor_v3_overnight/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Time-limit bootstrapping: a time-out is a truncation, not a termination."
+why = "Without it the critic must predict a cliff at a time the observation does not contain; EV collapsed 0.93 → 0.21 at time-outs."
+evidence = ["artifacts/isaac/experiments/2026-10-07_time_limit_bootstrap_ab/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Pre-registered A/Bs with a measured seed noise floor."
+why = "SD 0.027 on the own matchup means single-seed gains below ~0.08 are noise; two earlier 'wins' turned out to be held-out losses."
+evidence = ["artifacts/isaac/experiments/2026-10-07_training_seed_noise/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Branch ablation (zero the new pathway's output) before crediting perception."
+why = "Crash rates fell in every obstacle run, but only ablation showed whether the pillar observations caused it; most gains were blind."
+evidence = ["artifacts/isaac/experiments/2026-10-08_obstacles_first_training/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Obstacle-branch LR multiplier (× 30) and a soft keep-out band."
+why = "A zero-initialized branch at LR 1e-5 barely grew; crashes were too sparse a signal for low-noise policies. The soft band gives a gradient before the crash."
+evidence = ["artifacts/isaac/experiments/2026-10-08_obstacles_first_training/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Crash price plus exploration for the predator."
+why = "Works because the predator has no blind shortcut: slowing down costs catches. First perception-based avoidance (+42 % crashes when ablated), kept and sharpened through self-play (ratio 1.41)."
+evidence = ["artifacts/isaac/experiments/2026-10-08_obstacles_crash_price_exploration/", "artifacts/isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Frozen, read-only reference bundles with checksums."
+why = "Anchors v2 and v3 and the obstacle predator each reproduce their evaluation bit-exactly from the bundle, so later comparisons always have a fixed opponent."
+evidence = ["UAVPredatorPrey/docs/anchor_v3_2026-10-08.md", "UAVPredatorPrey/docs/obstacle_predator_2026-10-10.md"]
+
+[[lesson]]
+verdict = "partial"
+what = "Skill stage against scripted ghosts."
+why = "Teaches perception only when evasion is easy (and the pillar-free belt helped); fast ghosts or a pricier crash did not. Suggests an easy → hard curriculum."
+evidence = ["artifacts/isaac/experiments/2026-10-09_prey_ghost_skill_stage/"]
+
+[[lesson]]
+verdict = "partial"
+what = "Slow ghosts in the full layout (v4) as a perception teacher."
+why = "Crashes fell (0.272 → 0.174/s) but the ablation ratio stayed marginal (1.24 / 0.93): v1's strong effect also needed the belt. The v5 continuation tests whether it keeps growing."
+evidence = ["artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v4_slow_full_layout/"]
+
+[[lesson]]
+verdict = "failed"
+what = "Pursuit shaping, a wider exploration floor, and a more agile prey as levers for coordination."
+why = "None changes the geometry of free-space 3-D pursuit; the prey can only be cornered against the arena wall. Better individual interception emerged instead."
+evidence = ["artifacts/isaac/experiments/2026-10-07_prey_agility_curriculum/"]
+
+[[lesson]]
+verdict = "failed"
+what = "A higher crash price alone for the prey."
+why = "It acts as a speed dial: the prey slows down (blind shortcut) instead of learning to see pillars, and gets caught 2.9 × faster."
+evidence = ["artifacts/isaac/experiments/2026-10-08_obstacles_crash_price_exploration/"]
+
+[[lesson]]
+verdict = "failed"
+what = "Fast-ghost rehearsal to protect the prey's perception in self-play."
+why = "The prey lost perception in the first cycle anyway (ratio 1.28 → 0.71): in self-play its incentives favor evasion over safety, even with a crash costing 1.5 × a catch."
+evidence = ["artifacts/isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/"]
+
+[[lesson]]
+verdict = "failed"
+what = "Parking absent pillars 50 m away instead of masking them."
+why = "Far-away pillars are out of distribution for a trained branch: open-space prey OOB 0.90 (zeroed 0.002), predator OOB 0.775. Absent entities need a presence mask."
+evidence = ["artifacts/isaac/experiments/2026-10-08_obstacles_first_training/"]
+
+[[lesson]]
+verdict = "failed"
+what = "JAX port for speed."
+why = "Inference parity but closed-loop catch 0.082 vs 0.678: dynamics mismatches compound under feedback. Simulator fidelity has to be validated closed-loop."
+evidence = ["UAVPredatorPreyJAX/README.md"]
+
+# =========================================================================================== reproduction recipe
+
+recipe_intro = """
+Two tracks, stated honestly. **Track A** (steps 4–12) is exactly reproducible today: each step names the script that
+actually ran, its commit, and the number the gate must hit (evaluations are bit-reproducible at fixed seed and env
+count). **Track B** (steps 1–3) goes from random init; its flight stages are documented, but the chase stage has
+never been run with the archived recipe, so anchor v3 cannot yet be rebuilt from scratch. All commands run inside the
+container (`docker start isaac-lab-base-uav51`) from `/workspace/UAVPredatorPrey`, prefixed with
+`env -u DISPLAY -u XAUTHORITY /workspace/isaaclab/isaaclab.sh -p`. Check out the listed commit first.
+
+The archived-recipe flags are **not** the preset defaults (the YAML says LR 1e-4, KL 0): always pass
+`--learning-rate 1e-5 --kl-threshold 0.05`, and never `--mixed-precision`.
+"""
+
+[[recipe]]
+short = "Hover and fly"
+title = "1 · Learn to hover and fly (fixed spawn, no competitive rewards)"
+status = "reconstructed"
+commit = "91d7781 + an uncommitted diff (recorded in lineage_manifest.json)"
+from = "random init (`generation_000_agent_24.pt`)"
+settings = "Task `3v1-flight-bootstrap-teammate-vel-v0` (all chase/evasion/catch rewards 0), 8192 envs, 750 iterations. LR and KL were not recorded."
+gate = "On the bootstrap task: 0 OOB, episode length 499 of 500 steps (`fixed_flight_eval.json`)."
+command = """
+python scripts/skrl/train.py --headless \\
+  --task 3v1-flight-bootstrap-teammate-vel-v0 \\
+  --agent skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point --algorithm MAPPO \\
+  --num_envs 8192 --seed 42 --max_iterations 750 \\
+  --checkpoint /workspace/artifacts/isaac/lineages/2026-07-17_21-28-34_scratch_two_stage_flight_v4/generation_000_agent_24.pt
+"""
+notes = "Reconstructed from the lineage manifest: the script that created the lineage is not in the repo."
+
+[[recipe]]
+short = "Fly in the arena"
+title = "2 · Fly in the target arena (elevated sphere, random spawn)"
+status = "reconstructed"
+commit = "as step 1"
+from = "step 1 (`fixed_flight_agent_18000.pt`)"
+settings = "Same task with the overrides in `random_spawn_overrides.txt` (arena z = 6 m, r = 5 m, random spawn z 4.5–7.5 m, min separations 1.0 / 0.8 m), 8192 envs, 2000 iterations."
+gate = "On the **target** task `…-random-spawn-low-progress-v0`: predator OOB ≤ 0.12 (measured 0.004), episodes ≈ 495 steps (`final_safety_gate.txt` = PASS)."
+command = """
+python scripts/skrl/train.py --headless \\
+  --task 3v1-flight-bootstrap-teammate-vel-v0 \\
+  --agent skrl_mappo_attention_critic_prey_attention_large_gru_cfg_entry_point --algorithm MAPPO \\
+  --num_envs 8192 --seed 42 --max_iterations 2000 \\
+  --checkpoint <step-1 run>/checkpoints/agent_18000.pt \\
+  env.arena_center_z=6.0 env.soft_arena_radius=5.0 env.random_arena_spawn=true \\
+  env.random_spawn_radius_fraction=0.85 env.random_spawn_z_min=4.5 env.random_spawn_z_max=7.5 \\
+  env.random_spawn_min_prey_predator_distance=1.0 env.random_spawn_min_predator_distance=0.8 \\
+  env.random_spawn_resample_attempts=32 env.spawn_pos_noise=0.0
+"""
+notes = "Do not skip this stage: a z = 1 flight policy crashed every episode in the elevated arena (lineage v3)."
+
+[[recipe]]
+short = "Chase and evade"
+title = "3 · Learn to chase and evade (hysteresis curriculum with the archived recipe)"
+status = "gap"
+commit = "today's HEAD"
+from = "step 2 (`random_flight_agent_48000.pt`)"
+settings = "Never run this way. The July run used LR 5e-5, AMP, floor −3 and 500–1000 u phases and produced a weak predator. The proposal: the archived recipe of step 5 (FP32, LR 1e-5, KL 0.05, floor −2, long phases, pool) from the flight checkpoint, then steps 6–9 unchanged."
+gate = "Own catch inside the 0.40–0.60 band and predator reference mean approaching the Windows anchor's 0.854. A full run is ~1–2 days of GPU, so it needs a pre-registered plan."
+notes = "This is the open gap for a from-scratch reproduction."
+
+[[recipe]]
+short = "Windows anchor"
+title = "4 · Runtime check and the Windows anchor"
+status = "verified"
+commit = "any; the container image is pinned (Isaac Sim 5.1, Isaac Lab 2.3.2, skrl 1.4.3)"
+from = "`.pretrained_checkpoints/linux_migration_2026-07-11/current/agent_115200.pt` (sha 88e7161b…)"
+settings = "`scripts/linux/verify_container_runtime.sh`, the CPU test suite, then a 512-episode eval at seed 42."
+gate = "Catch **0.677734375** exactly at 512 eps, seed 42."
+command = """
+bash scripts/linux/verify_container_runtime.sh
+python -m pytest tests -q
+python scripts/skrl/certify_baseline.py   # see docs/3v1_hysteresis_linux_runbook.md for the arguments
+"""
+
+[[recipe]]
+short = "Archived long run"
+title = "5 · Archived-recipe long run (parts 1 and 2)"
+status = "verified"
+commit = "55a26fa (part 1), 29c282f (part 2)"
+from = "step 4 with the portable opponent pool"
+settings = """
+`hysteresis_curriculum.py`, preset `3v1-attention-critic-prey-attention-large-gru`, task `…-random-spawn-low-progress-v0`,
+LR 1e-5, KL 0.05, FP32, 8192 envs, 50 % per-env pool (max 4), PFSP, cross-play. Part 1: prey 4800 → predator 9600 → prey 4800 u.
+Part 2: 8 joint phases of 2400 u. At today's HEAD add `--no-time-limit-bootstrap`.
+"""
+gate = "Part 1 catch 0.285 / 0.621 / 0.432; part 2 catch 0.49–0.60. Forgetting (reference mean 0.596) is expected here."
+command = "bash /workspace/artifacts/isaac/curriculum/2026-10-05_12-44-39_3v1_pool_hysteresis_archived_recipe.launch.sh"
+
+[[recipe]]
+short = "Rehearsal"
+title = "6 · Predator rehearsal against all reference prey"
+status = "verified"
+commit = "1d907ca"
+from = "part-2 final `agent_57600.pt` (P8/Y8)"
+settings = "Predator-only, 2400 u, `--freeze-agents prey`, 75 % pool of the 5 reference prey, weights max(0.1, 1 − win)."
+gate = "Reference mean ≈ 0.828."
+command = "bash /workspace/artifacts/isaac/experiments/2026-10-06_predator_rehearsal_pool/launch_train.sh"
+
+[[recipe]]
+short = "Anchor v2"
+title = "7 · toward_center continuation → anchor v2"
+status = "verified"
+commit = "1d907ca"
+from = "step 6"
+settings = "`--balanced-action toward_center`, 6 × 1200 u, 50 % pool (max 10), PFSP linear, floor 0.1, cross-play 8, `--no-promotion-failure-phase-continuation`."
+gate = "Reference mean **0.873** (256 eps). Frozen bundle: `.pretrained_checkpoints/anchor_v2_2026-10-06/`."
+command = "bash /workspace/artifacts/isaac/curriculum/2026-10-06_19-04-36_3v1_toward_center_rehearsal_pool.launch.sh"
+
+[[recipe]]
+short = "Bootstrap prey"
+title = "8 · Prey with bootstrapped time-outs, then compose the start pair"
+status = "verified"
+commit = "cf7345e"
+from = "anchor v2"
+settings = "Prey-only 2400 u with `agent.agent.time_limit_bootstrap=true`, 50 % pool of the 5 reference predators (arm B). Then `scripts/compose_checkpoint.py --keep-optimizers` (anchor v2 predator + arm-B prey)."
+gate = "Anchor v2 predator vs arm-B prey: **0.3671875** (the composed start must reproduce it)."
+command = "bash /workspace/artifacts/isaac/experiments/2026-10-07_time_limit_bootstrap_ab/launch_arm.sh B"
+
+[[recipe]]
+short = "Anchor v3"
+title = "9 · Anchor v3 (rehearsal 60 %, PFSP floor 0.3)"
+status = "verified"
+commit = "f68c3a5"
+from = "`experiments/2026-10-07_predator_progress_shaping_ab/start_checkpoint.pt`"
+settings = "toward_center, 12 × 1200 u, `--time-limit-bootstrap`, LR 1e-5, KL 0.05, band 0.40–0.60, OOB guards 0.12, 60 % per-env pool (max 10), PFSP linear floor 0.3, cross-play 8, 8192 envs, seed 42."
+gate = "Predator vs start prey ≥ 0.447 (got 0.562), reference mean ≥ 0.868 (0.869), held-out ≥ 0.646 (0.812). Bundle eval reproduces **0.4609375**."
+command = """
+bash /workspace/artifacts/isaac/experiments/2026-10-07_anchor_v3_overnight/run_anchor_v3.sh 0.6 0.3 \\
+  /workspace/artifacts/isaac/curriculum/<date>_3v1_anchor_v3_repro
+"""
+
+[[recipe]]
+short = "Pillars"
+title = "10 · Pillars: expand the checkpoint and adapt"
+status = "verified"
+commit = "93b8602 → 5a82556 (three restarts)"
+from = "anchor v3"
+settings = """
+`scripts/expand_checkpoint_obstacles.py --num-obstacles 4` (zero-initialized obstacle branches, function-preserving).
+Task `…-low-progress-obstacles-v0`, agent `…large_gru_obstacles_cfg_entry_point` (obstacle LR × 30), **4096 envs**
+(8192 runs out of GPU memory), soft keep-out cost (scale 200, margin 0.5 m). Joint adaptation → `09-04-00/agent_17280`.
+"""
+gate = "With parked pillars the expanded checkpoint reproduces 0.4609375; after adaptation, crash hazards fall."
+command = "see artifacts/isaac/experiments/2026-10-08_obstacles_first_training/joint_adapt.sh, joint_mult.sh, joint_soft.sh"
+notes = "Run as three ad-hoc restarts with a single seed; a clean one-script version does not exist yet."
+
+[[recipe]]
+short = "Run T"
+title = "11 · Predator perception: crash price plus exploration (run T)"
+status = "verified"
+commit = "3e1e3ad"
+from = "`2026-10-08_09-04-00/agent_17280.pt`"
+settings = "Joint 15 000 u, 4096 envs, `env.predator_oob_penalty=-600.0 env.prey_oob_penalty=-600.0 +agent.models.policy.predator_min_log_std=-1.0`. Keep only the predator."
+gate = "Predator crash hazard vs the obstacle-blind start prey ≈ 0.183/s; zeroing its branch raises it ≥ 20 % (got +42 %)."
+command = "bash /workspace/artifacts/isaac/experiments/2026-10-08_obstacles_crash_price_exploration/run_T.sh"
+
+[[recipe]]
+short = "Ghosts + self-play"
+title = "12 · Prey skill stage against ghosts, then self-play with ghost rehearsal"
+status = "verified"
+commit = "918c401 (ghosts v1), b250977 (speed range)"
+from = "run-T predator + the pre-treatment prey"
+settings = """
+Prey-only 9600 u with `env.ghost_predators=True env.ghost_max_speed=3.5` (v1). Self-play: full layout
+`env.obstacle_placement_radius=4.6`, prey crash −300, cycles of joint 2400 u + prey ghost 600 u (ghost speed 3.5–6.5 m/s).
+"""
+gate = "Ghost stage: crash ≤ 0.218/s, ablation ratio ≥ 1.2, catch ≤ 0.161/s, speed ≥ 4 m/s. Self-play: the final predator is the obstacle reference (bundle reproduces its evaluation bit-exactly, sha256 `470c11e6…`)."
+command = """
+bash /workspace/artifacts/isaac/experiments/2026-10-09_prey_ghost_skill_stage/arm.sh G
+bash /workspace/artifacts/isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/run_overnight.sh
+"""
+notes = "The v1 prey's perception partly relied on the pillar-free belt; in the full layout its ratio is 1.28, not 2.08."
+
+# =========================================================================================== next steps
+
+[[next]]
+title = "Decide the prey's next step after v5"
+why = "v5 continues v4's slow-ghost stage. If perception keeps growing: a slow-to-fast ghost curriculum, then self-play against the obstacle reference predator. If it plateaus: more pillars (needs the presence mask) or a look at the perception pathway itself."
+cost = "decided by v5's pre-registered rule"
+
+[[next]]
+title = "Presence mask for absent pillars"
+why = "Prerequisite for mixing open-space and obstacle episodes, and for variable pillar counts: masked attention over obstacle tokens instead of parking them far away."
+cost = "code + tests, a short smoke"
+
+[[next]]
+title = "Lagrangian crash constraint"
+why = "Replace hand-tuned crash prices with a constraint E[crash hazard] ≤ c and a dual variable λ updated by gradient ascent (PPO-Lagrangian). In control terms: an integral controller on the constraint violation."
+cost = "algorithm change + A/B, ~1 day"
+
+[[next]]
+title = "Dead-drone log-prob mask"
+why = "Crashed predators' actions still enter the team log-prob (11–14 % of drone-steps): pure gradient noise."
+cost = "small code change + a bit-exact check on crash-free episodes"
+
+[[next]]
+title = "Close the from-scratch gap (recipe step 3)"
+why = "Run the chase stage from the two-stage flight checkpoint with the archived recipe on a clean commit. Only then is the whole pipeline reproducible, which is what a portfolio claim needs."
+cost = "~1–2 days of GPU, pre-registered"
+
+[[next]]
+title = "Stage 9: line-of-sight masking"
+why = "Observations are full-state today, so pillars cannot hide anyone. Occlusion would make hiding, luring and ambush informationally meaningful."
+cost = "env + observation change; invalidates obstacle checkpoints"
