@@ -4,6 +4,9 @@
     python3 scripts/dashboard/dashboard.py build   # writes $HOME/RL/artifacts/dashboard/index.html
     python3 scripts/dashboard/dashboard.py serve   # http://127.0.0.1:8765/dashboard/ (rebuilt on every page load)
 
+While open, the page polls /dashboard/status.json every POLL_SECONDS and updates the live parts in place
+(progress bars, time left, GPU), so a running training can be watched without reloading.
+
 Host Python, standard library only: the host deliberately has no numpy/torch (training lives in Docker), and
 building only reads files, so it is safe while a training run uses the GPU.
 
@@ -24,8 +27,10 @@ import math
 import os
 import re
 import subprocess
+import threading
 import time
 import tomllib
+from collections import deque
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -42,6 +47,16 @@ POLICY_HZ = 50.0
 ROLLOUT_STEPS = 24
 # An experiment directory with a file written within this window belongs to a live run.
 LIVE_WINDOW_S = 15 * 60
+# The open page asks /dashboard/status.json this often for the parts that change while a run trains.
+POLL_SECONDS = 15
+# While serving, a background thread samples the GPU and the live runs' step counters for the Now sparklines.
+GPU_SAMPLE_S = 2
+STEPS_SAMPLE_S = 10
+HISTORY_S = 30 * 60
+# Time left uses the mean speed over this window: tqdm's own estimate follows a short moving average and jumps.
+SPEED_WINDOW_S = 5 * 60
+# Non-breaking space: keeps "1 h 47 min" or "ends ≈ 13:40" from wrapping inside the phrase.
+NBSP = chr(0xA0)
 # Video trees that only hold codec/anti-aliasing tests, not behavior.
 VIDEO_SKIP = ("isaac/diagnostics",)
 
@@ -377,8 +392,8 @@ def parse_clock(text: str) -> int | None:
 
 
 def human_duration(seconds: int) -> str:
-    hours, minutes = divmod(seconds // 60, 60)  # non-breaking spaces keep "1 h 47 min" on one line
-    return f"{hours} h {minutes:02d} min" if hours else f"{minutes} min"
+    hours, minutes = divmod(seconds // 60, 60)
+    return f"{hours}{NBSP}h{NBSP}{minutes:02d}{NBSP}min" if hours else f"{minutes}{NBSP}min"
 
 
 def tqdm_progress(path: Path) -> dict | None:
@@ -421,18 +436,31 @@ def videos_under(directory: Path) -> list[dict]:
     return found
 
 
+def heading_title(results: str | None, plan: str | None, fallback: str) -> tuple[str, bool]:
+    """Title from the first '# ' heading of RESULTS.md, else PLAN.md, plus the pre-registration flag."""
+    heading = re.search(r"(?m)^# (.+)$", results or plan or "")
+    return clean_title(heading.group(1)) if heading else (fallback, False)
+
+
+def live_state(exp_dir: Path, now: float) -> tuple[bool, dict | None]:
+    """Live: a file in the experiment was written within LIVE_WINDOW_S. Progress comes from its newest console log."""
+    if now - last_activity(exp_dir) >= LIVE_WINDOW_S:
+        return False, None
+    consoles = sorted(exp_dir.rglob("*.console.log"), key=lambda path: path.stat().st_mtime)
+    if consoles and now - consoles[-1].stat().st_mtime < LIVE_WINDOW_S:
+        return True, tqdm_progress(consoles[-1])
+    return True, None  # evaluating or between phases
+
+
 def load_experiment_dirs() -> dict[str, dict]:
     dirs = {}
     now = time.time()
     for exp_dir in sorted(p for p in EXPERIMENTS.iterdir() if p.is_dir()):
         results, plan = read_text(exp_dir / "RESULTS.md"), read_text(exp_dir / "PLAN.md")
-        heading = re.search(r"(?m)^# (.+)$", results or plan or "")
-        title, pre = clean_title(heading.group(1)) if heading else (exp_dir.name, False)
+        title, pre = heading_title(results, plan, exp_dir.name)
         if plan and re.search(r"(?mi)^# .*pre-registered", plan):
             pre = True
-        live = now - last_activity(exp_dir) < LIVE_WINDOW_S
-        consoles = sorted(exp_dir.rglob("*.console.log"), key=lambda p: p.stat().st_mtime)
-        progress = tqdm_progress(consoles[-1]) if live and consoles and now - consoles[-1].stat().st_mtime < LIVE_WINDOW_S else None
+        live, progress = live_state(exp_dir, now)
         dirs[exp_dir.name] = {
             "name": exp_dir.name,
             "dir": exp_dir,
@@ -580,6 +608,88 @@ def gpu_state() -> dict | None:
             "used_gb": int(used) / 1024, "total_gb": int(total) / 1024, "temp": int(temp)}
 
 
+class Sampler(threading.Thread):
+    """History for the Now sparklines while the server runs: the GPU every GPU_SAMPLE_S, and every STEPS_SAMPLE_S
+    the step counter of each live run. Kept in memory for HISTORY_S, so it starts empty when the server starts."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.lock = threading.Lock()
+        self.gpu = deque(maxlen=HISTORY_S // GPU_SAMPLE_S)  # (time, gpu_state())
+        self.steps: dict[str, deque] = {}  # run name -> (time, timesteps done)
+
+    def run(self) -> None:
+        next_scan = 0.0
+        while True:
+            start = time.time()
+            try:
+                gpu = gpu_state()
+                if gpu:
+                    with self.lock:
+                        self.gpu.append((start, gpu))
+                if start >= next_scan:
+                    next_scan = start + STEPS_SAMPLE_S
+                    for exp_dir in [p for p in EXPERIMENTS.iterdir() if p.is_dir()]:
+                        live, progress = live_state(exp_dir, start)
+                        if live and progress:
+                            with self.lock:
+                                series = self.steps.setdefault(exp_dir.name, deque(maxlen=HISTORY_S // STEPS_SAMPLE_S))
+                                series.append((start, progress["done"]))
+            except Exception as exc:  # one failed sample must not end the history
+                print(f"sampler: {exc!r}", flush=True)
+            time.sleep(max(0.2, GPU_SAMPLE_S - (time.time() - start)))
+
+    def latest_gpu(self) -> dict | None:
+        with self.lock:
+            return self.gpu[-1][1] if self.gpu else None
+
+    def gpu_load(self) -> list[tuple[float, float]]:
+        with self.lock:
+            return [(t, g["util"]) for t, g in self.gpu]
+
+    def step_counts(self, run: str) -> list[tuple[float, float]]:
+        """Samples since the counter last restarted (a new training phase counts from 0 again)."""
+        with self.lock:
+            samples = list(self.steps.get(run, ()))
+        start = max((i for i in range(1, len(samples)) if samples[i][1] < samples[i - 1][1]), default=0)
+        return samples[start:]
+
+
+SAMPLER: Sampler | None = None  # started by serve(); a plain `build` has no history
+
+
+def mean_rate(samples: list[tuple[float, float]], window_s: float) -> float | None:
+    """Timesteps per second over the last window_s of (time, timesteps) samples; None with less than a minute."""
+    if not samples:
+        return None
+    recent = [s for s in samples if s[0] >= samples[-1][0] - window_s]
+    span = recent[-1][0] - recent[0][0]
+    return (recent[-1][1] - recent[0][1]) / span if span >= 60 else None
+
+
+def speed_series(samples: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Timesteps per second between consecutive samples, stamped at each interval's midpoint."""
+    return [((t0 + t1) / 2, (d1 - d0) / (t1 - t0)) for (t0, d0), (t1, d1) in zip(samples, samples[1:]) if t1 > t0]
+
+
+def bucket_means(points: list[tuple[float, float]], width_s: float) -> list[tuple[float, float]]:
+    """The mean of each time bucket: fewer points to draw and less sampling jitter."""
+    buckets: dict[int, list[tuple[float, float]]] = {}
+    for t, v in points:
+        buckets.setdefault(int(t // width_s), []).append((t, v))
+    return [(sum(t for t, _ in b) / len(b), sum(v for _, v in b) / len(b)) for _, b in sorted(buckets.items())]
+
+
+def time_left(p: dict, run: str | None) -> tuple[str | None, str | None]:
+    """Time left and finish clock from the mean speed over SPEED_WINDOW_S, once the server has sampled for a
+    minute; until then tqdm's own estimate."""
+    rate = mean_rate(SAMPLER.step_counts(run), SPEED_WINDOW_S) if SAMPLER and run else None
+    if rate and rate > 0:
+        seconds = (p["total"] - p["done"]) / rate
+        return human_duration(int(seconds)), time.strftime("%H:%M", time.localtime(time.time() + seconds))
+    return p["left"], p["eta"]
+
+
 def git_state() -> dict:
     git = ["git", "-C", str(REPO)]
     branch = run(git + ["rev-parse", "--abbrev-ref", "HEAD"])
@@ -657,27 +767,108 @@ def section_head(eyebrow: str, title: str, lead: str = "") -> str:
     return f'<div class="section-head"><p class="eyebrow">{esc(eyebrow)}</p><h2>{esc(title)}</h2>{lead_html}</div>'
 
 
-def progress_html(p: dict | None, compact: bool = False) -> str:
+def sparkline(points: list[tuple[float, float]], y_max: float, recent_s: float, label: str) -> str:
+    """A trend line without axes: the history in the de-emphasis gray, the window behind the headline number in the
+    accent. Inline SVG, so it arrives inside the live fragments; the <title> carries the numbers as text."""
+    if len(points) < 3 or y_max <= 0:
+        return ""
+    w, h = 120, 28
+    t0, t1 = points[0][0], points[-1][0]
+    span = (t1 - t0) or 1.0
+
+    def xy(t: float, v: float) -> str:
+        return f"{(t - t0) / span * w:.1f},{h - 1 - min(max(v, 0.0), y_max) / y_max * (h - 2):.1f}"
+
+    line = " ".join(xy(t, v) for t, v in points)
+    first_recent = next((i for i, (t, _) in enumerate(points) if t >= t1 - recent_s), len(points) - 1)
+    recent = " ".join(xy(t, v) for t, v in points[max(first_recent - 1, 0):])
+    return (f'<svg class="spark" viewBox="0 0 {w} {h}" preserveAspectRatio="none" role="img" aria-label="{esc(label)}">'
+            f'<title>{esc(label)}</title><polygon class="spark-area" points="0,{h} {line} {w},{h}"/>'
+            f'<polyline class="spark-line" points="{line}" vector-effect="non-scaling-stroke"/>'
+            f'<polyline class="spark-line now" points="{recent}" vector-effect="non-scaling-stroke"/></svg>')
+
+
+def span_text(points: list[tuple[float, float]]) -> str:
+    """How much history a sparkline shows: up to HISTORY_S, less right after the server started."""
+    return f"last {max(1, round((points[-1][0] - points[0][0]) / 60))}{NBSP}min"
+
+
+def progress_inner(p: dict | None, compact: bool = False, run: str | None = None) -> str:
     if not p:
         return '<p class="muted small">evaluating or between phases (no training progress in the last 15 min)</p>'
-    left = f' · ~{esc(p["left"])} left · ends ≈ {esc(p["eta"])}' if p["left"] else ""
-    steps = "" if compact else f' · {p["done"]:,} / {p["total"]:,} env steps'
-    return (f'<div class="meter" role="progressbar" aria-valuenow="{p["share"] * 100:.0f}" aria-valuemin="0" aria-valuemax="100">'
-            f'<div style="width:{max(p["share"] * 100, 1.5):.1f}%"></div></div>'
-            f'<p class="meter-text"><strong>{p["share"]:.0%}</strong>{steps}{left}</p>')
+    left, eta = time_left(p, run)
+    left_text = f" · ~{esc(left)}{NBSP}left · ends{NBSP}≈{NBSP}{esc(eta)}" if left else ""
+    # A timestep advances all parallel environments at once (4096 in the obstacle runs).
+    steps = "" if compact else f" · {p['done']:,}{NBSP}/{NBSP}{p['total']:,} timesteps"
+    out = (f'<div class="meter" role="progressbar" aria-valuenow="{p["share"] * 100:.0f}" aria-valuemin="0" aria-valuemax="100">'
+           f'<div style="width:{max(p["share"] * 100, 1.5):.1f}%"></div></div>'
+           f'<p class="meter-text"><strong>{p["share"]:.0%}</strong>{steps}{left_text}</p>')
+    if compact or not (SAMPLER and run):
+        return out
+    counts = SAMPLER.step_counts(run)
+    rate = mean_rate(counts, SPEED_WINDOW_S)
+    points = bucket_means(speed_series(counts), 30)
+    if not rate or len(points) < 3:
+        return out
+    values = [v for _, v in points]
+    label = (f"Training speed, {span_text(points)}: min {min(values):.1f}, mean {sum(values) / len(values):.1f}, "
+             f"max {max(values):.1f} timesteps per second")
+    window_min = max(1, round(min(SPEED_WINDOW_S, counts[-1][0] - counts[0][0]) / 60))  # shorter right after a start
+    return (out + f'<div class="spark-row"><span>speed</span><span><b>{rate:.1f}</b> timesteps/s</span></div>'
+            f'{sparkline(points, max(values) * 1.15, SPEED_WINDOW_S, label)}'
+            f'<p class="spark-caption">{window_min}-min mean · sets the time left · graph: {span_text(points)}</p>')
+
+
+def progress_html(run: str, p: dict | None, compact: bool = False) -> str:
+    """A live run's progress; while the page is open it swaps in fresh inner HTML from /dashboard/status.json."""
+    attrs = f' data-run="{esc(run)}"' + (' data-compact="1"' if compact else "")
+    return f'<div class="progress"{attrs}>{progress_inner(p, compact, run)}</div>'
+
+
+def pill_inner(title: str | None, p: dict | None, run: str | None = None) -> str:
+    """The hero's one-line live status."""
+    if title is None:
+        return '<span class="pulse idle" aria-hidden="true"></span><span>No training running</span>'
+    detail = ""
+    if p:
+        left, _ = time_left(p, run)
+        detail = f" · {p['share']:.0%}" + (f" · ~{esc(left)}{NBSP}left" if left else "")
+    short = title.split(":")[0]  # "Prey ghost stage v5: slow ghosts …" → "Prey ghost stage v5"
+    return f'<span class="pulse" aria-hidden="true"></span><span>Training now: <strong>{esc(short)}</strong>{detail}</span>'
+
+
+def gpu_html(gpu: dict | None) -> str:
+    if not gpu:
+        return '<p class="muted">GPU not visible (nvidia-smi unavailable).</p>'
+    head = f'<div class="gpu-head"><span>{esc(gpu["name"])}</span><span class="muted small">{gpu["temp"]} °C</span></div>'
+    memory = (f'<div class="gauge"><span>memory</span><div class="meter small"><div style="width:{gpu["used_gb"] / gpu["total_gb"] * 100:.0f}%"></div></div>'
+              f'<b>{gpu["used_gb"]:.1f} / {gpu["total_gb"]:.0f} GB</b></div>')
+    # One nvidia-smi reading covers about the last second, and training alternates between simulation and PPO
+    # updates, so single readings jump. The headline is the mean of the last minute; the sparkline shows the trend.
+    load = SAMPLER.gpu_load() if SAMPLER else []
+    last_minute = [v for t, v in load if t >= time.time() - 60]
+    points = bucket_means(load, 15)
+    if len(points) < 3 or not last_minute:
+        return (f'<div class="gpu">{head}<div class="gauge"><span>load</span><div class="meter small"><div style="width:{gpu["util"]}%">'
+                f'</div></div><b>{gpu["util"]} %</b></div>{memory}</div>')
+    values = [v for _, v in load]
+    label = f"GPU load, {span_text(points)}: min {min(values):.0f} %, mean {sum(values) / len(values):.0f} %, max {max(values):.0f} %"
+    return (f'<div class="gpu">{head}<div class="spark-row"><span>load</span><span><b>{sum(last_minute) / len(last_minute):.0f}{NBSP}%</b>'
+            f'</span></div>{sparkline(points, 100, 60, label)}'
+            f'<p class="spark-caption">1-min mean · graph: {span_text(points)}, 0–100{NBSP}%</p>{memory}</div>')
+
+
+def running_dir(card: dict) -> dict:
+    """The live experiment directory of a running card (a log entry can cite several directories)."""
+    return next(d for d in card["dirs"] if d["status"] == "running")
 
 
 def render_hero(content: dict, cards: list[dict], entries: list[dict]) -> str:
     hero = content.get("hero", {})
     running = [c for c in cards if c["status"] == "running"]
-    if running:
-        p = running[0]["dirs"][0]["progress"] if running[0]["dirs"] else None
-        detail = f' · {p["share"]:.0%}' + (f' · ~{esc(p["left"])} left' if p["left"] else "") if p else ""
-        short = running[0]["title"].split(":")[0]  # "Prey ghost stage v5: slow ghosts …" → "Prey ghost stage v5"
-        pill = (f'<a class="live-pill running" href="#now"><span class="pulse" aria-hidden="true"></span>'
-                f'<span>Training now: <strong>{esc(short)}</strong>{detail}</span></a>')
-    else:
-        pill = '<a class="live-pill" href="#now"><span class="pulse idle" aria-hidden="true"></span><span>No training running</span></a>'
+    live = max((d for c in running for d in c["dirs"] if d["status"] == "running"), key=lambda d: d["name"], default=None)
+    inner = pill_inner(live["title"], live["progress"], live["name"]) if live else pill_inner(None, None)
+    pill = f'<a class="live-pill{" running" if live else ""}" href="#now" data-live="pill">{inner}</a>'
     facts = "".join(f"<li>{esc(f)}</li>" for f in hero.get("facts", []))
     video = ""
     if hero.get("video"):
@@ -718,14 +909,13 @@ def render_hero(content: dict, cards: list[dict], entries: list[dict]) -> str:
 def render_now(content: dict, cards: list[dict], entries: list[dict], trainers: list[dict], gpu: dict | None, git: dict) -> str:
     running = [c for c in cards if c["status"] == "running"]
     if running:
-        run_html = "".join(
-            f'<div class="now-run"><a class="now-title" href="#{esc(c["id"])}">{esc(c["title"])}</a>'
-            f'{progress_html(c["dirs"][0]["progress"] if c["dirs"] else None)}'
-            + (f'<p class="muted small">run <code>{esc(c["dirs"][0]["progress"]["arm"])}</code></p>'
-               if c["dirs"] and c["dirs"][0]["progress"] else "")
-            + "</div>"
-            for c in running
-        )
+        parts = []
+        for c in running:
+            d = running_dir(c)
+            arm = f'<p class="muted small">run <code>{esc(d["progress"]["arm"])}</code></p>' if d["progress"] else ""
+            parts.append(f'<div class="now-run"><a class="now-title" href="#{esc(c["id"])}">{esc(c["title"])}</a>'
+                         f'{progress_html(d["name"], d["progress"])}{arm}</div>')
+        run_html = "".join(parts)
     else:
         run_html = '<p class="now-title">Nothing is training</p><p class="muted small">No experiment directory was written to in the last 15 minutes.</p>'
     if trainers:
@@ -754,15 +944,7 @@ def render_now(content: dict, cards: list[dict], entries: list[dict], trainers: 
         for r in content.get("reference", [])
     )
 
-    machine = []
-    if gpu:
-        machine.append(
-            f'<div class="gpu"><div class="gpu-head"><span>{esc(gpu["name"])}</span><span class="muted small">{gpu["temp"]} °C</span></div>'
-            f'<div class="gauge"><span>load</span><div class="meter small"><div style="width:{gpu["util"]}%"></div></div><b>{gpu["util"]} %</b></div>'
-            f'<div class="gauge"><span>memory</span><div class="meter small"><div style="width:{gpu["used_gb"] / gpu["total_gb"] * 100:.0f}%"></div></div>'
-            f'<b>{gpu["used_gb"]:.1f} / {gpu["total_gb"]:.0f} GB</b></div></div>')
-    else:
-        machine.append('<p class="muted">GPU not visible (nvidia-smi unavailable).</p>')
+    machine = [f'<div data-live="gpu">{gpu_html(gpu)}</div>']
     ahead = git["ahead"]
     push = badge("partial", f"{ahead} commits not pushed") if ahead and ahead != "0" else badge("done", "pushed") if ahead == "0" else ""
     machine.append(
@@ -778,7 +960,9 @@ def render_now(content: dict, cards: list[dict], entries: list[dict], trainers: 
     ]
     body = "".join(f'<article class="card now-card {tone}"><h3 class="card-label">{esc(label)}</h3>{inner}</article>'
                    for label, tone, inner in tiles)
-    lead = "<p>What the machine is doing right now and where the project stands. Reload the page to refresh.</p>"
+    lead = ("<p>What the machine is doing right now and where the project stands.</p>"
+            f'<p class="live-note"><span class="pulse" aria-hidden="true"></span><span data-live="updated">Updated '
+            f'{time.strftime("%H:%M:%S")}</span><span>· refreshes every {POLL_SECONDS} s while this page is open</span></p>')
     return f'<section id="now">{section_head("Live status", "Now", lead)}<div class="now-grid">{body}</div></section>'
 
 
@@ -826,7 +1010,7 @@ def render_journey(content: dict, cards: list[dict], dir_card: dict[str, str]) -
             # Live runs extend the story automatically until a curated stage replaces them.
             for c in (c for c in cards if c["status"] == "running"):
                 question = next((v for k, v in c["rows"] if k == "Question"), "")
-                p = c["dirs"][0]["progress"] if c["dirs"] else None
+                d = running_dir(c)
                 items.append(f"""
 <li class="stage accent" id="stage-live-{esc(c["id"])}">
   <span class="stage-dot live" aria-hidden="true">{ICONS["dot"]}</span>
@@ -835,7 +1019,7 @@ def render_journey(content: dict, cards: list[dict], dir_card: dict[str, str]) -
       <div class="stage-meta"><span class="date">{esc(c["date_label"])} · in progress</span>{badge("running")}</div>
       <h4 class="stage-title">{esc(c["title"])}</h4>
       <p class="takeaway">{md_inline(question, EXPERIMENTS)}</p>
-      {progress_html(p, compact=True)}
+      {progress_html(d["name"], d["progress"], compact=True)}
       <a class="more-link" href="#{esc(c["id"])}">Experiment card ↓</a>
     </div>
   </article>
@@ -892,8 +1076,9 @@ def render_experiments(cards: list[dict]) -> tuple[str, dict]:
             for label, text in c["rows"]
         )
         progress = ""
-        if c["status"] == "running" and c["dirs"]:
-            progress = f'<div class="exp-progress">{progress_html(c["dirs"][0]["progress"])}</div>'
+        if c["status"] == "running":
+            live_dir = running_dir(c)
+            progress = f'<div class="exp-progress">{progress_html(live_dir["name"], live_dir["progress"])}</div>'
         body = []
         if c["body"]:
             body.append(f'<div class="doc">{markdown_to_html(c["body"], EXPERIMENT_LOG.parent, 2)}</div>')
@@ -1024,6 +1209,33 @@ def render_videos(content: dict, videos: list[dict]) -> str:
             f'<h3 class="sub-head">All recordings</h3>{"".join(blocks)}</section>')
 
 
+def current_gpu() -> dict | None:
+    """The sampler's latest reading when serving (no extra nvidia-smi call), else a fresh one."""
+    return (SAMPLER.latest_gpu() if SAMPLER else None) or gpu_state()
+
+
+def live_status() -> dict:
+    """The parts of the page that change while a run trains; the open page polls this every POLL_SECONDS."""
+    now = time.time()
+    running = []
+    for exp_dir in sorted((p for p in EXPERIMENTS.iterdir() if p.is_dir()), reverse=True):  # newest first
+        live, progress = live_state(exp_dir, now)
+        if live:
+            title, _ = heading_title(read_text(exp_dir / "RESULTS.md"), read_text(exp_dir / "PLAN.md"), exp_dir.name)
+            running.append((exp_dir.name, title, progress))
+    entries = parse_log()
+    return {
+        "time": time.strftime("%H:%M:%S"),
+        "running": [name for name, _, _ in running],
+        "titles": {name: title for name, title, _ in running},
+        "progress": {name: {"full": progress_inner(p, run=name), "compact": progress_inner(p, compact=True, run=name)}
+                     for name, _, p in running},
+        "pill": pill_inner(running[0][1], running[0][2], running[0][0]) if running else pill_inner(None, None),
+        "gpu": gpu_html(current_gpu()),
+        "latest": entries[-1]["title"] if entries else "",
+    }
+
+
 def build() -> Path:
     content = tomllib.loads(read_text(CONTENT) or "")
     entries = parse_log()
@@ -1033,7 +1245,7 @@ def build() -> Path:
     experiments_html, explorers = render_experiments(cards)
     sections = [
         render_hero(content, cards, entries),
-        render_now(content, cards, entries, live_trainers(), gpu_state(), git_state()),
+        render_now(content, cards, entries, live_trainers(), current_gpu(), git_state()),
         render_journey(content, cards, dir_card),
         results_html,
         render_lessons(content),
@@ -1042,7 +1254,11 @@ def build() -> Path:
         render_next(content),
         render_videos(content, videos_under(ARTIFACTS / "isaac")),
     ]
-    data_json = json.dumps({"featured": featured, "explorers": explorers}, separators=(",", ":")).replace("</", "<\\/")
+    # What the page was built with, so it can tell when a run starts or ends or the log gets a new entry.
+    live_dirs = sorted((d for d in dirs.values() if d["status"] == "running"), key=lambda d: d["name"], reverse=True)
+    live = {"running": [d["name"] for d in live_dirs], "titles": {d["name"]: d["title"] for d in live_dirs},
+            "latest": entries[-1]["title"] if entries else "", "poll_s": POLL_SECONDS}
+    data_json = json.dumps({"featured": featured, "explorers": explorers, "live": live}, separators=(",", ":")).replace("</", "<\\/")
     page = (TEMPLATE.read_text(encoding="utf-8")
             .replace("{{BUILT}}", time.strftime("%Y-%m-%d %H:%M"))
             .replace("{{SECTIONS}}", "\n".join(sections))
@@ -1066,6 +1282,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+        if path == "/dashboard/status.json":
+            try:
+                body, code = json.dumps(live_status()).encode(), 200
+            except Exception as exc:  # the page keeps its last values and says the updates are paused
+                self.log_message("status failed: %r", exc)
+                body, code = b'{"error": "status failed"}', 500
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path in ("/", "/dashboard", "/dashboard/", "/dashboard/index.html"):
             if path != "/dashboard/":
                 self.send_response(302)
@@ -1120,6 +1348,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # the browser cancels range requests all the time while seeking
 
+    def log_request(self, code="-", size="-"):
+        if not self.path.startswith("/dashboard/status.json"):  # polled every few seconds; keep the terminal readable
+            super().log_request(code, size)
+
     def end_headers(self):
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Cache-Control", "no-store" if self.path.startswith("/dashboard") else "max-age=3600")
@@ -1127,6 +1359,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def serve(host: str, port: int) -> None:
+    global SAMPLER
+    SAMPLER = Sampler()
+    SAMPLER.start()
     out = build()
     print(f"built {out}")
     print(f"serving {ARTIFACTS} at http://{host}:{port}/dashboard/  (Ctrl+C stops)")
