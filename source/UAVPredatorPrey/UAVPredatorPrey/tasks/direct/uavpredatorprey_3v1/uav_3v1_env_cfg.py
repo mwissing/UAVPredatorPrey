@@ -334,15 +334,18 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg(
 ):
     """Low-progress random-spawn task with four vertical pillar obstacles (roadmap stage 8).
 
-    Touching a pillar is a crash with the existing crash penalties, and a
-    0.5 m band around each pillar carries the same quadratic keep-out cost as
-    the soft arena wall. Each drone observes 4 features per pillar, appended to
-    its observation block.
+    Touching a pillar is a crash with the existing crash penalties, except that
+    the prey's costs more than being caught (below), and a 0.5 m band around
+    each pillar carries the same quadratic keep-out cost as the soft arena wall.
+    Each drone observes 4 features per pillar, appended to its observation block.
     """
 
     num_obstacles = 4
     # Same quadratic keep-out cost as the soft arena wall (soft_arena_penalty_scale = 200).
     obstacle_soft_penalty_scale = 200.0
+    # A prey crash (pillar or arena exit) costs more than being caught (-200), so the prey does not take a crash
+    # to escape a catch (user decision 2026-10-10). Obstacle-free tasks keep the legacy -200.
+    prey_oob_penalty = -300.0
     observation_spaces = {"predator": 90 + 3 * 4 * 4, "prey": 30 + 4 * 4}
     state_space = 120 + 3 * 4 * 4 + 4 * 4
 
