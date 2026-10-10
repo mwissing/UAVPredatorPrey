@@ -131,6 +131,34 @@ Y5_jul19 = "July 19 (Y5)"
 S015_jul18 = "scratch, July 18 (S015)"
 S021_jul18 = "scratch, July 18 (S021)"
 
+# =========================================================================================== 3D replay
+# Evaluations with recorded trajectories (evaluate.py --trajectory-npz). dashboard.py picks representative
+# episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
+
+[[replay]]
+id = "overnight-final"
+title = "Obstacle predator vs the self-play prey"
+note = "Final pair of the overnight self-play run, pillars up to the wall. The predators avoid pillars by perception (ablation ratio 1.41); the prey lost its perception and weaves among the pillars."
+path = "isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/evals/final_own.npz"
+
+[[replay]]
+id = "run-t"
+title = "Run T predator vs the obstacle-blind start prey"
+note = "The first predator that avoids pillars by perception, after crash price plus exploration. Its opponent is the prey from before obstacle training; pillars within 3.5 m of the centre."
+path = "isaac/experiments/2026-10-08_obstacles_crash_price_exploration/final_eval/evals/final_predator_vs_start_prey.npz"
+
+[[replay]]
+id = "ghost-v1"
+title = "Ghost-trained prey (v1) vs the start predator"
+note = "The prey trained alone against scripted lead-pursuit ghosts. It uses its pillar observations (ablation ratio 2.08), helped by the pillar-free outer belt it learned to circle."
+path = "isaac/experiments/2026-10-09_prey_ghost_skill_stage/curve/G_230400_vs_start_predator.npz"
+
+[[replay]]
+id = "anchor-v3"
+title = "Anchor v3 in open space"
+note = "The strongest pair in both roles before pillars. The predators chase as a pack from one side; the prey lives near the arena wall."
+path = "isaac/experiments/2026-10-07_anchor_v3_overnight/final_eval/evals/own.npz"
+
 # =========================================================================================== journey
 
 [[chapter]]

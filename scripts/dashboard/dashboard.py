@@ -20,16 +20,22 @@ recorded MP4s keep their index (moov atom) at the end of the file; without range
 """
 
 import argparse
+import array
+import ast
 import html
 import http.server
 import json
 import math
 import os
 import re
+import shutil
+import struct
 import subprocess
+import sys
 import threading
 import time
 import tomllib
+import zipfile
 from collections import deque
 from pathlib import Path
 
@@ -567,6 +573,228 @@ def build_cards(entries: list[dict], dirs: dict[str, dict]) -> tuple[list[dict],
         })
     cards.sort(key=lambda c: (c["status"] == "running", c["order"]), reverse=True)
     return cards, dir_card
+
+
+# --------------------------------------------------------------------------------------------- 3D replay
+
+# Geometry of the elevated 3v1 task (env cfg: arena centre z 6 m, soft arena radius 5 m; pillars of radius 0.4 m,
+# 12 m tall, centred on the arena centre).
+ARENA = {"center": [0.0, 0.0, 6.0], "radius": 5.0}
+PILLAR = {"radius": 0.4, "height": 12.0}
+# Some evaluations park absent pillars 50 m away; those are not drawn.
+PARKED_PILLAR_M = 20.0
+# Part of the cache file name: bump it after changing extract_replay, and old caches are ignored.
+REPLAY_FORMAT = 2
+# Served next to the page: the replay module and the vendored Three.js it imports.
+STATIC_FILES = {Path(__file__).with_name("replay.js"): OUT_DIR / "replay.js",
+                Path(__file__).with_name("vendor"): OUT_DIR / "vendor"}
+
+
+def read_npy(z: zipfile.ZipFile, name: str) -> tuple[tuple, "array.array | bytes"] | None:
+    """One array of an .npz archive without numpy: its shape and its values, flat in C order."""
+    if name not in z.namelist():
+        return None
+    with z.open(name) as f:
+        if f.read(6) != b"\x93NUMPY":
+            raise ValueError(f"{name}: not an .npy array")
+        major = f.read(2)[0]
+        header_len = struct.unpack("<H" if major == 1 else "<I", f.read(2 if major == 1 else 4))[0]
+        header = ast.literal_eval(f.read(header_len).decode("latin1"))
+        raw = f.read()
+    if header.get("fortran_order"):
+        raise ValueError(f"{name}: Fortran order is not supported")
+    if header["descr"] == "<f4":
+        values = array.array("f", raw)
+        if sys.byteorder != "little":
+            values.byteswap()
+    elif header["descr"] == "|b1":
+        values = raw
+    else:
+        raise ValueError(f"{name}: unsupported dtype {header['descr']}")
+    return tuple(header["shape"]), values
+
+
+def pick_episodes(o: dict[str, list[float]]) -> list[tuple[str, str, int]]:
+    """Representative episodes by outcome as (key, label, index). Fixed rules, so every build shows the same ones."""
+    lengths = o["episode_length"]
+    n, timeout = len(lengths), max(lengths)
+
+    def flag(key: str, i: int) -> bool:
+        return key in o and o[key][i] > 0.5
+
+    def middle(candidates: list[int], key) -> int:
+        return sorted(candidates, key=key)[len(candidates) // 2]
+
+    catches = [i for i in range(n) if flag("catch", i) and not flag("predator_obstacle_crash", i)]
+    prey_crashes = [i for i in range(n) if flag("prey_obstacle_crash", i)]
+    predator_crashes = [i for i in range(n) if flag("predator_obstacle_crash", i)]
+    predator_crashes = [i for i in predator_crashes if lengths[i] >= 100] or predator_crashes  # long enough to watch
+    escapes = [i for i in range(n) if lengths[i] >= timeout and not flag("catch", i) and not flag("prey_oob", i)]
+    picks = []
+    if catches:
+        picks += [("catch", "Typical catch", middle(catches, lambda i: lengths[i])),
+                  ("long-chase", "Longest chase", max(catches, key=lambda i: (lengths[i], -i)))]
+    if prey_crashes:
+        picks.append(("prey-crash", "Prey hits a pillar", middle(prey_crashes, lambda i: lengths[i])))
+    if predator_crashes:
+        picks.append(("predator-crash", "Predator hits a pillar", middle(predator_crashes, lambda i: lengths[i])))
+    if escapes:
+        picks += [("escape", "Prey escapes", middle(escapes, lambda i: o["closest_approach"][i])),
+                  ("near-miss", "Near miss", min(escapes, key=lambda i: o["closest_approach"][i]))]
+    seen: set[int] = set()
+    return [p for p in picks if not (p[2] in seen or seen.add(p[2]))]
+
+
+def track(shape: tuple, values, episode: int, frames: int, agent: int | None = None) -> list[float]:
+    """x, y, z of one drone for each frame of one episode, flat, to the centimetre. Arrays are (T, E[, A], 3)."""
+    steps, envs = shape[0], shape[1]
+    agents, a = (shape[2], agent) if agent is not None else (1, 0)
+    out: list[float] = []
+    for t in range(min(frames, steps)):
+        base = ((t * envs + episode) * agents + a) * 3
+        out += (round(values[base], 2), round(values[base + 1], 2), round(values[base + 2], 2))
+    return out
+
+
+def death_frame(shape: tuple, values, episode: int, frames: int, agent: int) -> int | None:
+    """First frame at which a predator is no longer alive (crash or out of bounds), or None."""
+    steps, envs, agents = shape
+    return next((t for t in range(min(frames, steps)) if values[(t * envs + episode) * agents + agent] < 0.5), None)
+
+
+def end_code(o: dict[str, list[float]], i: int) -> str:
+    """How episode i ended: catch, prey-crash, prey-oob, timeout or other."""
+    def flag(key: str) -> bool:
+        return key in o and o[key][i] > 0.5
+
+    if flag("catch"):
+        return "catch"
+    if flag("prey_obstacle_crash"):
+        return "prey-crash"
+    if flag("prey_oob"):
+        return "prey-oob"
+    return "timeout" if o["episode_length"][i] >= max(o["episode_length"]) else "other"
+
+
+def end_text(o: dict[str, list[float]], i: int) -> str:
+    seconds = o["episode_length"][i] / POLICY_HZ
+    return {"catch": f"caught after {seconds:.1f} s",
+            "prey-crash": f"prey crashed into a pillar after {seconds:.1f} s",
+            "prey-oob": f"prey left the arena after {seconds:.1f} s",
+            "timeout": f"prey survived the full {seconds:.0f} s"}.get(end_code(o, i), f"ended after {seconds:.1f} s")
+
+
+def predator_down(o: dict[str, list[float]], i: int) -> bool:
+    """A predator crashed into a pillar or left the arena in episode i."""
+    keys = [k for k in o if k == "predator_obstacle_crash" or re.fullmatch(r"predator_\d+_oob", k)]
+    return any(o[k][i] > 0.5 for k in keys)
+
+
+def read_trajectories(npz: Path, positions: bool = True) -> dict:
+    """The outcome arrays of an evaluation's trajectory file and, with positions=True, its tracks (about 0.1 s)."""
+    with zipfile.ZipFile(npz) as z:
+        t = {"outcomes": {name[len("outcome_"):-len(".npy")]: list(read_npy(z, name)[1])
+                          for name in z.namelist() if name.startswith("outcome_") and name.endswith(".npy")}}
+        if positions:
+            for key, member in (("predators", "predator_pos.npy"), ("prey", "prey_pos.npy"),
+                                ("alive", "predator_alive.npy"), ("pillars", "obstacle_xy.npy")):
+                t[key] = read_npy(z, member)
+    return t
+
+
+def episode_record(t: dict, i: int) -> dict:
+    """What the replay draws for episode i (0-based): tracks to the centimetre, the pillars, who went down when."""
+    o, (pred_shape, pred) = t["outcomes"], t["predators"]
+    frames = int(o["episode_length"][i])
+    xy = []
+    if t["pillars"]:  # (T, E, K, 2); pillars do not move, so the first frame is enough
+        n_pillars, values = t["pillars"][0][2], t["pillars"][1]
+        for k in range(n_pillars):
+            x, y = values[(i * n_pillars + k) * 2], values[(i * n_pillars + k) * 2 + 1]
+            if math.hypot(x, y) < PARKED_PILLAR_M:
+                xy.append([round(x, 3), round(y, 3)])
+    return {
+        "index": i, "frames": frames, "end": end_text(o, i),
+        "closest": round(o["closest_approach"][i], 2) if "closest_approach" in o else None,
+        "pillars": xy,
+        "prey": track(*t["prey"], i, frames),
+        "predators": [track(pred_shape, pred, i, frames, a) for a in range(pred_shape[2])],
+        "dead": [death_frame(*t["alive"], i, frames, a) if t["alive"] else None for a in range(pred_shape[2])],
+    }
+
+
+def replay_index(o: dict[str, list[float]]) -> dict:
+    """One line per episode (length, how it ended, whether a predator went down), for browsing in the page."""
+    n = len(o["episode_length"])
+    return {
+        "format": REPLAY_FORMAT, "dt": 1.0 / POLICY_HZ, "episodes_total": n, "arena": ARENA, "pillar": PILLAR,
+        "highlights": [{"key": key, "label": label, "index": i} for key, label, i in pick_episodes(o)],
+        "length": [int(x) for x in o["episode_length"]],
+        "end": [end_code(o, i) for i in range(n)],
+        "down": [int(predator_down(o, i)) for i in range(n)],
+        "closest": [round(x, 2) for x in o["closest_approach"]] if "closest_approach" in o else None,
+    }
+
+
+def replay_dir(spec_id: str) -> Path:
+    return OUT_DIR / "replay" / f"{spec_id}-v{REPLAY_FORMAT}"
+
+
+def write_json(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{threading.get_ident()}.tmp")  # threads may write the same file at once
+    tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+    tmp.replace(path)
+
+
+def ensure_replay(spec: dict) -> dict | None:
+    """Index and highlight episodes of one [[replay]] source, extracted again when the source is newer. Any other
+    episode is extracted when the page asks for it (ensure_episode, called by the server)."""
+    src = ARTIFACTS / spec["path"]
+    if not src.is_file():
+        return None
+    folder = replay_dir(spec["id"])
+    index = folder / "index.json"
+    if not index.is_file() or index.stat().st_mtime < src.stat().st_mtime:
+        t = read_trajectories(src)
+        data = replay_index(t["outcomes"])
+        shutil.rmtree(folder, ignore_errors=True)  # episodes of an older version of the source
+        for h in data["highlights"]:
+            write_json(folder / f"{h['index'] + 1}.json", episode_record(t, h["index"]))
+        write_json(index, data)
+    return {"id": spec["id"], "title": spec["title"], "note": spec.get("note", ""), "base": f"replay/{folder.name}/"}
+
+
+def ensure_episode(spec_id: str, number: int) -> None:
+    """Extract episode `number` (1-based, as in the page and its links) of a replay source unless it is cached."""
+    spec = next((r for r in load_content().get("replay", []) if r.get("id") == spec_id), None)
+    src = ARTIFACTS / spec["path"] if spec else None
+    if not src or not src.is_file():
+        return
+    out = replay_dir(spec_id) / f"{number}.json"
+    if out.is_file() and out.stat().st_mtime >= src.stat().st_mtime:
+        return
+    t = read_trajectories(src)
+    if 1 <= number <= len(t["outcomes"]["episode_length"]):
+        write_json(out, episode_record(t, number - 1))
+
+
+def remove_old_replays() -> None:
+    """Cached replay files of an older REPLAY_FORMAT."""
+    root = OUT_DIR / "replay"
+    for p in root.iterdir() if root.is_dir() else []:
+        if not p.name.endswith(f"-v{REPLAY_FORMAT}"):
+            shutil.rmtree(p) if p.is_dir() else p.unlink()
+
+
+def sync_static() -> None:
+    """Copy the replay module and the vendored Three.js next to the page when they changed."""
+    for src, dst in STATIC_FILES.items():
+        files = [(src, dst)] if src.is_file() else [(f, dst / f.relative_to(src)) for f in src.rglob("*") if f.is_file()]
+        for f, target in files:
+            if not target.exists() or target.stat().st_mtime < f.stat().st_mtime or target.stat().st_size != f.stat().st_size:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, target)
 
 
 # --------------------------------------------------------------------------------------------- live state
@@ -1119,6 +1347,26 @@ def render_experiments(cards: list[dict]) -> tuple[str, dict]:
     return f'<section id="experiments">{section_head("Lab notebook", "Experiments", lead)}<div class="exp-list">{"".join(articles)}</div></section>', explorers
 
 
+def render_replay(content: dict) -> tuple[str, list[dict]]:
+    """The 3D replay section; the page loads replay.js and the episode files only when it scrolls near."""
+    remove_old_replays()
+    sources = []
+    for spec in content.get("replay", []):
+        try:
+            if source := ensure_replay(spec):
+                sources.append(source)
+        except (OSError, ValueError, KeyError, IndexError, zipfile.BadZipFile) as exc:
+            print(f"replay {spec.get('id')}: {exc!r}", flush=True)
+    if not sources:
+        return "", []
+    lead = ("<p>Evaluated episodes in 3D, from the positions the deterministic evaluations record at 50 Hz (not a "
+            "rendered video). Drag to rotate, scroll or pinch to zoom; each drone draws a fading trail of its last two "
+            "seconds. Pick a category and step through its episodes with ◀ ▶ or Random. ★ keeps an episode in your "
+            "starred list (stored in this browser), and the address bar always links to the episode shown.</p>")
+    return (f'<section id="replay">{section_head("Watch in 3D", "Replay", lead)}'
+            f'<div class="card replay" data-replay><div class="replay-msg">Loading the 3D view…</div></div></section>'), sources
+
+
 def render_lessons(content: dict) -> str:
     def column(verdict: str, title: str) -> str:
         items = [l for l in content.get("lesson", []) if l.get("verdict") == verdict]
@@ -1236,18 +1484,25 @@ def live_status() -> dict:
     }
 
 
+def load_content() -> dict:
+    return tomllib.loads(read_text(CONTENT) or "")
+
+
 def build() -> Path:
-    content = tomllib.loads(read_text(CONTENT) or "")
+    content = load_content()
     entries = parse_log()
     dirs = load_experiment_dirs()
     cards, dir_card = build_cards(entries, dirs)
     results_html, featured = render_results(content)
+    replay_html, replays = render_replay(content)
     experiments_html, explorers = render_experiments(cards)
+    sync_static()
     sections = [
         render_hero(content, cards, entries),
         render_now(content, cards, entries, live_trainers(), current_gpu(), git_state()),
         render_journey(content, cards, dir_card),
         results_html,
+        replay_html,
         render_lessons(content),
         experiments_html,
         render_recipe(content),
@@ -1258,7 +1513,8 @@ def build() -> Path:
     live_dirs = sorted((d for d in dirs.values() if d["status"] == "running"), key=lambda d: d["name"], reverse=True)
     live = {"running": [d["name"] for d in live_dirs], "titles": {d["name"]: d["title"] for d in live_dirs},
             "latest": entries[-1]["title"] if entries else "", "poll_s": POLL_SECONDS}
-    data_json = json.dumps({"featured": featured, "explorers": explorers, "live": live}, separators=(",", ":")).replace("</", "<\\/")
+    data_json = json.dumps({"featured": featured, "explorers": explorers, "live": live, "replays": replays},
+                           separators=(",", ":")).replace("</", "<\\/")
     page = (TEMPLATE.read_text(encoding="utf-8")
             .replace("{{BUILT}}", time.strftime("%Y-%m-%d %H:%M"))
             .replace("{{SECTIONS}}", "\n".join(sections))
@@ -1274,6 +1530,9 @@ def build() -> Path:
 # --------------------------------------------------------------------------------------------- server
 
 
+REPLAY_EPISODE = re.compile(rf"^/dashboard/replay/(?P<id>[\w-]+)-v{REPLAY_FORMAT}/(?P<n>\d+)\.json$")
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     """Static files from artifacts/ with byte ranges; the dashboard page is rebuilt on every load."""
 
@@ -1282,6 +1541,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+        if m := REPLAY_EPISODE.match(path):
+            try:
+                ensure_episode(m["id"], int(m["n"]))
+            except (OSError, ValueError, KeyError, IndexError, zipfile.BadZipFile) as exc:
+                self.log_message("replay episode failed: %r", exc)
         if path == "/dashboard/status.json":
             try:
                 body, code = json.dumps(live_status()).encode(), 200
