@@ -397,3 +397,25 @@ are those of the predator (higher = better predator, lower = better prey).
   the presence mask to expand checkpoints from 4 to 8 pillar slots without
   changing their function.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v5_slow_continued/`.
+
+## 2026-10-10: Crashed-predator placeholder (found by the user)
+
+- Bug: a crashed predator appears in the prey's observation as a placeholder
+  10 m straight ahead with zero relative velocity (likewise for crashed
+  teammates in predator observations). Prey that never met it in training
+  leave the arena.
+- Causal check, evaluation only on identical episodes: an opt-in mask
+  (7c816d8, off by default; anchor v3 and the obstacle reference stay
+  bit-exact) cuts exits after predator crashes.
+  - v1 ghost prey vs the start predator: 78% -> 1.6%.
+  - Start prey vs the run-T predator: 62% -> 0%.
+  - Overnight prey: 3% -> 0%.
+- Rescoring the ghost-stage prey with the mask:
+  - The perception conclusions hold (v1 G ratio 2.54; v2-v5 at most about
+    1.2).
+  - Crash hazards against the crash-prone start predator were biased low.
+    v1 G crashes as often as its control (0.147/s each) and is caught more.
+    The ghost-only prey (v2-v5) crash 2-3x as often once predators crash.
+- Next: use the masks in evaluations against crash-prone opponents
+  (re-baseline), and decide whether new training enables them.
+- Evidence: `artifacts/isaac/experiments/2026-10-10_crashed_predator_mask_check/`.
