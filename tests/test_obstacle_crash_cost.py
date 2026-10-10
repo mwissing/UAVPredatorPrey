@@ -1,8 +1,10 @@
-"""A prey crash costs more than being caught in the obstacle tasks, and only there (user decision 2026-10-10).
+"""Crash costs are raised in the obstacle tasks, and only there (user decision 2026-10-10).
 
-prey_oob_penalty covers both leaving the arena and touching a pillar. Every obstacle-free task must keep the legacy
--200, which the anchor and reference reproductions rely on. The config module needs the Isaac app to import, so the
-test reads it with ast and follows the in-module inheritance itself.
+The *_oob_penalty fields cover both leaving the arena and touching a pillar. With obstacles, a prey crash (-300)
+costs more than being caught (-200), and one lost predator (-600 per drone, -200 after the team mean) costs the
+team as much as a catch earns. Every obstacle-free task must keep the legacy -200 for both roles, which the anchor
+and reference reproductions rely on. The config module needs the Isaac app to import, so the test reads it with ast
+and follows the in-module inheritance itself.
 """
 
 from __future__ import annotations
@@ -50,7 +52,7 @@ def _resolved_fields() -> dict[str, dict[str, object]]:
     return {name: resolve(name) for name in classes}
 
 
-def test_only_obstacle_tasks_make_a_prey_crash_cost_more_than_a_catch() -> None:
+def test_only_obstacle_tasks_raise_the_crash_costs() -> None:
     fields = {name: f for name, f in _resolved_fields().items() if "prey_oob_penalty" in f}
     obstacle_tasks = {name for name, f in fields.items() if f.get("num_obstacles", 0) > 0}
     assert obstacle_tasks == {
@@ -60,5 +62,7 @@ def test_only_obstacle_tasks_make_a_prey_crash_cost_more_than_a_catch() -> None:
     for name, f in fields.items():
         if name in obstacle_tasks:
             assert (f["prey_oob_penalty"], f["prey_caught_penalty"]) == (-300.0, -200.0), name
+            # Per drone; the team mean over 3 predators makes it -200, the size of the team's catch bonus.
+            assert (f["predator_oob_penalty"], f["predator_catch_bonus"]) == (-600.0, 200.0), name
         else:
-            assert f["prey_oob_penalty"] == -200.0, name
+            assert (f["prey_oob_penalty"], f["predator_oob_penalty"]) == (-200.0, -200.0), name

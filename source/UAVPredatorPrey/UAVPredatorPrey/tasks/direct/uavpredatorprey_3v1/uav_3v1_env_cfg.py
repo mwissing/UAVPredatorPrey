@@ -346,6 +346,9 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg(
     # A prey crash (pillar or arena exit) costs more than being caught (-200), so the prey does not take a crash
     # to escape a catch (user decision 2026-10-10). Obstacle-free tasks keep the legacy -200.
     prey_oob_penalty = -300.0
+    # The team reward is the mean over the 3 predators, so one lost drone costs the team -200: as much as a catch
+    # earns (the catch bonus uses the same team-size scaling). Used in every obstacle run since 2026-10-08.
+    predator_oob_penalty = -600.0
     observation_spaces = {"predator": 90 + 3 * 4 * 4, "prey": 30 + 4 * 4}
     state_space = 120 + 3 * 4 * 4 + 4 * 4
 
