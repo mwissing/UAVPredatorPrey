@@ -511,6 +511,9 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         prey_min_log_std: float | None = None,
         num_obstacles: int = 0,
         obstacle_dim: int = 4,
+        prey_mask_inactive_predators: bool = False,
+        predator_mask_inactive_teammates: bool = False,
+        inactive_drone_distance: float = 10.0,
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
@@ -588,6 +591,15 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             self.net = _mlp(self.rnn_hidden_size, fallback_layers[-1:], self.num_actions, fallback_activation)
             self.log_std_parameter = nn.Parameter(torch.full((self.num_actions,), float(initial_log_std)))
 
+        # Optional mask for crashed drones (off by default, so existing policies stay bit-exact). The env
+        # replaces a crashed drone by a placeholder at (inactive_drone_distance, 0, 0) in the observer's body
+        # frame (2 x arena_radius) with zero relative velocity. A policy that never met that placeholder in
+        # training may react to it as to a real drone straight ahead; masked, it simply ignores the drone.
+        self.mask_inactive = (self.mode == "prey" and bool(prey_mask_inactive_predators)) or (
+            self.mode == "predator" and bool(predator_mask_inactive_teammates)
+        )
+        self.inactive_drone_distance = float(inactive_drone_distance)
+
         # Obstacle branch, created last so that the existing modules keep their
         # initialization. Its output projection starts at zero: a policy loaded
         # from an obstacle-free checkpoint initially acts exactly as before and
@@ -622,6 +634,16 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         if self._g_clip_log_std:
             with torch.no_grad():
                 self.log_std_parameter.clamp_(self._g_log_std_min, self._g_log_std_max)
+
+    def _inactive_placeholder(self, raw_drones: torch.Tensor) -> torch.Tensor:
+        """(..., D) mask of crashed drones in raw (..., D, 3 or 6) relative position [+ velocity] features."""
+        position = raw_drones[..., :3]
+        placeholder = torch.zeros_like(position)
+        placeholder[..., 0] = self.inactive_drone_distance
+        inactive = (position - placeholder).abs().amax(dim=-1) < 1e-5
+        if raw_drones.shape[-1] > 3:
+            inactive &= raw_drones[..., 3:6].abs().amax(dim=-1) < 1e-5
+        return inactive
 
     def _obstacle_context(
         self, own_emb: torch.Tensor, obstacles: torch.Tensor, present: torch.Tensor | None = None
@@ -678,7 +700,15 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         query = self.query(own_emb).unsqueeze(2)
         key = self.key(entities)
         value = self.value(entities)
-        weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
+        if self.mask_inactive and raw_states is not None:
+            raw_teammates = raw_states.view(batch_size, self.num_predators, self.per_predator_block)[
+                :, :, 18 : self.per_predator_obs
+            ].reshape(batch_size, self.num_predators, self.num_predators - 1, self.teammate_dim)
+            teammate_present = ~self._inactive_placeholder(raw_teammates)
+            present = torch.cat((torch.ones_like(teammate_present[:, :, :1]), teammate_present), dim=2)
+            weights = _masked_attention_weights(query, key, present).to(dtype=value.dtype)
+        else:
+            weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=2)
         if self.num_obstacles > 0:
             obstacles = blocks[:, :, self.per_predator_obs :].reshape(
@@ -711,7 +741,12 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         query = self.query(own_emb).unsqueeze(1)
         key = self.key(predator_emb)
         value = self.value(predator_emb)
-        weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
+        if self.mask_inactive and raw_states is not None:
+            raw_predators = raw_states[:, 12:predator_end].view(batch_size, self.num_predators, 6)
+            present = ~self._inactive_placeholder(raw_predators)
+            weights = _masked_attention_weights(query, key, present).to(dtype=value.dtype)
+        else:
+            weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=1)
         if self.num_obstacles > 0:
             obstacles = states[:, predator_end:].view(batch_size, self.num_obstacles, self.obstacle_dim)
@@ -743,7 +778,8 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             actions = self.net(recurrent_output.reshape(features.shape[0], self.rnn_hidden_size))
             return actions, self.log_std_parameter, {"rnn": [next_hidden]}
 
-        raw_states = _raw_states(self.observation_space, inputs, states.shape[0]) if self.num_obstacles > 0 else None
+        needs_raw = self.num_obstacles > 0 or self.mask_inactive
+        raw_states = _raw_states(self.observation_space, inputs, states.shape[0]) if needs_raw else None
         if self.mode == "predator":
             features = self._predator_features(states, raw_states)
             sequence_length, sequence_batch, hidden = _infer_sequence_shape(
