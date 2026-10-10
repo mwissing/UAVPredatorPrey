@@ -203,9 +203,10 @@ class RecurrentMAPPO(MAPPO):
             data = []
             for uid in self.possible_agents:
                 rnn = {"rnn": self._rnn_initial_states[uid]["policy"]} if self._uid_rnn[uid] else {}
+                # raw_states lets obstacle-aware models mask absent pillars from unnormalized features.
                 data.append(
                     self.policies[uid].act(
-                        {"states": self._state_preprocessor[uid](states[uid]), **rnn},
+                        {"states": self._state_preprocessor[uid](states[uid]), "raw_states": states[uid], **rnn},
                         role="policy",
                     )
                 )
@@ -289,7 +290,7 @@ class RecurrentMAPPO(MAPPO):
                 with torch.autocast(device_type=self._device_type, enabled=self._mixed_precision):
                     rnn = {"rnn": self._rnn_initial_states[uid]["value"]} if self._uid_rnn[uid] else {}
                     values, _, outputs = self.values[uid].act(
-                        {"states": self._shared_state_preprocessor[uid](shared_states), **rnn},
+                        {"states": self._shared_state_preprocessor[uid](shared_states), "raw_states": shared_states, **rnn},
                         role="value",
                     )
                     values = self._value_preprocessor[uid](values, inverse=True)
@@ -371,6 +372,7 @@ class RecurrentMAPPO(MAPPO):
                 last_values, _, _ = value.act(
                     {
                         "states": self._shared_state_preprocessor[uid](self._current_shared_next_states.float()),
+                        "raw_states": self._current_shared_next_states.float(),
                         **rnn_value,
                     },
                     role="value",
@@ -490,6 +492,7 @@ class RecurrentMAPPO(MAPPO):
                         }
 
                     with torch.autocast(device_type=self._device_type, enabled=self._mixed_precision):
+                        raw_sampled_states, raw_sampled_shared_states = sampled_states, sampled_shared_states
                         sampled_states = self._state_preprocessor[uid](sampled_states, train=not epoch)
                         sampled_shared_states = self._shared_state_preprocessor[uid](
                             sampled_shared_states, train=not epoch
@@ -497,6 +500,7 @@ class RecurrentMAPPO(MAPPO):
 
                         policy_inputs = {
                             "states": sampled_states,
+                            "raw_states": raw_sampled_states,
                             "taken_actions": sampled_actions,
                             **rnn_policy,
                         }
@@ -549,7 +553,7 @@ class RecurrentMAPPO(MAPPO):
                         policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
 
                         predicted_values, _, _ = value.act(
-                            {"states": sampled_shared_states, **rnn_value},
+                            {"states": sampled_shared_states, "raw_states": raw_sampled_shared_states, **rnn_value},
                             role="value",
                         )
                         if self._clip_predicted_values:

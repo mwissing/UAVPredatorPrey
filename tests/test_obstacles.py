@@ -210,3 +210,93 @@ def test_soft_clearance_penalty_is_quadratic_inside_the_margin_only() -> None:
     expected = -torch.square(torch.tensor([0.0, 0.0, 0.2, 0.4, 0.55])) * 200.0 * 0.02
     assert torch.allclose(penalty, expected)
     assert (penalty <= 0).all()
+
+
+def _set_pillar_distances(states: torch.Tensor, blocks: int, block_dim: int, distances: torch.Tensor) -> torch.Tensor:
+    """Copy of `states` with the raw surface-distance feature of every pillar set to `distances` (blocks, K)."""
+    out = states.clone().view(states.shape[0], blocks, block_dim + K * OBSTACLE_DIM)
+    pillars = out[:, :, block_dim:].view(states.shape[0], blocks, K, OBSTACLE_DIM)
+    pillars[..., 3] = distances
+    return out.reshape(states.shape[0], -1)
+
+
+def _trained_branch(model) -> None:
+    """Give the zero-initialized obstacle output projection random weights, as after training."""
+    torch.manual_seed(7)
+    torch.nn.init.normal_(model.obstacle_out.weight, std=0.5)
+    torch.nn.init.normal_(model.obstacle_out.bias, std=0.5)
+
+
+def _without_branch(model):
+    clone = type(model).__new__(type(model))
+    clone.__dict__ = model.__dict__.copy()
+    clone._modules = {name: module for name, module in model._modules.items()}
+    clone.obstacle_out = torch.nn.Linear(model.obstacle_out.in_features, model.obstacle_out.out_features)
+    torch.nn.init.zeros_(clone.obstacle_out.weight)
+    torch.nn.init.zeros_(clone.obstacle_out.bias)
+    return clone
+
+
+PRESENT, PARKED = 0.5, 9.9  # raw surface distance / feature scale: a pillar in the arena vs one parked 50 m away
+
+
+def _cases():
+    """(model, blocks, block_dim, output function) for the predator actor, prey actor, and critic."""
+    predator, prey, critic = _actor(90 + 3 * K * OBSTACLE_DIM, 12, K), _actor(30 + K * OBSTACLE_DIM, 4, K), _critic(
+        120 + 4 * K * OBSTACLE_DIM, K
+    )
+    for model in (predator, prey, critic):
+        _trained_branch(model)
+    return (
+        (predator, 3, 30, lambda m, inputs: m.compute(inputs)[0]),
+        (prey, 1, 30, lambda m, inputs: m.compute(inputs)[0]),
+        (critic, 4, 30, lambda m, inputs: m.compute(inputs)[0]),
+    )
+
+
+def test_presence_mask_is_a_no_op_when_all_pillars_are_present() -> None:
+    generator = torch.Generator().manual_seed(3)
+    for model, blocks, block_dim, output in _cases():
+        states = torch.randn(4, blocks * (block_dim + K * OBSTACLE_DIM), generator=generator)
+        states = _set_pillar_distances(states, blocks, block_dim, torch.full((blocks, K), PRESENT))
+        assert torch.equal(output(model, {"states": states}), output(model, {"states": states, "raw_states": states}))
+
+
+def test_absent_pillars_have_no_influence() -> None:
+    generator = torch.Generator().manual_seed(4)
+    for model, blocks, block_dim, output in _cases():
+        states = torch.randn(4, blocks * (block_dim + K * OBSTACLE_DIM), generator=generator)
+        # Pillars 0 and 1 present, 2 and 3 parked: the parked pillars' other features must not matter.
+        distances = torch.tensor([PRESENT, PRESENT, PARKED, PARKED]).repeat(blocks, 1)
+        first = _set_pillar_distances(states, blocks, block_dim, distances)
+        second = first.clone().view(4, blocks, -1)
+        second[:, :, block_dim:].view(4, blocks, K, OBSTACLE_DIM)[:, :, 2:, :3] += 3.0
+        second = second.reshape(4, -1)
+        assert torch.equal(output(model, {"states": first, "raw_states": first}),
+                           output(model, {"states": second, "raw_states": second}))
+        # Present pillars still matter.
+        third = first.clone().view(4, blocks, -1)
+        third[:, :, block_dim:].view(4, blocks, K, OBSTACLE_DIM)[:, :, :1, :3] += 3.0
+        third = third.reshape(4, -1)
+        assert not torch.equal(output(model, {"states": first, "raw_states": first}),
+                               output(model, {"states": third, "raw_states": third}))
+
+
+def test_no_present_pillar_equals_a_network_without_the_branch() -> None:
+    generator = torch.Generator().manual_seed(5)
+    for model, blocks, block_dim, output in _cases():
+        states = torch.randn(4, blocks * (block_dim + K * OBSTACLE_DIM), generator=generator)
+        parked = _set_pillar_distances(states, blocks, block_dim, torch.full((blocks, K), PARKED))
+        assert torch.equal(output(model, {"states": parked, "raw_states": parked}),
+                           output(_without_branch(model), {"states": parked}))
+
+
+def test_masked_attention_stays_finite_without_pillars() -> None:
+    generator = torch.Generator().manual_seed(6)
+    for model, blocks, block_dim, output in _cases():
+        states = torch.randn(4, blocks * (block_dim + K * OBSTACLE_DIM), generator=generator)
+        parked = _set_pillar_distances(states, blocks, block_dim, torch.full((blocks, K), PARKED))
+        model.zero_grad()
+        output(model, {"states": parked, "raw_states": parked}).sum().backward()
+        grads = [p.grad for p in model.parameters() if p.grad is not None]
+        assert grads and all(torch.isfinite(g).all() for g in grads)

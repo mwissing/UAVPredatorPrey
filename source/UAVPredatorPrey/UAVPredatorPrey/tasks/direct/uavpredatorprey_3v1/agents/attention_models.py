@@ -167,6 +167,38 @@ def _aligned_attention_weights(query: torch.Tensor, key: torch.Tensor) -> torch.
         return torch.softmax(scores, dim=-1)
 
 
+# Absent pillars are parked 50 m away (obstacles.PARKED_DISTANCE), so their raw surface-distance feature
+# (distance / obstacle_feature_scale, the 4th feature) is >= 9.9, while pillars inside the arena stay below 2.
+# A raw feature below this limit marks a present pillar. The check uses raw observations: the learned
+# observation normalizer must not decide whether an obstacle exists.
+OBSTACLE_PRESENCE_LIMIT = 5.0
+
+
+def _obstacle_presence(raw_obstacles: torch.Tensor) -> torch.Tensor:
+    """(..., K) mask of present pillars from raw (..., K, obstacle_dim) features."""
+    return raw_obstacles[..., 3] < OBSTACLE_PRESENCE_LIMIT
+
+
+def _raw_states(observation_space, inputs: Mapping[str, Any], batch_size: int) -> torch.Tensor | None:
+    """Raw (unnormalized) states passed by the agent as inputs["raw_states"], or None (no presence mask)."""
+    raw = inputs.get("raw_states")
+    if raw is None:
+        return None
+    raw = unflatten_tensorized_space(observation_space, raw)
+    return raw.reshape(batch_size, -1)
+
+
+def _masked_attention_weights(query: torch.Tensor, key: torch.Tensor, present: torch.Tensor) -> torch.Tensor:
+    """Attention weights over present entities only; rows without any present entity get all-zero weights."""
+
+    with torch.autocast(device_type=query.device.type, enabled=False):
+        scores = (query.float() * key.float()).sum(dim=-1) / math.sqrt(key.shape[-1])
+        # A large finite fill instead of -inf keeps the softmax (and its gradient) finite when a row has no
+        # present entity; those rows are zeroed afterwards.
+        weights = torch.softmax(scores.masked_fill(~present, -1.0e9), dim=-1)
+        return torch.where(present.any(dim=-1, keepdim=True), weights, torch.zeros_like(weights))
+
+
 def _pairwise_attention_weights(query: torch.Tensor, key: torch.Tensor) -> torch.Tensor:
     """Compute all-pairs attention weights without autocast narrowing the matmul."""
 
@@ -591,12 +623,16 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             with torch.no_grad():
                 self.log_std_parameter.clamp_(self._g_log_std_min, self._g_log_std_max)
 
-    def _obstacle_context(self, own_emb: torch.Tensor, obstacles: torch.Tensor) -> torch.Tensor:
+    def _obstacle_context(
+        self, own_emb: torch.Tensor, obstacles: torch.Tensor, present: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Attention from each drone's own embedding over its obstacle entities.
 
         Args:
             own_emb: (B, A) own-state embeddings.
             obstacles: (B, K, obstacle_dim) obstacle features.
+            present: optional (B, K) mask of present pillars. Absent pillars get no attention, and a drone
+                without any present pillar gets exactly zero context, as if the branch did not exist.
 
         Returns:
             (B, A) projected obstacle context (zero at initialization).
@@ -607,11 +643,16 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         query = self.obstacle_query(own_emb).unsqueeze(1)
         key = self.obstacle_key(obstacle_emb)
         value = self.obstacle_value(obstacle_emb)
-        weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
+        if present is None:
+            weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
+            context = (weights.unsqueeze(-1) * value).sum(dim=1)
+            return self.obstacle_out(context)
+        weights = _masked_attention_weights(query, key, present).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=1)
-        return self.obstacle_out(context)
+        out = self.obstacle_out(context)
+        return torch.where(present.any(dim=-1, keepdim=True), out, torch.zeros_like(out))
 
-    def _predator_features(self, states: torch.Tensor) -> torch.Tensor:
+    def _predator_features(self, states: torch.Tensor, raw_states: torch.Tensor | None = None) -> torch.Tensor:
         batch_size = states.shape[0]
         blocks = states.view(batch_size, self.num_predators, self.per_predator_block)
         predator_obs = blocks[:, :, : self.per_predator_obs]
@@ -643,11 +684,21 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             obstacles = blocks[:, :, self.per_predator_obs :].reshape(
                 batch_size * self.num_predators, self.num_obstacles, self.obstacle_dim
             )
-            obstacle_context = self._obstacle_context(own_emb.reshape(batch_size * self.num_predators, -1), obstacles)
+            present = None
+            if raw_states is not None:
+                raw_blocks = raw_states.view(batch_size, self.num_predators, self.per_predator_block)
+                present = _obstacle_presence(
+                    raw_blocks[:, :, self.per_predator_obs :].reshape(
+                        batch_size * self.num_predators, self.num_obstacles, self.obstacle_dim
+                    )
+                )
+            obstacle_context = self._obstacle_context(
+                own_emb.reshape(batch_size * self.num_predators, -1), obstacles, present
+            )
             context = context + obstacle_context.view(batch_size, self.num_predators, -1)
         return torch.cat((own_emb, context), dim=-1)
 
-    def _prey_features(self, states: torch.Tensor) -> torch.Tensor:
+    def _prey_features(self, states: torch.Tensor, raw_states: torch.Tensor | None = None) -> torch.Tensor:
         batch_size = states.shape[0]
         own = states[:, :12]
         predator_end = 12 + 6 * self.num_predators
@@ -664,7 +715,12 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         context = (weights.unsqueeze(-1) * value).sum(dim=1)
         if self.num_obstacles > 0:
             obstacles = states[:, predator_end:].view(batch_size, self.num_obstacles, self.obstacle_dim)
-            context = context + self._obstacle_context(own_emb, obstacles)
+            present = None
+            if raw_states is not None:
+                present = _obstacle_presence(
+                    raw_states[:, predator_end:].view(batch_size, self.num_obstacles, self.obstacle_dim)
+                )
+            context = context + self._obstacle_context(own_emb, obstacles, present)
         return torch.cat((own_emb, context), dim=-1)
 
     def compute(self, inputs, role=""):
@@ -687,8 +743,9 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             actions = self.net(recurrent_output.reshape(features.shape[0], self.rnn_hidden_size))
             return actions, self.log_std_parameter, {"rnn": [next_hidden]}
 
+        raw_states = _raw_states(self.observation_space, inputs, states.shape[0]) if self.num_obstacles > 0 else None
         if self.mode == "predator":
-            features = self._predator_features(states)
+            features = self._predator_features(states, raw_states)
             sequence_length, sequence_batch, hidden = _infer_sequence_shape(
                 inputs, features.shape[0], self.num_predators * self.rnn_hidden_size, self.device
             )
@@ -730,7 +787,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             actions = actions.view(sequence_length * sequence_batch, self.num_predators * 4)
             return actions, self.log_std_parameter.repeat(self.num_predators), {"rnn": [next_hidden]}
 
-        features = self._prey_features(states)
+        features = self._prey_features(states, raw_states)
         sequence_length, sequence_batch, hidden = _infer_sequence_shape(
             inputs, features.shape[0], self.rnn_hidden_size, self.device
         )
@@ -936,7 +993,7 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
             self, state_dict, ("gru.", "obstacle_"), strict=strict, assign=assign
         )
 
-    def _attention_feature(self, states: torch.Tensor) -> torch.Tensor:
+    def _attention_feature(self, states: torch.Tensor, raw_states: torch.Tensor | None = None) -> torch.Tensor:
         batch_size = states.shape[0]
         block = self.per_predator_obs + self.obstacle_block
         predator_state_dim = self.num_predators * block
@@ -965,8 +1022,25 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
                 dim=1,
             )
             summary = self.obstacle_encoder(obstacles.reshape(-1, self.obstacle_dim))
-            summary = summary.view(batch_size, obstacles.shape[1], -1).mean(dim=1)
-            feature = feature + self.obstacle_out(summary)
+            summary = summary.view(batch_size, obstacles.shape[1], -1)
+            if raw_states is None:
+                feature = feature + self.obstacle_out(summary.mean(dim=1))
+            else:
+                raw_blocks = raw_states[:, :predator_state_dim].view(batch_size, self.num_predators, block)
+                present = _obstacle_presence(
+                    torch.cat(
+                        (
+                            raw_blocks[:, :, self.per_predator_obs :].reshape(batch_size, -1, self.obstacle_dim),
+                            raw_states[:, predator_state_dim + self.prey_obs_dim :].reshape(batch_size, -1, self.obstacle_dim),
+                        ),
+                        dim=1,
+                    )
+                )
+                # Mean over present pillar views only; no present pillar means no obstacle term at all.
+                count = present.sum(dim=1, keepdim=True)
+                mean = (summary * present.unsqueeze(-1).to(summary.dtype)).sum(dim=1) / count.clamp(min=1).to(summary.dtype)
+                out = self.obstacle_out(mean)
+                feature = feature + torch.where(count > 0, out, torch.zeros_like(out))
         return feature
 
     def compute(self, inputs, role=""):
@@ -975,7 +1049,8 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
             states = states.unsqueeze(0)
 
         if self.uses_entity_attention:
-            features = self._attention_feature(states)
+            raw_states = _raw_states(self.observation_space, inputs, states.shape[0]) if self.num_obstacles > 0 else None
+            features = self._attention_feature(states, raw_states)
             head = self.value_head
         else:
             features = self.feature_net(states)
