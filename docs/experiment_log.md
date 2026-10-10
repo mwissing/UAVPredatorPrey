@@ -442,4 +442,13 @@ are those of the predator (higher = better predator, lower = better prey).
     none with 8.
   - Next hypothesis: attention dilution over 8 pillars. Test: record the
     attention weights live.
+- Attention probe (evaluate.py unchanged plus a recording hook; the runs
+  reproduce exactly):
+  - The prey's obstacle attention is one-hot (saturated softmax, entropy 0).
+  - The attended pillar is unrelated to danger: the later-hit pillar at
+    chance level, the nearest pillar below chance. It switches 3-4 times per
+    second.
+  - The perception bottleneck is therefore architectural, not dilution.
+    Candidate fixes: max-pooling over pillars, a distance prior, or
+    normalized multi-head attention.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v6_dense8/`.
