@@ -486,6 +486,15 @@ def live_state(exp_dir: Path, now: float) -> tuple[bool, dict | None]:
     return True, None  # evaluating or between phases
 
 
+def read_decision(exp_dir: Path) -> dict | None:
+    """decision.json, written by the experiment's summarize script (scripts/dashboard/decision.py)."""
+    try:
+        data = json.loads((exp_dir / "decision.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get("criteria"), list) else None
+
+
 def load_experiment_dirs() -> dict[str, dict]:
     dirs = {}
     now = time.time()
@@ -495,6 +504,9 @@ def load_experiment_dirs() -> dict[str, dict]:
         if plan and re.search(r"(?mi)^# .*pre-registered", plan):
             pre = True
         live, progress = live_state(exp_dir, now)
+        decision = read_decision(exp_dir)
+        if decision and decision.get("final"):
+            live, progress = False, None  # the run has decided; later writes (summaries, RESULTS.md) are not training
         evals = load_evals(exp_dir)  # read once, for the curves and for how episodes end
         dirs[exp_dir.name] = {
             "name": exp_dir.name,
@@ -512,6 +524,7 @@ def load_experiment_dirs() -> dict[str, dict]:
             ],
             "explorer": load_explorer(*evals),
             "outcomes": load_outcomes(*evals),
+            "decision": decision,
             "videos": videos_under(exp_dir),
         }
     return dirs
@@ -1174,8 +1187,9 @@ def render_now(content: dict, cards: list[dict], entries: list[dict], trainers: 
         for c in running:
             d = running_dir(c)
             arm = f'<p class="muted small">run <code>{esc(d["progress"]["arm"])}</code></p>' if d["progress"] else ""
+            rule = f'<div class="now-rule" data-decision="{esc(d["name"])}" data-compact="1">{decision_inner(d["decision"], compact=True)}</div>'
             parts.append(f'<div class="now-run"><a class="now-title" href="#{esc(c["id"])}">{esc(c["title"])}</a>'
-                         f'{progress_html(d["name"], d["progress"])}{arm}</div>')
+                         f'{progress_html(d["name"], d["progress"])}{arm}{rule}</div>')
         run_html = "".join(parts)
     else:
         run_html = '<p class="now-title">Nothing is training</p><p class="muted small">No experiment directory was written to in the last 15 minutes.</p>'
@@ -1319,6 +1333,72 @@ def render_results(content: dict) -> tuple[str, dict]:
     return f'<section id="results">{section_head("Key results", "Results", lead)}<div class="charts-grid">{"".join(figures)}</div></section>', data
 
 
+def rule_spark(history: list, threshold: float | None, label: str) -> str:
+    """A criterion's value over the checkpoints, with its threshold as a thin line."""
+    pts = [(float(x), float(v)) for x, v in history if v is not None and math.isfinite(float(v))]
+    if len(pts) < 2:
+        return ""
+    values = [v for _, v in pts] + ([threshold] if threshold is not None else [])
+    lo, hi = min(values), max(values)
+    pad = (hi - lo) * 0.15 or abs(hi) * 0.1 or 1.0
+    lo, hi = lo - pad, hi + pad
+    w, h = 120, 28
+    x0, x1 = pts[0][0], pts[-1][0]
+
+    def y(v: float) -> float:
+        return h - 1 - (v - lo) / (hi - lo) * (h - 2)
+
+    line = " ".join(f"{(x - x0) / ((x1 - x0) or 1) * w:.1f},{y(v):.1f}" for x, v in pts)
+    thr = (f'<line class="spark-thr" x1="0" x2="{w}" y1="{y(threshold):.1f}" y2="{y(threshold):.1f}" '
+           f'vector-effect="non-scaling-stroke"/>') if threshold is not None else ""
+    return (f'<svg class="spark rule-spark" viewBox="0 0 {w} {h}" preserveAspectRatio="none" role="img" aria-label="{esc(label)}">'
+            f'<title>{esc(label)}</title>{thr}<polyline class="spark-line now" points="{line}" vector-effect="non-scaling-stroke"/></svg>')
+
+
+def criterion_state(c: dict) -> tuple[str, str]:
+    """Tone and icon for a criterion: passed, failed, or not decidable yet."""
+    return {True: ("good", ICONS["check"]), False: ("critical", ICONS["cross"])}.get(c.get("pass"), ("muted", ICONS["ring"]))
+
+
+def decision_inner(dec: dict | None, compact: bool = False) -> str:
+    """The pre-registered rule as a checklist; compact is the one-line form for the Now tile."""
+    if not dec:
+        return ""
+    crits = dec["criteria"]
+    if compact:
+        items = "".join(f'<li class="{criterion_state(c)[0]}"><span class="dec-icon" aria-hidden="true">{criterion_state(c)[1]}</span>'
+                        f'{esc(c.get("name", ""))}</li>' for c in crits)
+        return f'<p class="dec-compact-label">Decision rule{" (final)" if dec.get("final") else " so far"}</p><ul class="dec-compact">{items}</ul>'
+    rows = []
+    for c in crits:
+        tone, icon = criterion_state(c)
+        label = f'{c.get("name", "")}: {c.get("value", "")} ({c.get("rule", "")})'
+        spark = rule_spark(c.get("history") or [], c.get("threshold"), label)
+        state = {"good": "passes", "critical": "fails", "muted": "not decidable yet"}[tone]
+        rows.append(f'<li class="dec {tone}"><span class="dec-icon" aria-label="{state}">{icon}</span>'
+                    f'<span class="dec-text"><span class="dec-name">{esc(c.get("name", ""))}</span>'
+                    f'<span class="dec-rule">{esc(c.get("rule", ""))}</span></span>'
+                    f'<span class="dec-value">{esc(c.get("value", ""))}</span><span class="dec-spark">{spark}</span></li>')
+    where = ""
+    if dec.get("checkpoint") is not None and dec.get("of"):
+        where = f' · {dec["checkpoint"]:,.0f} of {dec["of"]:,.0f} {esc(dec.get("unit") or "updates")}'
+    when = esc(str(dec.get("updated", ""))[11:16])
+    verdict = ""
+    if dec.get("verdict"):
+        verdict = f'<p class="dec-verdict"><strong>{"Decision" if dec.get("final") else "If it ended now"}:</strong> {esc(dec["verdict"])}</p>'
+    return (f'<div class="dec-head"><h5>Pre-registered decision rule</h5><span class="muted small">'
+            f'{"final" if dec.get("final") else "live"}{where}{f" · written {when}" if when else ""}</span></div>'
+            f'<ul class="dec-list">{"".join(rows)}</ul>{verdict}')
+
+
+def decision_badge(dec: dict) -> str:
+    crits = dec["criteria"]
+    passed, failed = sum(c.get("pass") is True for c in crits), sum(c.get("pass") is False for c in crits)
+    if dec.get("final"):
+        return badge("worked", "rule passed") if failed == 0 and passed == len(crits) else badge("failed", f"rule failed: {failed} of {len(crits)}")
+    return badge("running" if failed == 0 else "partial", f"rule so far: {passed} of {len(crits)} pass")
+
+
 def outcomes_html(rows: list[dict]) -> str:
     """One stacked bar per evaluation series (last checkpoint), plus how often a predator went down."""
     if not rows:
@@ -1360,6 +1440,7 @@ def render_experiments(cards: list[dict]) -> tuple[str, dict]:
             tags.append(f'<span class="tag">{n_videos} video{"s" if n_videos > 1 else ""}</span>')
         if any(d["explorer"] for d in c["dirs"]):
             tags.append('<span class="tag">eval curves</span>')
+        tags += [decision_badge(d["decision"]) for d in c["dirs"] if d["decision"]]
         # The prey leaving the arena is not part of most decision rules, so it gets its own warning.
         worst = max((r for d in c["dirs"] for r in d["outcomes"]), key=lambda r: r["prey_out"], default=None)
         if worst and worst["prey_out"] >= PREY_OUT_WARN:
@@ -1378,7 +1459,8 @@ def render_experiments(cards: list[dict]) -> tuple[str, dict]:
         if c["body"]:
             body.append(f'<div class="doc">{markdown_to_html(c["body"], EXPERIMENT_LOG.parent, 2)}</div>')
         for d in c["dirs"]:
-            sub = [outcomes_html(d["outcomes"])]
+            sub = [f'<div class="decision" data-decision="{esc(d["name"])}">{decision_inner(d["decision"])}</div>' if d["decision"] else "",
+                   outcomes_html(d["outcomes"])]
             if d["explorer"]:
                 explorers[d["name"]] = d["explorer"]
                 sub.append(f'<div class="card chart-card explorer" data-explorer="{esc(d["name"])}"></div>')
@@ -1532,12 +1614,16 @@ def current_gpu() -> dict | None:
 def live_status() -> dict:
     """The parts of the page that change while a run trains; the open page polls this every POLL_SECONDS."""
     now = time.time()
-    running = []
+    running, decisions = [], {}
     for exp_dir in sorted((p for p in EXPERIMENTS.iterdir() if p.is_dir()), reverse=True):  # newest first
         live, progress = live_state(exp_dir, now)
+        decision = read_decision(exp_dir) if live else None
+        if decision and decision.get("final"):
+            live = False  # the run has decided
         if live:
             title, _ = heading_title(read_text(exp_dir / "RESULTS.md"), read_text(exp_dir / "PLAN.md"), exp_dir.name)
             running.append((exp_dir.name, title, progress))
+            decisions[exp_dir.name] = decision
     entries = parse_log()
     return {
         "time": time.strftime("%H:%M:%S"),
@@ -1547,6 +1633,8 @@ def live_status() -> dict:
                      for name, _, p in running},
         "pill": pill_inner(running[0][1], running[0][2], running[0][0]) if running else pill_inner(None, None),
         "gpu": gpu_html(current_gpu()),
+        "decisions": {name: {"full": decision_inner(dec), "compact": decision_inner(dec, compact=True)}
+                      for name, dec in decisions.items() if dec},
         "latest": entries[-1]["title"] if entries else "",
     }
 
