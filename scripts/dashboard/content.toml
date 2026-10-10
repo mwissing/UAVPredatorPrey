@@ -136,6 +136,12 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "ghost-v7-block"
+title = "Prey with multi-head pillar attention (v7) vs the start predator"
+note = "Ghost stage v7: G6's prey with the new multi-head obstacle attention, 9600 more updates against slow ghosts among 8 pillars. Two heads find the pillar about to be hit (4x chance), but training drifted: the prey flies faster through the pillar zone, and the real predator catches it about 3x as often as G6. Dense layout, both crashed-drone masks on."
+path = "isaac/experiments/2026-10-10_prey_ghost_stage_v7_mha/probe/230400_dense_traj.npz"
+
+[[replay]]
 id = "ghost-v6-dense"
 title = "Prey trained among 8 pillars (v6) vs the start predator"
 note = "Ghost stage v6: the prey trained alone against slow ghosts with 8 pillars up to the wall. Best prey so far on the 4-pillar yardstick (crash hazard 0.118/s, ablation ratio 2.11). This replay is its own dense layout, where its pillar perception matters much less (ratio 1.06). Recorded with both crashed-drone masks on."
