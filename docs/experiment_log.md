@@ -435,5 +435,11 @@ are those of the predator (higher = better predator, lower = better prey).
   - For comparison, v1 G: 0.147 / 2.54 / 0.217; K: 0.147 / 1.14 / 0.066.
 - Open question: in the dense layout itself crashes fell by a third
   (0.584 -> 0.389/s) but are hardly sensitive to the pillar observations.
-  Next: examine dense crashes (forced vs avoidable), per the rule.
+- Crash analysis:
+  - The dense crashes are not forced. 94% are head-on flights into the hit
+    pillar at about 4.7 m/s; few happen with a pursuer close or in clutter.
+  - The branch prevents half of these crashes with 4 pillars and almost
+    none with 8.
+  - Next hypothesis: attention dilution over 8 pillars. Test: record the
+    attention weights live.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v6_dense8/`.
