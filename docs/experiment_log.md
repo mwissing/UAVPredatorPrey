@@ -383,3 +383,17 @@ are those of the predator (higher = better predator, lower = better prey).
   - in open space the masked pair equals the pair with the obstacle branch
     zeroed bit-exactly (catch 0.746, predator OOB 0.007, prey OOB 0.001);
   - 4 new unit tests.
+
+## 2026-10-10: Prey ghost stage v5, slow ghosts continued (pre-registered)
+
+- G4 continued for another 9600 updates with identical settings.
+- Result: the pre-registered decision is a plateau.
+  - Crash hazard against the start predator stays at 0.17-0.20/s.
+  - The ablation ratio fluctuates around 1.2 in the standard layout (last
+    two checkpoints 1.18 / 1.22) and about 1.0 in the full layout.
+  - The prey stays fast (4.8 m/s) and evasive (catch hazard 0.064/s).
+- Reading: four pillars spread up to the wall are met too rarely to drive
+  perception-based avoidance. Next candidate: higher pillar density, using
+  the presence mask to expand checkpoints from 4 to 8 pillar slots without
+  changing their function.
+- Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v5_slow_continued/`.
