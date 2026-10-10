@@ -1,13 +1,22 @@
-"""Expand an obstacle-free 3v1 checkpoint to the pillar-obstacle observation layout.
+"""Expand a 3v1 checkpoint to a pillar-obstacle observation layout with more pillar slots.
 
-The recurrent attention networks accept the old weights unchanged: their
-obstacle_* parameters are created fresh with a zero output projection, so the
-expanded policy and critic initially behave exactly like the original (see
-tests/test_obstacles.py). Only the observation normalizers change size. Each
+From an obstacle-free checkpoint (--from-obstacles 0): the recurrent attention
+networks accept the old weights unchanged. Their obstacle_* parameters are
+created fresh with a zero output projection, so the expanded policy and critic
+initially behave exactly like the original (see tests/test_obstacles.py). Each
 per-drone block (every predator block and the prey block) gains
 num_obstacles * obstacle_dim features with mean 0 and variance 1, because the
-environment already scales those features. Optimizer states are dropped since
-the parameter set changes.
+environment already scales those features.
+
+From a K0-pillar checkpoint (--from-obstacles K0 > 0): the obstacle branch is
+shared across pillars, so the weights fit any number of pillars. The new slots
+are appended after the existing pillar features of each block, and their
+normalizer statistics copy the average of the existing slots. Absent pillars
+are masked from raw observations, so in an environment that activates only K0
+pillars (num_active_obstacles), the expanded networks behave exactly like the
+original ones.
+
+Only the observation normalizers change size. Optimizer states are dropped.
 
 Example (inside the Isaac container):
   isaaclab.sh -p scripts/expand_checkpoint_obstacles.py \\
@@ -24,30 +33,50 @@ from typing import Any
 import torch
 
 
-def expand_blocks(values: torch.Tensor, block_sizes: list[int], extra: int, fill: float) -> torch.Tensor:
-    """Insert `extra` entries of `fill` after each block of a flat per-feature tensor."""
+def expand_blocks(
+    values: torch.Tensor, block_sizes: list[int], extra: int, fill: float, existing_slots: int = 0, slot_dim: int = 4
+) -> torch.Tensor:
+    """Insert `extra` entries after each block of a flat per-feature tensor.
+
+    Without existing pillar slots the new entries are `fill`. Otherwise they repeat, per feature, the average
+    over the block's last `existing_slots` slots of `slot_dim` features.
+    """
     if sum(block_sizes) != values.shape[0]:
         raise ValueError(f"blocks {block_sizes} do not cover {values.shape[0]} features")
     parts, start = [], 0
     for size in block_sizes:
-        parts.append(values[start : start + size])
-        parts.append(torch.full((extra,), fill, dtype=values.dtype, device=values.device))
+        block = values[start : start + size]
+        parts.append(block)
+        if existing_slots:
+            slots = block[size - existing_slots * slot_dim :].view(existing_slots, slot_dim).mean(dim=0)
+            parts.append(slots.repeat(extra // slot_dim))
+        else:
+            parts.append(torch.full((extra,), fill, dtype=values.dtype, device=values.device))
         start += size
     return torch.cat(parts)
 
 
-def expand_scaler(state: dict[str, torch.Tensor], block_sizes: list[int], extra: int) -> dict[str, torch.Tensor]:
+def expand_scaler(
+    state: dict[str, torch.Tensor], block_sizes: list[int], extra: int, existing_slots: int = 0, slot_dim: int = 4
+) -> dict[str, torch.Tensor]:
     return {
-        "running_mean": expand_blocks(state["running_mean"], block_sizes, extra, 0.0),
-        "running_variance": expand_blocks(state["running_variance"], block_sizes, extra, 1.0),
+        "running_mean": expand_blocks(state["running_mean"], block_sizes, extra, 0.0, existing_slots, slot_dim),
+        "running_variance": expand_blocks(state["running_variance"], block_sizes, extra, 1.0, existing_slots, slot_dim),
         "current_count": state["current_count"].clone(),
     }
 
 
 def expand_checkpoint(
-    checkpoint: dict[str, Any], *, num_predators: int, num_obstacles: int, obstacle_dim: int = 4
+    checkpoint: dict[str, Any],
+    *,
+    num_predators: int,
+    num_obstacles: int,
+    obstacle_dim: int = 4,
+    from_obstacles: int = 0,
 ) -> dict[str, Any]:
-    extra = num_obstacles * obstacle_dim
+    if num_obstacles <= from_obstacles:
+        raise ValueError(f"cannot expand from {from_obstacles} to {num_obstacles} pillar slots")
+    extra = (num_obstacles - from_obstacles) * obstacle_dim
     predator_obs = checkpoint["predator"]["state_preprocessor"]["running_mean"].shape[0]
     prey_obs = checkpoint["prey"]["state_preprocessor"]["running_mean"].shape[0]
     if predator_obs % num_predators:
@@ -62,8 +91,12 @@ def expand_checkpoint(
     for role, agent in checkpoint.items():
         agent = dict(agent)
         agent.pop("optimizer", None)
-        agent["state_preprocessor"] = expand_scaler(agent["state_preprocessor"], blocks[role], extra)
-        agent["shared_state_preprocessor"] = expand_scaler(agent["shared_state_preprocessor"], blocks["shared"], extra)
+        agent["state_preprocessor"] = expand_scaler(
+            agent["state_preprocessor"], blocks[role], extra, from_obstacles, obstacle_dim
+        )
+        agent["shared_state_preprocessor"] = expand_scaler(
+            agent["shared_state_preprocessor"], blocks["shared"], extra, from_obstacles, obstacle_dim
+        )
         expanded[role] = agent
     return expanded
 
@@ -72,7 +105,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--num-obstacles", type=int, required=True)
+    parser.add_argument("--num-obstacles", type=int, required=True, help="pillar slots after expansion")
+    parser.add_argument("--from-obstacles", type=int, default=0, help="pillar slots in the input checkpoint")
     parser.add_argument("--obstacle-dim", type=int, default=4)
     parser.add_argument("--num-predators", type=int, default=3)
     args = parser.parse_args()
@@ -80,7 +114,11 @@ def main() -> None:
         raise SystemExit(f"refusing to overwrite {args.output}")
     checkpoint = torch.load(args.input, map_location="cpu", weights_only=False)
     expanded = expand_checkpoint(
-        checkpoint, num_predators=args.num_predators, num_obstacles=args.num_obstacles, obstacle_dim=args.obstacle_dim
+        checkpoint,
+        num_predators=args.num_predators,
+        num_obstacles=args.num_obstacles,
+        obstacle_dim=args.obstacle_dim,
+        from_obstacles=args.from_obstacles,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     torch.save(expanded, args.output)

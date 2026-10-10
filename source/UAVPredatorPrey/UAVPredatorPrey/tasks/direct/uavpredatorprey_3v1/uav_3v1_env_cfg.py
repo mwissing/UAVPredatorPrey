@@ -181,6 +181,11 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     obstacle_feature_scale = 5.0          # [m] observation scale
     obstacle_soft_margin = 0.5            # [m] clearance band with a quadratic keep-out cost
     obstacle_soft_penalty_scale = 0.0     # 0 = off; cost = scale * (margin - clearance)^2 * dt (like the soft arena wall)
+    # How many of the num_obstacles slots get a pillar each episode (-1 = all; an int, because Hydra cannot
+    # override a None default with an int). The rest stay parked, and the models' presence mask ignores them.
+    # With 4 active slots, the placement draws the same random numbers as a 4-pillar task, so 8-slot
+    # checkpoints can be evaluated in the 4-pillar layouts.
+    num_active_obstacles = -1
 
     # Scripted "ghost" predators for training the prey alone (see ghosts.py). Predator actions are
     # ignored: each predator flies a speed- and acceleration-limited lead pursuit of the prey, never
@@ -340,6 +345,23 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg(
     obstacle_soft_penalty_scale = 200.0
     observation_spaces = {"predator": 90 + 3 * 4 * 4, "prey": 30 + 4 * 4}
     state_space = 120 + 3 * 4 * 4 + 4 * 4
+
+
+@configclass
+class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstacles8EnvCfg(
+    Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg
+):
+    """Denser pillar task: 8 pillar slots, placed up to the arena wall (no pillar-free belt).
+
+    Four pillars spread up to the wall are met too rarely for the prey to learn perception-based avoidance
+    (ghost stage v5), so this task doubles the density. Checkpoints from the 4-pillar task are expanded with
+    scripts/expand_checkpoint_obstacles.py; the extra slots start parked and are masked.
+    """
+
+    num_obstacles = 8
+    obstacle_placement_radius = 4.6
+    observation_spaces = {"predator": 90 + 3 * 8 * 4, "prey": 30 + 8 * 4}
+    state_space = 120 + 3 * 8 * 4 + 8 * 4
 
 
 @configclass

@@ -300,3 +300,47 @@ def test_masked_attention_stays_finite_without_pillars() -> None:
         output(model, {"states": parked, "raw_states": parked}).sum().backward()
         grads = [p.grad for p in model.parameters() if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
+
+
+def test_checkpoint_expansion_adds_pillar_slots_with_copied_statistics() -> None:
+    from expand_checkpoint_obstacles import expand_checkpoint
+
+    def scaler(blocks: int, block_dim: int) -> dict:
+        mean = torch.arange(blocks * block_dim, dtype=torch.float32)
+        return {"running_mean": mean, "running_variance": mean + 100.0, "current_count": torch.tensor(5.0)}
+
+    # 2 predators with 3 base features + 2 slots x 2 features each; prey 3 + 2 x 2.
+    checkpoint = {
+        "predator": {"state_preprocessor": scaler(2, 7), "shared_state_preprocessor": scaler(3, 7), "optimizer": {}},
+        "prey": {"state_preprocessor": scaler(1, 7), "shared_state_preprocessor": scaler(3, 7)},
+    }
+    expanded = expand_checkpoint(checkpoint, num_predators=2, num_obstacles=3, obstacle_dim=2, from_obstacles=2)
+    mean = expanded["predator"]["state_preprocessor"]["running_mean"]
+    assert mean.shape == (18,)  # 2 blocks x (7 + 1 new slot x 2)
+    # Block 0 keeps 0..6; the new slot repeats the mean of the existing slots (3,4) and (5,6) -> (4, 5).
+    assert mean[:7].tolist() == list(range(7)) and mean[7:9].tolist() == [4.0, 5.0]
+    assert mean[9:16].tolist() == list(range(7, 14)) and mean[16:18].tolist() == [11.0, 12.0]
+    assert expanded["prey"]["state_preprocessor"]["running_mean"].shape == (9,)
+    assert expanded["prey"]["shared_state_preprocessor"]["running_mean"].shape == (27,)
+    assert "optimizer" not in expanded["predator"]
+
+
+def test_expanded_slots_are_invisible_while_parked() -> None:
+    """An 8-slot network with the 4-slot weights equals the 4-slot network when slots 4-7 are parked."""
+    generator = torch.Generator().manual_seed(8)
+    pairs = (
+        (_actor(90 + 3 * K * OBSTACLE_DIM, 12, K), _actor(90 + 3 * 2 * K * OBSTACLE_DIM, 12, 2 * K), 3),
+        (_actor(30 + K * OBSTACLE_DIM, 4, K), _actor(30 + 2 * K * OBSTACLE_DIM, 4, 2 * K), 1),
+        (_critic(120 + 4 * K * OBSTACLE_DIM, K), _critic(120 + 4 * 2 * K * OBSTACLE_DIM, 2 * K), 4),
+    )
+    for four, eight, blocks in pairs:
+        _trained_branch(four)
+        eight.load_state_dict(four.state_dict())
+        states = torch.randn(4, blocks * (30 + K * OBSTACLE_DIM), generator=generator)
+        states = _set_pillar_distances(states, blocks, 30, torch.full((blocks, K), PRESENT))
+        parked = torch.randn(4, blocks, K, OBSTACLE_DIM, generator=generator)
+        parked[..., 3] = PARKED
+        wide = torch.cat((states.view(4, blocks, -1), parked.view(4, blocks, -1)), dim=-1).reshape(4, -1)
+        out_four = four.compute({"states": states, "raw_states": states})[0]
+        out_eight = eight.compute({"states": wide, "raw_states": wide})[0]
+        assert torch.allclose(out_four, out_eight, atol=1e-6)

@@ -1149,16 +1149,22 @@ class Uav3v1Env(DirectMARLEnv):
             # Place pillars uniformly (no bias toward any strategy), clear of every spawned drone.
             origins = self._terrain.env_origins[env_ids]
             drone_xy = torch.cat((pred_pos_w[:, :, :2], prey_pos_w[:, None, :2]), dim=1) - origins[:, None, :2]
+            active = self._K if self.cfg.num_active_obstacles < 0 else min(int(self.cfg.num_active_obstacles), self._K)
             obstacle_xy, parked = sample_obstacle_xy(
                 drone_xy,
-                self._K,
+                active,
                 placement_radius=self.cfg.obstacle_placement_radius,
                 obstacle_radius=self.cfg.obstacle_radius,
                 min_axis_separation=self.cfg.obstacle_min_axis_separation,
                 spawn_clearance=self.cfg.obstacle_spawn_clearance,
             )
+            if active < self._K:
+                # Inactive slots stay parked; the models' presence mask ignores them.
+                obstacle_xy = torch.cat(
+                    (obstacle_xy, torch.full((n, self._K - active, 2), PARKED_DISTANCE, device=self.device)), dim=1
+                )
             self._obstacle_xy[env_ids] = obstacle_xy
-            self.extras["log"]["Metrics/obstacle_parked_fraction"] = parked.float().mean() / self._K
+            self.extras["log"]["Metrics/obstacle_parked_fraction"] = parked.float().mean() / max(active, 1)
             pose = torch.zeros(n, 7, device=self.device)
             pose[:, 2] = self.cfg.arena_center_z
             pose[:, 3] = 1.0  # identity quaternion (w, x, y, z)
