@@ -453,7 +453,7 @@ are those of the predator (higher = better predator, lower = better prey).
     normalized multi-head attention.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v6_dense8/`.
 
-## 2026-10-10: Multi-head obstacle attention, prey ghost stage v7 (pre-registered, running)
+## 2026-10-10: Multi-head obstacle attention, prey ghost stage v7 (pre-registered)
 
 - Direction chosen by the user: the most advanced long-term solution, a
   modern multi-head attention block (option 3 of the probe's candidates).
@@ -480,3 +480,57 @@ are those of the predator (higher = better predator, lower = better prey).
   - dense crash hazard <= 0.8x G6;
   - guards on the standard yardstick and on speed.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v7_mha/`.
+- Result: **the block does not fix dense perception.** Criteria 1, 3, 4,
+  and 5 fail; 2 (block-only ratio 1.20) and 6 (speed) pass. The result
+  splits in two:
+  - Mechanism, success: two heads put 0.49 and 0.39 of their weight on the
+    pillar about to be hit (chance 0.125; untrained block 0.205). The old
+    one-hot path attends away from it (0.003); the paths have co-adapted.
+  - Behavior, failure: the training return peaked at 1920 updates (-52.8)
+    and then fell steadily to -82.7, while G6's run improved under the same
+    setup. The prey moved into the pillar zone (79% of the time vs 57%) and
+    flew faster (mean speed in training 4.9 -> 6.0 m/s).
+  - At 9600 updates, against the start predator on the 4-pillar yardstick:
+    crash hazard 0.118 -> 0.201/s, catch hazard 0.072 -> 0.235/s.
+- Candidate causes (untested):
+  - the block learns 30x faster than the trunk;
+  - the critic has no block and may misjudge the interior flight;
+  - continued training from G6 would degrade anyway.
+- The pre-registered next step was to test the perception pathway in
+  isolation. It is deferred, because the probe shows the pathway works. The
+  open problem is the training dynamics (v8).
+
+## 2026-10-10: Crash costs become obstacle-task defaults
+
+- User decision: in the obstacle tasks, a prey crash or arena exit costs
+  -300, more than being caught (-200). The prey should not take a crash to
+  escape a catch.
+- Until now, -300 was only a per-run override (v3, overnight self-play);
+  v4-v7 ran at the default -200.
+- The predator's -600 per drone, passed by every obstacle run since
+  2026-10-08, is now the default as well. The team reward is the mean over
+  3 drones, so a lost drone costs the team -200, as much as a catch earns.
+- Obstacle-free tasks keep -200 for both roles, which the anchor and
+  reference reproductions need. `tests/test_obstacle_crash_cost.py` checks
+  all 16 task configs. Commits cdbe9c3 and 556faa0, merged at 20:16 after
+  v7 had finished.
+- The exploration floor (-1.0) and the crashed-drone masks remain explicit
+  run flags.
+
+## 2026-10-10/11: Prey ghost stage v8, block x crash cost (pre-registered, overnight)
+
+- A 2x2 from G6, all arms with seed 45 like B7:
+  - block yes/no;
+  - prey crash -300/-200.
+- B7 (v7) is one arm. B8 (block, -300), C8 (no block, -300), and C7 (no
+  block, -200) run one after another, 20:16 to about 06:30.
+- Questions:
+  - Does the block cause B7's degradation? (B7 vs C7)
+  - Does the block help at the new cost? (B8 vs C8; this decides self-play
+    with or without the block)
+  - What does the crash cost change?
+- Rule: end values are the mean of the last two checkpoints. The block
+  helps if dense crashes are <= 0.85x, the dense ratio is >= 1.2, and the
+  4-pillar catch hazard is <= 1.2x. It hurts if dense crashes are >= 1.15x,
+  or a 4-pillar hazard is > 1.2x.
+- Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v8_block_x_crash_cost/`.
