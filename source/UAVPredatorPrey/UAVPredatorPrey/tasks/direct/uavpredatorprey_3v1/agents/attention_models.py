@@ -199,6 +199,66 @@ def _masked_attention_weights(query: torch.Tensor, key: torch.Tensor, present: t
         return torch.where(present.any(dim=-1, keepdim=True), weights, torch.zeros_like(weights))
 
 
+class ObstacleMultiHeadAttention(nn.Module):
+    """Multi-head cross-attention from a drone's own embedding to its pillar tokens.
+
+    The single-head obstacle attention saturated to one-hot weights and picked pillars unrelated to danger
+    (v6 attention probe). This block is built to avoid that: several heads can watch several pillars, the pillar
+    tokens are layer-normalized, and the scores are cosine similarities times a learnable temperature (start 5,
+    cap 30). The scores are therefore bounded: the attention starts soft and becomes sharp only if training
+    raises the temperature, not because embeddings grow. Absent pillars are masked. The output projection starts at zero, so adding the block to a trained network
+    leaves it unchanged until training moves it.
+    """
+
+    MAX_TEMPERATURE = 30.0
+
+    def __init__(self, obstacle_dim: int, hidden_size: int, attention_size: int, heads: int, activation: str) -> None:
+        super().__init__()
+        if attention_size % heads:
+            raise ValueError(f"attention_size {attention_size} is not divisible by {heads} heads")
+        self.heads = heads
+        self.head_dim = attention_size // heads
+        self.encoder = _mlp(obstacle_dim, (hidden_size,), attention_size, activation)
+        self.token_norm = nn.LayerNorm(attention_size)
+        self.query_norm = nn.LayerNorm(attention_size)
+        self.query = nn.Linear(attention_size, attention_size)
+        self.key = nn.Linear(attention_size, attention_size)
+        self.value = nn.Linear(attention_size, attention_size)
+        # Start soft (normalized entropy about 0.8-0.9 at 32 dims per head) so gradients reach every pillar;
+        # training can sharpen the attention up to MAX_TEMPERATURE.
+        self.log_temperature = nn.Parameter(torch.full((heads,), math.log(5.0)))
+        self.out = nn.Linear(attention_size, attention_size)
+        nn.init.zeros_(self.out.weight)
+        nn.init.zeros_(self.out.bias)
+
+    def weights(self, own_emb: torch.Tensor, tokens: torch.Tensor, present: torch.Tensor | None) -> torch.Tensor:
+        """(B, heads, K) attention weights; rows without any present pillar are all zero."""
+        batch, num_obstacles, _ = tokens.shape
+        query = self.query(self.query_norm(own_emb)).view(batch, self.heads, 1, self.head_dim)
+        key = self.key(tokens).view(batch, num_obstacles, self.heads, self.head_dim).transpose(1, 2)
+        with torch.autocast(device_type=own_emb.device.type, enabled=False):
+            cosine = (nn.functional.normalize(query.float(), dim=-1) * nn.functional.normalize(key.float(), dim=-1)).sum(-1)
+            temperature = self.log_temperature.float().clamp(0.0, math.log(self.MAX_TEMPERATURE)).exp().view(1, -1, 1)
+            scores = temperature * cosine
+            if present is None:
+                return torch.softmax(scores, dim=-1)
+            weights = torch.softmax(scores.masked_fill(~present[:, None, :], -1.0e9), dim=-1)
+            return torch.where(present.any(dim=-1)[:, None, None], weights, torch.zeros_like(weights))
+
+    def forward(self, own_emb: torch.Tensor, obstacles: torch.Tensor, present: torch.Tensor | None = None) -> torch.Tensor:
+        """(B, A) obstacle context from own (B, A) embeddings and (B, K, obstacle_dim) pillar features."""
+        batch, num_obstacles, obstacle_dim = obstacles.shape
+        tokens = self.token_norm(self.encoder(obstacles.reshape(batch * num_obstacles, obstacle_dim)))
+        tokens = tokens.view(batch, num_obstacles, -1)
+        weights = self.weights(own_emb, tokens, present)
+        value = self.value(tokens).view(batch, num_obstacles, self.heads, self.head_dim).transpose(1, 2)
+        context = (weights.unsqueeze(-1).to(value.dtype) * value).sum(dim=2).reshape(batch, -1)
+        out = self.out(context)
+        if present is not None:
+            out = torch.where(present.any(dim=-1, keepdim=True), out, torch.zeros_like(out))
+        return out
+
+
 def _pairwise_attention_weights(query: torch.Tensor, key: torch.Tensor) -> torch.Tensor:
     """Compute all-pairs attention weights without autocast narrowing the matmul."""
 
@@ -514,6 +574,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         prey_mask_inactive_predators: bool = False,
         predator_mask_inactive_teammates: bool = False,
         inactive_drone_distance: float = 10.0,
+        obstacle_attention_heads: int = 0,
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
@@ -613,6 +674,12 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             self.obstacle_out = nn.Linear(attention_size, attention_size)
             nn.init.zeros_(self.obstacle_out.weight)
             nn.init.zeros_(self.obstacle_out.bias)
+            # Optional multi-head path (0 = off), created after the existing modules so their initialization
+            # is unchanged; its zero output projection keeps a loaded network exactly as it was.
+            if int(obstacle_attention_heads) > 0:
+                self.obstacle_mha = ObstacleMultiHeadAttention(
+                    self.obstacle_dim, hidden_size, attention_size, int(obstacle_attention_heads), fallback_activation
+                )
 
     def get_specification(self) -> Mapping[str, Any]:
         if self.mode == "predator":
@@ -665,14 +732,17 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         query = self.obstacle_query(own_emb).unsqueeze(1)
         key = self.obstacle_key(obstacle_emb)
         value = self.obstacle_value(obstacle_emb)
+        extra = self.obstacle_mha(own_emb, obstacles, present) if hasattr(self, "obstacle_mha") else None
         if present is None:
             weights = _aligned_attention_weights(query, key).to(dtype=value.dtype)
             context = (weights.unsqueeze(-1) * value).sum(dim=1)
-            return self.obstacle_out(context)
+            out = self.obstacle_out(context)
+            return out if extra is None else out + extra
         weights = _masked_attention_weights(query, key, present).to(dtype=value.dtype)
         context = (weights.unsqueeze(-1) * value).sum(dim=1)
         out = self.obstacle_out(context)
-        return torch.where(present.any(dim=-1, keepdim=True), out, torch.zeros_like(out))
+        out = torch.where(present.any(dim=-1, keepdim=True), out, torch.zeros_like(out))
+        return out if extra is None else out + extra
 
     def _predator_features(self, states: torch.Tensor, raw_states: torch.Tensor | None = None) -> torch.Tensor:
         batch_size = states.shape[0]
