@@ -101,7 +101,7 @@ Each rule was learned from a concrete failure or near miss in this project.
 | Spawn robustness (Stage 5) | random spawn in the spherical arena; no initial-velocity randomization yet |
 | League hardening (Stage 6) | pools, cross-play, PFSP weights, per-env mixing, rehearsal; forgetting and non-transitivity are measured but unsolved; no exploiters |
 | Locked obstacle-free baseline (Stage 7) | anchor v3 ([doc](anchor_v3_2026-10-08.md)), accepted 2026-10-08 by a pre-registered rule; training-seed replicates missing |
-| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches); first training lowered crash rates blindly. With a crash price plus exploration, the predator avoids pillars by perception (2026-10-08 evening). The prey learns it in a skill stage against scripted ghost pursuers (2026-10-09; see Stage 8) |
+| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches). Reference predator with perception-based pillar avoidance frozen 2026-10-10 ([doc](obstacle_predator_2026-10-10.md)). The prey learns avoidance against scripted ghost pursuers only when evasion is easy, and loses it again in self-play (see Stage 8) |
 | Partial observability, perception (Stages 9-10) | not started |
 | Correctness gate | all items closed except three open ones (see Correctness Gate) |
 

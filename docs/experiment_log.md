@@ -358,3 +358,13 @@ are those of the predator (higher = better predator, lower = better prey).
 - Next candidates: a longer slow-ghost stage, or more pillars in the full
   layout, before a slow-to-fast curriculum.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v4_slow_full_layout/`.
+
+## 2026-10-10: Obstacle reference predator frozen
+
+- The overnight run's predator becomes the obstacle reference predator
+  ([doc](obstacle_predator_2026-10-10.md)). Read-only bundle
+  `.pretrained_checkpoints/obstacle_predator_2026-10-10/`, checkpoint sha256
+  `470c11e6...`. The bundled copy reproduces its evaluation bit-exactly.
+- Ablation ratio 1.41 against the start prey and 1.52 in its own matchup.
+  Crash hazard 0.100/s against the start prey; lead index 0.27; wall
+  enclosure 0.165. The prey role of the checkpoint is not a reference.
