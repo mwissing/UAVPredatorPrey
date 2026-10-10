@@ -419,3 +419,21 @@ are those of the predator (higher = better predator, lower = better prey).
 - Next: use the masks in evaluations against crash-prone opponents
   (re-baseline), and decide whether new training enables them.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_crashed_predator_mask_check/`.
+
+## 2026-10-10: Prey ghost stage v6, 8 pillars (pre-registered, masked protocol)
+
+- Design: G5's prey, expanded to 8 pillar slots (c8518bc), trained for 9600
+  updates against slow ghosts with 8 pillars up to the wall. Evaluations from
+  now on use both crashed-drone masks.
+- Pre-registered decision: density alone does not create perception.
+  Criterion 1 fails: the ablation ratio in the dense layout is 1.20 / 1.06
+  at the last two checkpoints. The other four criteria pass.
+- On the standard 4-pillar yardstick, G6 is the best prey so far:
+  - crash hazard against the start predator 0.324 -> 0.118/s;
+  - ablation ratio 1.13 -> 2.11, growing steadily;
+  - catch hazard unchanged (0.072/s); speed 4.5 m/s.
+  - For comparison, v1 G: 0.147 / 2.54 / 0.217; K: 0.147 / 1.14 / 0.066.
+- Open question: in the dense layout itself crashes fell by a third
+  (0.584 -> 0.389/s) but are hardly sensitive to the pillar observations.
+  Next: examine dense crashes (forced vs avoidable), per the rule.
+- Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v6_dense8/`.
