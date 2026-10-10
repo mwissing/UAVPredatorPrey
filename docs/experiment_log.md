@@ -368,3 +368,18 @@ are those of the predator (higher = better predator, lower = better prey).
 - Ablation ratio 1.41 against the start prey and 1.52 in its own matchup.
   Crash hazard 0.100/s against the start prey; lead index 0.27; wall
   enclosure 0.165. The prey role of the checkpoint is not a reference.
+
+## 2026-10-10: Presence mask for absent pillars
+
+- Problem: absent pillars are parked 50 m away, and trained obstacle branches
+  react to those out-of-range features. In open space the reference pair left
+  the arena (predator OOB 0.733, prey 0.725, catch 0.052).
+- Fix (72b877a): the agent also passes raw states, and the models treat a
+  pillar as present only if its raw surface-distance feature is below 5.0
+  (25 m). Absent pillars get no attention; without any present pillar the
+  obstacle term is exactly zero.
+- Checks:
+  - with all pillars present, a stored evaluation reproduces bit-exactly;
+  - in open space the masked pair equals the pair with the obstacle branch
+    zeroed bit-exactly (catch 0.746, predator OOB 0.007, prey OOB 0.001);
+  - 4 new unit tests.

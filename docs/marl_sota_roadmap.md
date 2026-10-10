@@ -355,8 +355,9 @@ together. Neither alone helps, even a 10x price. Open items:
   for the predator one lost drone costs a third of a catch. Next candidate:
   a crash price plus exploration for both roles, later a Lagrangian crash
   constraint;
-- a presence mask for absent obstacles: parking them far away breaks once
-  the branch is trained;
+- a presence mask for absent obstacles: done 2026-10-10 (72b877a). Models
+  mask pillars whose raw surface-distance feature marks them as parked, so
+  trained networks behave as obstacle-free in open space;
 - strategy metrics are ready: pillar proximity at catch, occlusion, and
   luring geometry.
 
