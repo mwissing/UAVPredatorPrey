@@ -341,3 +341,20 @@ are those of the predator (higher = better predator, lower = better prey).
   ghost-speed effect from the belt effect.
 - Evidence: `artifacts/isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/`
   (RESULTS.md, summary.txt, videos/final_camera_D/).
+
+## 2026-10-10: Prey ghost stage v4, slow ghosts in the full layout (pre-registered)
+
+- Fills the 2x2 of ghost speed x layout. G4 is G2 with a constant ghost
+  speed of 3.5 m/s; pillars go up to the wall, so there is no belt.
+- Result: it formally passes all four criteria, but the perception signal
+  is marginal.
+  - Crash hazard against the start predator 0.272 -> 0.174/s (G2: 0.240).
+  - Catch hazard 0.046/s; speed 5.0 m/s.
+  - Ablation ratio 1.24 in the standard layout (1.10 one checkpoint
+    earlier) and 0.93 in its own full layout.
+- Reading: slow ghosts lower crashes and let perception grow slowly. v1's
+  strong effect (2.08) needed the belt as well. The ablation ratio also
+  depends on pillar density.
+- Next candidates: a longer slow-ghost stage, or more pillars in the full
+  layout, before a slow-to-fast curriculum.
+- Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v4_slow_full_layout/`.
