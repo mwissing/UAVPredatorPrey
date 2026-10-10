@@ -316,3 +316,28 @@ are those of the predator (higher = better predator, lower = better prey).
     from the belt, but some genuine perception transfers. Next candidate: a
     curriculum from easy to hard evasion.
   - The overnight self-play starts from v1's prey (pre-registered rule).
+
+## 2026-10-09/10: Overnight self-play with ghost rehearsal (pre-registered)
+
+- Design: the predator from the crash-price-plus-exploration run plus v1's
+  ghost-trained prey, in the full layout (pillars up to the wall). 6 cycles
+  of 2400 joint updates plus 600 prey ghost updates (rehearsal). Prey crash
+  -300; predator -600 with log-std floor -1.0.
+- Result: criterion 1 fails (the prey loses perception); speed and balance
+  pass.
+  - Own matchup: catch rate 0.16 -> 0.49; predator crash hazard
+    0.173 -> 0.085/s; prey 0.307 -> 0.223/s.
+  - The predator avoids pillars by perception: ablation ratio 1.41 against
+    the start prey, +52% crashes without its branch in its own matchup.
+    Its interception (lead index 0.06 -> 0.27) and wall enclosure
+    (0.10 -> 0.17) also improved.
+  - The prey lost its perception in the first cycle (ratio 1.28 -> 1.00 ->
+    0.71). It weaves among pillars again (77% of the time in the pillar
+    zone), and its branch serves evasion, not avoidance.
+- Reading: in self-play, the prey's incentives favor evasion over safety
+  even at a crash cost of 1.5x a catch. Fast-ghost rehearsal did not protect
+  the skill.
+- Missing 2x2 cell: slow ghosts in the full layout. It would separate the
+  ghost-speed effect from the belt effect.
+- Evidence: `artifacts/isaac/experiments/2026-10-09_overnight_selfplay_ghost_rehearsal/`
+  (RESULTS.md, summary.txt, videos/final_camera_D/).
