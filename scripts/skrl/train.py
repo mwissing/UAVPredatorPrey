@@ -750,6 +750,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    # Mixed ghost rollouts (env.ghost_env_fraction): read before skrl's wrapper hides the env.
+    ghost_env_mask = getattr(env.unwrapped, "ghost_env_mask", None)
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:
@@ -796,6 +798,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print(f"[INFO] Freezing agents during training: {', '.join(sorted(freeze_agents))}")
         freeze_agents = freeze_agent_training(runner.agent, freeze_agents)
     frozen_fingerprints = capture_frozen_fingerprints(runner.agent, freeze_agents)
+    if ghost_env_mask is not None and bool(ghost_env_mask.any()) and not bool(ghost_env_mask.all()):
+        # Ghost envs ignore the predator's actions, so they must not train it.
+        if "predator" not in freeze_agents:
+            if not hasattr(runner.agent, "set_training_envs"):
+                raise RuntimeError("Mixed ghost rollouts need RecurrentMAPPO to exclude ghost envs from predator training")
+            runner.agent.set_training_envs("predator", ~ghost_env_mask)
+        print(
+            f"[INFO] Mixed ghost rollouts: {int(ghost_env_mask.sum())} of {ghost_env_mask.numel()} envs have ghost "
+            f"predators; the predator trains on the other {int((~ghost_env_mask).sum())}."
+        )
 
     training_env = _wrap_per_env_opponent_pool(env, runner, freeze_agents)
     if args_cli.disable_environment_info_logging:

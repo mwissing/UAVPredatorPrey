@@ -23,8 +23,13 @@ def _compute_gae(
     last_values: torch.Tensor,
     discount_factor: float,
     lambda_coefficient: float,
+    envs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Compute bootstrapped returns and normalized generalized advantages."""
+    """Compute bootstrapped returns and normalized generalized advantages.
+
+    The normalization statistics come from the given env columns only (all by default), so envs whose
+    transitions do not train the role cannot shift its advantage scale (see set_training_envs).
+    """
     advantage = 0
     advantages = torch.zeros_like(rewards)
     not_dones = dones.logical_not()
@@ -38,7 +43,8 @@ def _compute_gae(
         advantages[index] = advantage
 
     returns = advantages + values
-    normalized_advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+    scored = advantages if envs is None else advantages[:, envs]
+    normalized_advantages = (advantages - scored.mean()) / (scored.std() + 1e-8)
     return returns, normalized_advantages
 
 
@@ -59,6 +65,15 @@ def _obstacle_param_groups(modules: list[nn.Module], learning_rate: float, multi
     if obstacle:
         groups.append({"params": obstacle, "lr": learning_rate * multiplier, "lr_multiplier": multiplier})
     return groups
+
+
+def _env_minibatches(
+    num_envs: int, mini_batches: int, envs: torch.Tensor | None, device: torch.device | str
+) -> tuple[torch.Tensor, ...]:
+    """Shuffled env-index minibatches for the recurrent update: all envs, or only a role's training envs."""
+    if envs is None:
+        return torch.chunk(torch.randperm(num_envs, device=device), mini_batches)
+    return torch.chunk(envs[torch.randperm(envs.numel(), device=device)], mini_batches)
 
 
 def _explained_variance(returns: torch.Tensor, values: torch.Tensor) -> float:
@@ -110,6 +125,7 @@ class RecurrentMAPPO(MAPPO):
         self._rnn_initial_states: dict[str, dict[str, list[torch.Tensor]]] = {}
         self._rnn_final_states: dict[str, dict[str, list[torch.Tensor]]] = {}
         self._frozen_agents: set[str] = set()
+        self._training_envs: dict[str, torch.Tensor] = {}
         self._uid_squashed: dict[str, bool] = {}
         self._current_pre_tanh_actions: dict[str, torch.Tensor] = {}
 
@@ -172,6 +188,24 @@ class RecurrentMAPPO(MAPPO):
         if unknown:
             raise ValueError(f"Unknown frozen agents: {sorted(unknown)}")
         self._frozen_agents = set(agent_names)
+
+    def set_training_envs(self, uid: str, mask: torch.Tensor) -> None:
+        """Train a role only on the envs where mask is True, for example the real predators of mixed ghost rollouts.
+
+        The role still acts in every env. Its advantage normalization, value-normalizer statistics, and
+        minibatches use only these envs: elsewhere its actions have no effect, so those transitions carry no
+        learning signal for it.
+        """
+        if uid not in self.possible_agents:
+            raise ValueError(f"Unknown agent: {uid}")
+        if not self._rnn:
+            raise NotImplementedError("training envs are only supported by the recurrent update")
+        mask = torch.as_tensor(mask, device=self.device).reshape(-1).bool()
+        if mask.numel() != self.memories[uid].num_envs:
+            raise ValueError(f"mask covers {mask.numel()} envs, the memory has {self.memories[uid].num_envs}")
+        if not mask.any():
+            raise ValueError(f"{uid} would train on no env")
+        self._training_envs[uid] = mask.nonzero(as_tuple=False).reshape(-1)
 
     def _trainable_agents(self) -> list[str]:
         return [uid for uid in self.possible_agents if uid not in self._frozen_agents]
@@ -380,6 +414,7 @@ class RecurrentMAPPO(MAPPO):
                 value.train(True)
             last_values = self._value_preprocessor[uid](last_values, inverse=True)
 
+            envs = self._training_envs.get(uid)  # None: every env trains this role
             values = memory.get_tensor_by_name("values")
             returns, advantages = _compute_gae(
                 rewards=memory.get_tensor_by_name("rewards"),
@@ -388,13 +423,18 @@ class RecurrentMAPPO(MAPPO):
                 last_values=last_values,
                 discount_factor=self._discount_factor[uid],
                 lambda_coefficient=self._lambda[uid],
+                envs=envs,
             )
+            scored_returns = returns if envs is None else returns[:, envs]
+            scored_values = values if envs is None else values[:, envs]
 
             # Raw (unnormalized) targets show whether the value normalizer's running
             # statistics still match the return scale the critic has to fit.
-            self.track_data(f"Diagnostics / Raw return mean ({uid})", float(returns.mean().item()))
-            self.track_data(f"Diagnostics / Raw return std ({uid})", float(returns.std().item()))
-            self.track_data(f"Diagnostics / Value explained variance ({uid})", _explained_variance(returns, values))
+            self.track_data(f"Diagnostics / Raw return mean ({uid})", float(scored_returns.mean().item()))
+            self.track_data(f"Diagnostics / Raw return std ({uid})", float(scored_returns.std().item()))
+            self.track_data(
+                f"Diagnostics / Value explained variance ({uid})", _explained_variance(scored_returns, scored_values)
+            )
             running_variance = getattr(self._value_preprocessor[uid], "running_variance", None)
             if running_variance is not None:
                 self.track_data(
@@ -402,8 +442,15 @@ class RecurrentMAPPO(MAPPO):
                     float(running_variance.sqrt().item()),
                 )
 
-            memory.set_tensor_by_name("values", self._value_preprocessor[uid](values, train=True))
-            memory.set_tensor_by_name("returns", self._value_preprocessor[uid](returns, train=True))
+            if envs is None:
+                memory.set_tensor_by_name("values", self._value_preprocessor[uid](values, train=True))
+                memory.set_tensor_by_name("returns", self._value_preprocessor[uid](returns, train=True))
+            else:
+                # Running statistics from the training envs only, in the same order; all envs are normalized.
+                self._value_preprocessor[uid](values[:, envs], train=True)
+                memory.set_tensor_by_name("values", self._value_preprocessor[uid](values))
+                self._value_preprocessor[uid](returns[:, envs], train=True)
+                memory.set_tensor_by_name("returns", self._value_preprocessor[uid](returns))
             memory.set_tensor_by_name("advantages", advantages)
 
             if self._uid_squashed.get(uid, False):
@@ -422,8 +469,7 @@ class RecurrentMAPPO(MAPPO):
                     float(torch.abs(rollout_pre_tanh).max().item()),
                 )
 
-            env_indices = torch.randperm(memory.num_envs, device=self.device)
-            env_batches = torch.chunk(env_indices, self._mini_batches[uid])
+            env_batches = _env_minibatches(memory.num_envs, self._mini_batches[uid], envs, self.device)
 
             cumulative_policy_loss = 0.0
             cumulative_entropy_loss = 0.0

@@ -132,6 +132,11 @@ class Uav3v1Env(DirectMARLEnv):
 
         # Scripted ghost predators (see Uav3v1EnvCfg.ghost_predators); inert when off.
         self._ghosts = bool(cfg.ghost_predators)
+        # Mixed rollouts (ghost_env_fraction): the first envs get ghosts, the rest real predators.
+        n_ghost_envs = N if self._ghosts else int(round(float(cfg.ghost_env_fraction) * N))
+        self._ghost_env = torch.arange(N, device=self.device) < n_ghost_envs
+        self._ghost_env_ids = self._ghost_env.nonzero(as_tuple=False).reshape(-1)
+        self._ghosts_mixed = not self._ghosts and n_ghost_envs > 0
         self._ghost_velocity = torch.zeros(N, P, 3, device=self.device)
         self._ghost_speed = torch.full((N,), float(cfg.ghost_max_speed), device=self.device)
         lead_times = cfg.ghost_lead_times
@@ -243,6 +248,11 @@ class Uav3v1Env(DirectMARLEnv):
 
         return pred_x, pred_y, prey_x, prey_y
 
+    @property
+    def ghost_env_mask(self) -> torch.Tensor:
+        """(N,) bool: envs whose predators are scripted ghosts (all with ghost_predators, a share with ghost_env_fraction)."""
+        return self._ghost_env
+
     def _setup_scene(self):
         self._predators: list[Articulation] = []
         for i in range(self.cfg.num_predators):
@@ -341,6 +351,28 @@ class Uav3v1Env(DirectMARLEnv):
             )
             self._pred_thrust[:, :, 0, 2] = self._robot_weight
             self._pred_moment.zero_()
+        elif self._ghosts_mixed:
+            # The same pursuit law, only in the ghost envs; the other envs' predators fly their actions.
+            ids = self._ghost_env_ids
+            origins = self._terrain.env_origins[ids]
+            pred_pos = torch.stack([p.data.root_pos_w[ids] for p in self._predators], dim=1) - origins[:, None, :]
+            self._ghost_velocity[ids] = ghost_pursuit_velocity(
+                pred_pos,
+                self._ghost_velocity[ids],
+                self._prey.data.root_pos_w[ids] - origins,
+                self._prey.data.root_lin_vel_w[ids],
+                self._ghost_lead_times,
+                max_speed=(
+                    self._ghost_speed[ids, None, None]
+                    if self.cfg.ghost_max_speed_range is not None
+                    else self.cfg.ghost_max_speed
+                ),
+                max_accel=self.cfg.ghost_max_accel,
+                dt=self.step_dt,
+                min_aim_height=self.cfg.ghost_min_aim_height,
+            )
+            self._pred_thrust[ids, :, 0, 2] = self._robot_weight
+            self._pred_moment[ids] = 0.0
 
         # Prey
         prey_raw_actions = actions["prey"]
@@ -375,6 +407,13 @@ class Uav3v1Env(DirectMARLEnv):
             no_rotation = torch.zeros_like(self._ghost_velocity[:, 0])
             for i, pred in enumerate(self._predators):
                 pred.write_root_link_velocity_to_sim(torch.cat((self._ghost_velocity[:, i], no_rotation), dim=-1))
+        elif self._ghosts_mixed:
+            ids = self._ghost_env_ids
+            no_rotation = torch.zeros_like(self._ghost_velocity[ids, 0])
+            for i, pred in enumerate(self._predators):
+                pred.write_root_link_velocity_to_sim(
+                    torch.cat((self._ghost_velocity[ids, i], no_rotation), dim=-1), env_ids=ids
+                )
 
     def _compute_intermediate_values(self) -> None:
         """Update state-derived caches used by dones, rewards and observations."""
@@ -438,6 +477,8 @@ class Uav3v1Env(DirectMARLEnv):
         if self._ghosts:
             # Ghosts never crash: they fly through pillars and stay active for the whole episode.
             pred_oob_now = torch.zeros_like(pred_oob_now)
+        elif self._ghosts_mixed:
+            pred_oob_now = pred_oob_now & ~self._ghost_env[:, None]
         self._pred_newly_oob[:] = pred_oob_now & self._pred_alive
         self._pred_alive[:] = self._pred_alive & (~pred_oob_now)
         self._pred_oob[:] = ~self._pred_alive
@@ -1054,6 +1095,18 @@ class Uav3v1Env(DirectMARLEnv):
         ).mean()
         for i in range(self._P):
             self.extras["log"][f"Metrics/predator_{i}_oob_rate"] = self._episode_pred_oob_by_agent[env_ids, i].mean()
+        if self._ghosts_mixed:
+            # Mixed rollouts: the main outcomes once more, separately for ghost and real-predator episodes.
+            ghost = self._ghost_env[env_ids]
+            for name, values in (
+                ("catch_rate", self._episode_catches[env_ids]),
+                ("prey_obstacle_crash_rate", self._episode_prey_obstacle_crash[env_ids]),
+                ("predator_obstacle_crash_rate", self._episode_pred_obstacle_crash[env_ids]),
+                ("episode_length", episode_lengths),
+            ):
+                for group, selected in (("ghost_envs", ghost), ("real_envs", ~ghost)):
+                    if selected.any():
+                        self.extras["log"][f"Metrics/{group}/{name}"] = values[selected].mean()
         if self._K > 0:
             # Subsets of the OOB rates above that were caused by pillars.
             self.extras["log"]["Metrics/predator_obstacle_crash_rate"] = self._episode_pred_obstacle_crash[env_ids].mean()
@@ -1082,7 +1135,7 @@ class Uav3v1Env(DirectMARLEnv):
         self._pred_oob[env_ids] = False
         self._pred_newly_oob[env_ids] = False
         self._ghost_velocity[env_ids] = 0.0
-        if self._ghosts and self.cfg.ghost_max_speed_range is not None:
+        if (self._ghosts or self._ghosts_mixed) and self.cfg.ghost_max_speed_range is not None:
             # A new ghost speed per episode: fast ghosts punish slowing down, slow ones keep episodes winnable.
             low, high = self.cfg.ghost_max_speed_range
             self._ghost_speed[env_ids] = low + (high - low) * torch.rand(len(env_ids), device=self.device)
