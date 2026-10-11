@@ -136,6 +136,18 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "ghost-v8-c8"
+title = "Best prey so far (v8 C8) vs the start predator"
+note = "Ghost stage v8, arm C8: G6's prey trained on against slow ghosts among 8 pillars, with a crash costing more than being caught (-300 vs -200) and no attention block. It avoids pillars by perception even in this dense layout (ablation ratio 1.43) and crashes least on the 4-pillar yardstick (0.057/s); the price is more catches. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-10_prey_ghost_stage_v8_block_x_crash_cost/probe/C8_dense_traj.npz"
+
+[[replay]]
+id = "ghost-v8-b8"
+title = "Prey with the attention block at crash cost -300 (v8 B8) vs the start predator"
+note = "Ghost stage v8, arm B8: same as C8 but with the multi-head attention block. Training degraded and then switched abruptly to flying at about 8 m/s, which works against ghosts but fails against real predators (dense crash hazard 0.68/s). Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-10_prey_ghost_stage_v8_block_x_crash_cost/probe/B8_dense_traj.npz"
+
+[[replay]]
 id = "ghost-v7-block"
 title = "Prey with multi-head pillar attention (v7) vs the start predator"
 note = "Ghost stage v7: G6's prey with the new multi-head obstacle attention, 9600 more updates against slow ghosts among 8 pillars. Two heads find the pillar about to be hit (4x chance), but training drifted: the prey flies faster through the pillar zone, and the real predator catches it about 3x as often as G6. Dense layout, both crashed-drone masks on."

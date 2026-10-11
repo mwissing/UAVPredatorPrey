@@ -517,7 +517,7 @@ are those of the predator (higher = better predator, lower = better prey).
 - The exploration floor (-1.0) and the crashed-drone masks remain explicit
   run flags.
 
-## 2026-10-10/11: Prey ghost stage v8, block x crash cost (pre-registered, overnight)
+## 2026-10-10/11: Prey ghost stage v8, block x crash cost (pre-registered)
 
 - A 2x2 from G6, all arms with seed 45 like B7:
   - block yes/no;
@@ -534,3 +534,25 @@ are those of the predator (higher = better predator, lower = better prey).
   4-pillar catch hazard is <= 1.2x. It hurts if dense crashes are >= 1.15x,
   or a 4-pillar hazard is > 1.2x.
 - Evidence: `artifacts/isaac/experiments/2026-10-10_prey_ghost_stage_v8_block_x_crash_cost/`.
+- Result: **the block hurts in both pairs, so self-play goes without the
+  block, and B7's degradation comes from the block.** End values against the
+  start predator:
+  - -300, B8 vs C8: dense crash 0.532 vs 0.347/s, 4-pillar crash 0.126 vs
+    0.059, 4-pillar catch 0.294 vs 0.101.
+  - -200, B7 vs C7: 4-pillar crash 0.219 vs 0.097, 4-pillar catch 0.227 vs
+    0.065.
+- Training: the no-block arms improve smoothly (C8 return -86 -> -53). B8
+  declined to -153 and then switched abruptly to flying at about 8 m/s. That
+  works against ghosts and fails against real predators. The block's
+  attention still found the dangerous pillar (best head 0.56, 82% argmax),
+  so the module works, but grafting it onto a trained network at a 30x
+  learning rate destabilizes PPO.
+- Crash cost -300 vs -200 without the block (C8 vs C7):
+  - crashes 0.57-0.68x, catches 1.2-1.5x;
+  - perception much stronger: dense ratio 1.43 vs 0.97, 4-pillar ratio
+    3.59 vs 1.97.
+- **C8 is the best prey so far:**
+  - dense perception at last: ratio 1.41 and 1.46 at the last two
+    checkpoints;
+  - 4-pillar yardstick crash hazard 0.057/s (G6 0.118, v1 G 0.147);
+  - the price is more catches (4-pillar 0.101 vs 0.072/s).
