@@ -136,6 +136,12 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "selfplay-dense-final"
+title = "Dense self-play, final pair (own matchup)"
+note = "Five self-play cycles from the reference predator and C8, 8 pillars up to the wall, a third of the prey's updates as ghost rehearsal. The predators learned to avoid pillars by perception (+41% crashes without their branch) and chase around pillars; the prey moves outward and uses pillars as cover, but crashes head-on into pillars more often under pressure. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-11_selfplay_dense_c8/evals/final_own.npz"
+
+[[replay]]
 id = "ghost-v8-c8"
 title = "Best prey so far (v8 C8) vs the start predator"
 note = "Ghost stage v8, arm C8: G6's prey trained on against slow ghosts among 8 pillars, with a crash costing more than being caught (-300 vs -200) and no attention block. It avoids pillars by perception even in this dense layout (ablation ratio 1.43) and crashes least on the 4-pillar yardstick (0.057/s); the price is more catches. Both crashed-drone masks on."

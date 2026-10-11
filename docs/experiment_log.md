@@ -556,3 +556,32 @@ are those of the predator (higher = better predator, lower = better prey).
     checkpoints;
   - 4-pillar yardstick crash hazard 0.057/s (G6 0.118, v1 G 0.147);
   - the price is more catches (4-pillar 0.101 vs 0.072/s).
+
+## 2026-10-11: Self-play in the dense layout from C8 (pre-registered)
+
+- Setup:
+  - start: the reference predator (8-slot) and v8's C8 prey, no block;
+  - crashed-drone masks in training; prey crash -300, predator -600;
+  - 5 cycles of 2400 joint plus 1200 prey rehearsal updates (3.5 m/s
+    ghosts, a third of the prey's updates).
+- Pre-registered decision: criteria 1-3 fail, 4 passes (mean of cycles 4
+  and 5). By the rule, the prey loses perception under self-play; next, mix
+  ghost and real-predator episodes within each rollout.
+- Nuances:
+  - Speed fails only because of a carried-over threshold (3.66 -> 3.69 m/s,
+    no slowdown; note in the plan).
+  - The predator gained dense perception: ratio 1.09 -> 1.18 (peak 1.36),
+    crash hazard -29%, and +41% crashes in its own matchup when its branch
+    is zeroed.
+  - The prey kept part of its perception against the fixed opponent (1.46
+    -> 1.14; 4-pillar 3.52 -> 2.67) instead of collapsing as in the earlier
+    self-play (0.71). It does not use it against its real opponents: in the
+    own matchup, zeroing its branch changes crashes by -7%.
+  - Its own-matchup pillar crashes grew 25%; 93% are head-on with no
+    pursuer within 1.5 m in 77%, so they are avoidable.
+- Strategy:
+  - predators crash less (0.47 -> 0.29 per episode) and chase around
+    pillars;
+  - the prey moves outward, uses pillars as cover more often (occluded
+    escapes 17% -> 24%), and is caught more often near the wall.
+- Evidence: `artifacts/isaac/experiments/2026-10-11_selfplay_dense_c8/`.
