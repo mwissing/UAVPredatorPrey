@@ -585,3 +585,25 @@ are those of the predator (higher = better predator, lower = better prey).
   - the prey moves outward, uses pillars as cover more often (occluded
     escapes 17% -> 24%), and is caught more often near the wall.
 - Evidence: `artifacts/isaac/experiments/2026-10-11_selfplay_dense_c8/`.
+
+## 2026-10-11/12: Mixed ghost rollouts (pre-registered, overnight)
+
+- The dense self-play's pre-registered next step. Code 252779f:
+  - `env.ghost_env_fraction` gives a share of the envs 3.5 m/s ghost
+    predators (here a third);
+  - `RecurrentMAPPO.set_training_envs` trains the predator only on the
+    real-predator envs: advantage normalization, value-normalizer
+    statistics, minibatches;
+  - training metrics per env group.
+- Checks:
+  - no ghosts and all ghosts reproduce their evaluations bit-exactly;
+  - with half ghosts, ghost predators never crash and stay at 3.5 m/s;
+  - smoke run: the predator trains on 2731 of 4096 envs.
+- Design: the same start pair as the phase-wise run. One continuous run of
+  28,800 updates, evaluated every 3600. The decision is at 18,000 updates,
+  the phase-wise budget.
+- The prey must reach a ratio >= 1.2, dense and 4-pillar, and use its
+  perception in the own matchup (ablation ratio >= 1.1; phase-wise 0.93).
+  Guards: predator own-matchup ratio >= 1.2, catch rate 0.3-0.7, speed
+  >= 3.3 m/s (0.9x the start value).
+- Evidence: `artifacts/isaac/experiments/2026-10-11_mixed_ghost_rollouts/`.
