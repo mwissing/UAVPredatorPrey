@@ -705,3 +705,7 @@ are those of the predator (higher = better predator, lower = better prey).
   (PLAN.md with the tree) and the branch folders
   `2026-10-13_predator_stage_gamma998`, `2026-10-13_selfplay_gamma995`, and
   `2026-10-13_selfplay_gamma998`.
+- Result, gamma 0.995: **does not pass.** Time-outs 0.070 -> 0.063, catch
+  rate 0.661 -> 0.669. The predator's pillar perception grew (own ratio
+  1.24 -> 1.41), but in long episodes it still flies at about 1.2 m/s about
+  6 m away. By the tree, the gamma 0.998 stage started at 23:56.
