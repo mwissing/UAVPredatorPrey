@@ -684,3 +684,24 @@ are those of the predator (higher = better predator, lower = better prey).
   -250).
 - Evidence: `artifacts/isaac/experiments/2026-10-12_predator_stage_wall10/`
   and `.../2026-10-12_selfplay_after_predator_stage/`.
+- Result of part 1 (gamma 0.99): **does not pass.** Time-outs fell only
+  0.070 -> 0.051, the catch rate rose only 0.661 -> 0.672, losses went
+  0.27 -> 0.23, and the predator ratio is 1.20. In long episodes the
+  predators stay slow (1.1 m/s) and far (6 m). The chain stopped.
+- Explanation: the horizon. At 50 Hz, gamma 0.99 gives about 2 s; a catch
+  4 s ahead counts 13%. The pursuit shaping is range-independent here, so it
+  is not the cause.
+
+## 2026-10-12/13: Horizon test, gamma 0.995 / 0.998 (pre-registered decision tree)
+
+- The predator stage is repeated with gamma 0.995 (about 4 s horizon). Its
+  design and criteria are identical; only gamma changes.
+- Pre-registered tree:
+  - pass: mixed self-play with gamma 0.995;
+  - fail: a stage with gamma 0.998 (about 10 s); if it passes, self-play
+    with gamma 0.998; if it fails, stop.
+- The three stages form a dose-response test of the horizon hypothesis.
+- Evidence: `artifacts/isaac/experiments/2026-10-12_predator_stage_gamma995/`
+  (PLAN.md with the tree) and the branch folders
+  `2026-10-13_predator_stage_gamma998`, `2026-10-13_selfplay_gamma995`, and
+  `2026-10-13_selfplay_gamma998`.
