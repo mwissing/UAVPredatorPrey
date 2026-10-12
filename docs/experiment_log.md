@@ -660,3 +660,27 @@ are those of the predator (higher = better predator, lower = better prey).
 - The slowdown appears in both layouts (0.79x with 8 pillars, 0.72x here),
   so it is driven by the incentives: under crash -300 vs caught -200, fewer
   crashes for more catches pays.
+
+## 2026-10-12: Predator skill stage against the waiting prey, then self-play (pre-registered)
+
+- The user saw it in the video: the prey waits at one side and circles, and
+  the predators crash often. The user judged the predators not good enough.
+- The episode anatomy of the wall-pillar run's final own matchup agrees:
+  - most episodes (63%) end within 2 s, mostly with a catch;
+  - in the 14% that last 5 s or more, the predators lose 0.88 drones to
+    pillars, fly at 1.1 m/s, and stay 6.6 m away;
+  - 52% of those end by time-out.
+- Part 1, the predator stage: only the predator trains (9600 updates)
+  against the frozen waiting prey, in the 10-pillar layout. It passes if:
+  - time-outs fall to <= 0.5x;
+  - the catch rate rises by >= 0.05;
+  - predator losses stay <= 1.2x;
+  - the predator's own-matchup ratio is >= 1.2.
+- Part 2, chained only if part 1 passes: mixed self-play from the stage's
+  final pair, 28,800 updates, decision at 18,000. Criteria as in the
+  wall-pillar run: the prey must keep flying (>= 0.9x its start speed) and
+  use perception (own ratio >= 1.1, fixed-opponent ratio >= 1.2). If the
+  prey still turns passive, next is the prepared crash-cost test (prey
+  -250).
+- Evidence: `artifacts/isaac/experiments/2026-10-12_predator_stage_wall10/`
+  and `.../2026-10-12_selfplay_after_predator_stage/`.
