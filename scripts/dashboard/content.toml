@@ -136,6 +136,12 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "wall-pillars-final"
+title = "Mixed self-play with pillars up to the wall, final pair (own matchup)"
+note = "18,000 updates of mixed self-play with 10 pillars spread up to the arena wall. Both roles now avoid pillars by perception against each other (own-matchup ratios 1.14 and 1.24) and the predators intercept and catch more (catch rate 0.66), but the prey still slows down (2.55 m/s) and keeps its distance. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-12_mixed_wall_pillars10/evals/point5_own.npz"
+
+[[replay]]
 id = "mixed-ghost-final"
 title = "Mixed-ghost self-play, final pair (own matchup)"
 note = "28,800 updates of self-play with a third of the envs running ghost predators in every update. The prey kept its pillar perception against the fixed opponent far better than with phase-wise rehearsal, but the pair settled into a cautious game: the prey flies slowly along the wall, where pillars are rarest, and the predators wait and catch it there (90% of catches at r > 4 m). Both crashed-drone masks on."

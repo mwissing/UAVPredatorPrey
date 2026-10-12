@@ -646,3 +646,17 @@ are those of the predator (higher = better predator, lower = better prey).
   Guards: catch rate 0.3-0.7, predator own-matchup ratio >= 1.2.
   Otherwise, next: the crash-cost lever (prey -250).
 - Evidence: `artifacts/isaac/experiments/2026-10-12_mixed_wall_pillars10/`.
+- Result: criteria 1, 4, and 5 pass; 2 and 3 fail. By the rule, the
+  cautious equilibrium is not only a layout effect; next is the crash-cost
+  lever (prey -250).
+- What the wall pillars fixed: no pillar-free refuge, so both roles now use
+  perception against their real opponents (own-matchup ratios: prey 0.88
+  -> 1.14, predator 0.98 -> 1.24). The predators intercept more and catch
+  more (catch rate 0.50 -> 0.66).
+- What they did not fix: the prey still slows down (3.53 -> 2.55 m/s,
+  0.72x), keeps its distance (nearest predator 2.3 -> 4.0 m), and is caught
+  at the wall (85%). At that speed the 3.5 m/s ghosts catch it more often
+  (0.033 -> 0.159/s).
+- The slowdown appears in both layouts (0.79x with 8 pillars, 0.72x here),
+  so it is driven by the incentives: under crash -300 vs caught -200, fewer
+  crashes for more catches pays.
