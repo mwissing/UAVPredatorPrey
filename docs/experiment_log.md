@@ -626,3 +626,23 @@ are those of the predator (higher = better predator, lower = better prey).
 - Next: a design decision on incentives and geometry, without
   strategy-encoding rewards. Options: remove the pillar-poor wall ring
   (layout) or lower the prey crash cost (for example -250).
+
+## 2026-10-12: Mixed self-play with pillars up to the wall (pre-registered)
+
+- User decision: remove the pillar-poor wall ring behind the cautious
+  equilibrium, keep mixed rollouts.
+- Code d933b12: task `...-obstacles10-v0`, 10 pillar axes over the whole
+  5 m arena disk (density 0.127 vs 0.120 per m^2). Checks:
+  - the expanded start pair with 8 active pillars at radius 4.6 reproduces
+    the 8-pillar evaluation bit-exactly;
+  - the axes reach 5.0 m, with the outer ring slightly denser than a
+    uniform disk.
+- Design: the same start pair and mixed setup as the night run; 18,000
+  updates, decision at the end.
+- The wall ring caused the equilibrium if, at point 5:
+  - the prey's own-matchup ablation ratio is >= 1.1 (mixed: 1.01);
+  - its own-matchup speed is >= 0.9x its start speed (mixed: 0.79x);
+  - its ratio against the fixed opponent is >= 1.2.
+  Guards: catch rate 0.3-0.7, predator own-matchup ratio >= 1.2.
+  Otherwise, next: the crash-cost lever (prey -250).
+- Evidence: `artifacts/isaac/experiments/2026-10-12_mixed_wall_pillars10/`.
