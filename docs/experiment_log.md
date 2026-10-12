@@ -586,7 +586,7 @@ are those of the predator (higher = better predator, lower = better prey).
     escapes 17% -> 24%), and is caught more often near the wall.
 - Evidence: `artifacts/isaac/experiments/2026-10-11_selfplay_dense_c8/`.
 
-## 2026-10-11/12: Mixed ghost rollouts (pre-registered, overnight)
+## 2026-10-11/12: Mixed ghost rollouts (pre-registered)
 
 - The dense self-play's pre-registered next step. Code 252779f:
   - `env.ghost_env_fraction` gives a share of the envs 3.5 m/s ghost
@@ -607,3 +607,22 @@ are those of the predator (higher = better predator, lower = better prey).
   Guards: predator own-matchup ratio >= 1.2, catch rate 0.3-0.7, speed
   >= 3.3 m/s (0.9x the start value).
 - Evidence: `artifacts/isaac/experiments/2026-10-11_mixed_ghost_rollouts/`.
+- Result (18,000 updates): criteria 1 and 4 pass; 2, 3, and 5 fail. By the
+  rule, mixing alone does not protect the prey's perception against real
+  opponents.
+- Against the fixed opponent, mixing protects the prey's perception much
+  better than phases (ratio 1.66 / 4.01 vs 1.14 / 2.67). Own-matchup
+  crashes fall by more than half for both roles.
+- In the own matchup, however, self-play settled into a cautious
+  equilibrium (point 0 -> 8):
+  - the prey flies slowly along the wall (median radius 3.6 -> 4.6 m; speed
+    3.66 -> 2.69 m/s; time in the pillar zone 62% -> 29%);
+  - the predators keep their distance (2.3 -> 4.1 m) and catch it at the
+    wall (90% of catches at r > 4 m).
+  So the prey's perception matters little against its real opponents
+  (own-matchup ablation 1.10 -> 1.01 -> 0.76).
+- Points 6-8 deepen the passivity. Against the start predator, perception
+  declines (dense 1.56 -> 1.24) and catches rise.
+- Next: a design decision on incentives and geometry, without
+  strategy-encoding rewards. Options: remove the pillar-poor wall ring
+  (layout) or lower the prey crash cost (for example -250).
