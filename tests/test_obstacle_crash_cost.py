@@ -58,6 +58,7 @@ def test_only_obstacle_tasks_raise_the_crash_costs() -> None:
     assert obstacle_tasks == {
         "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg",
         "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstacles8EnvCfg",
+        "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstacles10EnvCfg",
     }
     for name, f in fields.items():
         if name in obstacle_tasks:

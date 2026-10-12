@@ -375,6 +375,24 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstacles8EnvCfg(
 
 
 @configclass
+class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstacles10EnvCfg(
+    Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg
+):
+    """Pillars up to the soft wall: 10 slots with axes uniform over the whole 5 m arena disk.
+
+    With axes up to 4.6 m (8 pillars), a drone flying along the wall meets only the pillars of the outer ring,
+    and self-play settled on a slow prey at the wall (mixed ghost rollouts, 2026-10-11). Here the wall ring is as
+    dense as the interior; 10 pillars over the 5 m disk keep about the 8-pillar density (0.127 vs 0.120 per m^2).
+    Checkpoints are expanded from 8 slots with scripts/expand_checkpoint_obstacles.py --from-obstacles 8.
+    """
+
+    num_obstacles = 10
+    obstacle_placement_radius = 5.0
+    observation_spaces = {"predator": 90 + 3 * 10 * 4, "prey": 30 + 10 * 4}
+    state_space = 120 + 3 * 10 * 4 + 10 * 4
+
+
+@configclass
 class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressSpeedMarginEnvCfg(
     Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressEnvCfg
 ):

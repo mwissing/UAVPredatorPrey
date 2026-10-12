@@ -293,3 +293,18 @@ gym.register(
         ),
     },
 )
+
+gym.register(
+    id="3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-obstacles10-v0",
+    entry_point=f"{__name__}.uav_3v1_env:Uav3v1Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.uav_3v1_env_cfg:"
+            "Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstacles10EnvCfg"
+        ),
+        "skrl_mappo_attention_critic_prey_attention_large_gru_obstacles10_cfg_entry_point": (
+            f"{agents.__name__}:skrl_mappo_attention_critic_prey_attention_large_gru_obstacles10_cfg.yaml"
+        ),
+    },
+)
