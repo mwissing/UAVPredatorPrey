@@ -735,3 +735,12 @@ are those of the predator (higher = better predator, lower = better prey).
   If it fails: stop, and decide together.
 - Evidence: `artifacts/isaac/experiments/2026-10-13_predator_stage_noprogress/`
   and `.../2026-10-13_selfplay_noprogress/`.
+- Result: **does not pass** (time-outs 0.060, catch rate 0.688). The chain
+  stopped. Neither the horizon nor the progress shaping is the bottleneck.
+- Shield geometry in long episodes: the prey circles its shield pillar
+  (within 1 m 35-38% of the time, about 0.8 rad/s). Two predators flank
+  that pillar (> 120 deg apart) in only 1-2% of frames, and in 0-4% of
+  long-episode catches. The missing skill is a pincer around the pillar, a
+  multi-agent coordination problem.
+- Next (user decision): an end-game curriculum with shield start
+  situations, without a pincer reward.
