@@ -720,3 +720,18 @@ are those of the predator (higher = better predator, lower = better prey).
 - Probable contributing cause: the Euclidean distance-progress shaping
   penalizes detours. Levers (user decision): no predator progress shaping
   (config A/B), path-distance progress (code), or a blocked-line curriculum.
+
+## 2026-10-13: Predator stage without progress shaping, then self-play (pre-registered)
+
+- User approval: "ok do continue as recommended".
+- Test of the shaping-trap hypothesis: the same stage as gamma 0.998, but
+  `predator_distance_progress_reward_scale` 0 instead of 2.0 (proximity was
+  already 0). The predator learns from catches, crash costs, and the
+  generic flight terms only.
+- Criteria as in the earlier stages. Mechanism reported: long-episode
+  closing speed, distance, and blocked-line losses.
+- If it passes: mixed self-play without progress shaping (gamma 0.998,
+  18,000 updates, criteria of the wall-pillar run), started automatically.
+  If it fails: stop, and decide together.
+- Evidence: `artifacts/isaac/experiments/2026-10-13_predator_stage_noprogress/`
+  and `.../2026-10-13_selfplay_noprogress/`.
