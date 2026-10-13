@@ -178,6 +178,12 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     obstacle_min_axis_separation = 1.6    # [m] between pillar axes, so drones can pass between pillars
     obstacle_spawn_clearance = 0.5        # [m] min gap between a pillar surface and any spawning drone
     obstacle_collision_margin = 0.06      # [m] drone body radius
+    # End-game curriculum (shield starts): this share of episodes starts with the predators at a random distance and
+    # bearing around the prey and a pillar right next to the prey, the situation in which the predators never learned
+    # to flank a prey that circles a pillar (2026-10-13). Start states only, no reward. 0 = off.
+    shield_start_fraction = 0.0
+    shield_start_gap = (0.3, 0.8)                 # [m] prey to shield-pillar surface
+    shield_start_predator_distance = (3.0, 6.0)   # [m] predators from the prey
     obstacle_feature_scale = 5.0          # [m] observation scale
     obstacle_soft_margin = 0.5            # [m] clearance band with a quadratic keep-out cost
     obstacle_soft_penalty_scale = 0.0     # 0 = off; cost = scale * (margin - clearance)^2 * dt (like the soft arena wall)

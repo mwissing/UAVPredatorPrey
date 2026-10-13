@@ -20,6 +20,8 @@ from .obstacles import (
     PARKED_DISTANCE,
     axis_offsets_world,
     sample_obstacle_xy,
+    shield_pillar_xy,
+    shield_predator_xy,
     soft_clearance_penalty,
     surface_distance,
 )
@@ -1156,6 +1158,21 @@ class Uav3v1Env(DirectMARLEnv):
             pred_spawn_z = torch.full((n, self._P), self.cfg.target_height, device=self.device)
             prey_spawn_z = torch.full((n,), self.cfg.prey_spawn_pos[2], device=self.device)
 
+        shield = None
+        if self._K > 0 and self.cfg.shield_start_fraction > 0.0:
+            # Shield starts (end-game curriculum): predators around the prey; its pillar is placed below.
+            shield = torch.rand(n, device=self.device) < self.cfg.shield_start_fraction
+            pred_xy = torch.stack((pred_spawn_x, pred_spawn_y), dim=-1)
+            around = shield_predator_xy(
+                torch.stack((prey_spawn_x, prey_spawn_y), dim=-1),
+                pred_xy,
+                distance_range=self.cfg.shield_start_predator_distance,
+                spawn_radius=self.cfg.arena_radius * self.cfg.random_spawn_radius_fraction,
+                min_separation=self.cfg.random_spawn_min_predator_distance,
+            )
+            pred_xy = torch.where(shield[:, None, None], around, pred_xy)
+            pred_spawn_x, pred_spawn_y = pred_xy[..., 0], pred_xy[..., 1]
+
         for i, pred in enumerate(self._predators):
             state = pred.data.default_root_state[env_ids].clone()
             state[:, 0] = pred_spawn_x[:, i]
@@ -1203,6 +1220,19 @@ class Uav3v1Env(DirectMARLEnv):
             origins = self._terrain.env_origins[env_ids]
             drone_xy = torch.cat((pred_pos_w[:, :, :2], prey_pos_w[:, None, :2]), dim=1) - origins[:, None, :2]
             active = self._K if self.cfg.num_active_obstacles < 0 else min(int(self.cfg.num_active_obstacles), self._K)
+            fixed = None
+            if shield is not None and active > 0:
+                # The shield pillar goes next to the prey's actual start, clear of the predators.
+                fixed = shield_pillar_xy(
+                    drone_xy[:, -1],
+                    drone_xy[:, :-1],
+                    gap_range=self.cfg.shield_start_gap,
+                    obstacle_radius=self.cfg.obstacle_radius,
+                    placement_radius=self.cfg.obstacle_placement_radius,
+                    spawn_clearance=self.cfg.obstacle_spawn_clearance,
+                )
+                fixed = torch.where(shield[:, None], fixed, torch.full_like(fixed, float("nan")))
+                self.extras["log"]["Metrics/shield_start_fraction"] = torch.isfinite(fixed).all(dim=-1).float().mean()
             obstacle_xy, parked = sample_obstacle_xy(
                 drone_xy,
                 active,
@@ -1210,6 +1240,7 @@ class Uav3v1Env(DirectMARLEnv):
                 obstacle_radius=self.cfg.obstacle_radius,
                 min_axis_separation=self.cfg.obstacle_min_axis_separation,
                 spawn_clearance=self.cfg.obstacle_spawn_clearance,
+                fixed_xy=fixed,
             )
             if active < self._K:
                 # Inactive slots stay parked; the models' presence mask ignores them.

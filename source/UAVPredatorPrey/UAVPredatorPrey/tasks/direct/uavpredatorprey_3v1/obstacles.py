@@ -24,6 +24,7 @@ def sample_obstacle_xy(
     min_axis_separation: float,
     spawn_clearance: float,
     candidates: int = 64,
+    fixed_xy: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Sample pillar axes per environment by rejection.
 
@@ -33,6 +34,8 @@ def sample_obstacle_xy(
         obstacle_radius: pillar radius.
         min_axis_separation: minimum distance between two pillar axes.
         spawn_clearance: minimum gap between a pillar surface and any spawning drone.
+        fixed_xy: optional (N, 2) axis for the first pillar (NaN rows: none), for example a shield pillar next to
+            the prey; the other pillars keep their separation from it. None leaves the sampling unchanged.
 
     Returns:
         (N, K, 2) axis positions and (N,) number of pillars that had to be parked.
@@ -55,8 +58,75 @@ def sample_obstacle_xy(
         first = torch.argmax(valid.to(torch.int8), dim=1)
         chosen = cand[torch.arange(n, device=device), first]
         placed[:, k] = torch.where(has_valid[:, None], chosen, placed[:, k])
-        parked += (~has_valid).long()
+        if k == 0 and fixed_xy is not None:
+            has_fixed = torch.isfinite(fixed_xy).all(dim=-1)
+            placed[:, 0] = torch.where(has_fixed[:, None], fixed_xy, placed[:, 0])
+            parked += (~has_valid & ~has_fixed).long()
+        else:
+            parked += (~has_valid).long()
     return placed, parked
+
+
+def shield_predator_xy(
+    prey_xy: torch.Tensor,
+    pred_xy: torch.Tensor,
+    *,
+    distance_range: tuple[float, float],
+    spawn_radius: float,
+    min_separation: float,
+    candidates: int = 64,
+) -> torch.Tensor:
+    """Predator starts around the prey for shield starts: random distance in distance_range, random bearing.
+
+    The bearings are independent, so the predators sometimes start on one side and sometimes spread out; the start
+    does not prescribe a formation. Args: prey_xy (N, 2); pred_xy (N, P, 2) the regular starts, kept for a predator
+    without a valid candidate. Returns (N, P, 2) starts inside spawn_radius and min_separation apart.
+    """
+    n, num_predators, _ = pred_xy.shape
+    device = pred_xy.device
+    out = pred_xy.clone()
+    rows = torch.arange(n, device=device)
+    for i in range(num_predators):
+        distance = distance_range[0] + (distance_range[1] - distance_range[0]) * torch.rand(n, candidates, device=device)
+        angle = 2.0 * torch.pi * torch.rand(n, candidates, device=device)
+        cand = prey_xy[:, None, :] + distance[..., None] * torch.stack((torch.cos(angle), torch.sin(angle)), dim=-1)
+        valid = torch.linalg.norm(cand, dim=-1) <= spawn_radius
+        if i > 0:
+            gap = torch.linalg.norm(cand[:, :, None, :] - out[:, None, :i, :], dim=-1)  # (N, M, i)
+            valid &= (gap >= min_separation).all(dim=-1)
+        has_valid = valid.any(dim=1)
+        chosen = cand[rows, torch.argmax(valid.to(torch.int8), dim=1)]
+        out[:, i] = torch.where(has_valid[:, None], chosen, out[:, i])
+    return out
+
+
+def shield_pillar_xy(
+    prey_xy: torch.Tensor,
+    pred_xy: torch.Tensor,
+    *,
+    gap_range: tuple[float, float],
+    obstacle_radius: float,
+    placement_radius: float,
+    spawn_clearance: float,
+    candidates: int = 64,
+) -> torch.Tensor:
+    """Axis of a shield pillar right next to the prey: surface gap in gap_range, on a random side.
+
+    Args: prey_xy (N, 2), pred_xy (N, P, 2) actual starts. Returns (N, 2) axes inside placement_radius and clear of
+    every predator by spawn_clearance; NaN rows where no candidate fits (those envs keep the regular layout).
+    """
+    n = prey_xy.shape[0]
+    device = prey_xy.device
+    gap = gap_range[0] + (gap_range[1] - gap_range[0]) * torch.rand(n, candidates, device=device)
+    angle = 2.0 * torch.pi * torch.rand(n, candidates, device=device)
+    direction = torch.stack((torch.cos(angle), torch.sin(angle)), dim=-1)
+    cand = prey_xy[:, None, :] + (obstacle_radius + gap)[..., None] * direction  # (N, M, 2)
+    valid = torch.linalg.norm(cand, dim=-1) <= placement_radius
+    pred_gap = torch.linalg.norm(cand[:, :, None, :] - pred_xy[:, None, :, :], dim=-1)  # (N, M, P)
+    valid &= (pred_gap >= obstacle_radius + spawn_clearance).all(dim=-1)
+    has_valid = valid.any(dim=1)
+    chosen = cand[torch.arange(n, device=device), torch.argmax(valid.to(torch.int8), dim=1)]
+    return torch.where(has_valid[:, None], chosen, torch.full_like(chosen, float("nan")))
 
 
 def surface_distance(points_xy: torch.Tensor, obstacle_xy: torch.Tensor, obstacle_radius: float) -> torch.Tensor:
