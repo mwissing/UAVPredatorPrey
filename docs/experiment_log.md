@@ -709,3 +709,14 @@ are those of the predator (higher = better predator, lower = better prey).
   rate 0.661 -> 0.669. The predator's pillar perception grew (own ratio
   1.24 -> 1.41), but in long episodes it still flies at about 1.2 m/s about
   6 m away. By the tree, the gamma 0.998 stage started at 23:56.
+- Result, gamma 0.998: **does not pass.** Time-outs 0.054, catch rate
+  0.690 (+0.029). The chain stopped (branch 2b).
+- Dose-response over gamma 0.99 / 0.995 / 0.998: no effect on the long
+  game, so **the horizon is not the bottleneck.**
+- At every horizon the long episodes show the pillar shield: the line to the
+  prey is blocked 53-56% of the time, the predators do not approach
+  (closing speed about 0, 6.3-6.7 m away), and 70-84% of their losses happen
+  with the line blocked. They pursue only directly, never around a pillar.
+- Probable contributing cause: the Euclidean distance-progress shaping
+  penalizes detours. Levers (user decision): no predator progress shaping
+  (config A/B), path-distance progress (code), or a blocked-line curriculum.
