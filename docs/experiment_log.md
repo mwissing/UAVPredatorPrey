@@ -763,3 +763,16 @@ are those of the predator (higher = better predator, lower = better prey).
   follows automatically (18,000 updates).
 - Evidence: `artifacts/isaac/experiments/2026-10-13_predator_stage_shield/`
   and `.../2026-10-13_selfplay_shield/`.
+- Result: **does not pass.** Regular starts: time-outs 0.075, catch rate
+  0.636 (start 0.661). Shield starts: catch 0.326 -> 0.306, pincer share
+  unchanged at 2%. The predators crash less (hazard -28%, ratio 1.40) but
+  do not learn to flank or approach.
+- Five predator stages, one pattern: the predators get safer, not more
+  effective at the end game.
+- Hypothesis: a skill trap. With -600 per drone (-200 for the team, as much
+  as a catch), approaching a pillar-adjacent prey has negative expected
+  value as long as their catch chance there is low, so they never practice
+  it.
+- Candidate next steps (user decision): a predator crash-cost curriculum
+  (lower cost in shield starts, then restore), or accept the end-game
+  exploit and move on.
