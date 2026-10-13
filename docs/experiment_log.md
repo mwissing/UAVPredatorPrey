@@ -744,3 +744,22 @@ are those of the predator (higher = better predator, lower = better prey).
   multi-agent coordination problem.
 - Next (user decision): an end-game curriculum with shield start
   situations, without a pincer reward.
+
+## 2026-10-13: Shield starts, an end-game curriculum for the predators (pre-registered)
+
+- User approval: "ok do that".
+- Code ea86aac: `shield_start_fraction`. That share of episodes starts with:
+  - the predators at a random distance (3-6 m) and an independent bearing
+    around the prey, so no formation is prescribed;
+  - a pillar right next to the prey (surface gap 0.3-0.8 m).
+  Only the start states change, not the reward. Shield starts off is
+  bit-exact; the geometry was checked live; 4 tests.
+- In pure shield starts the start pair gives catch 0.326, prey crash 0.549,
+  time-out 0.114.
+- Stage: identical to the first predator stage (gamma 0.99, progress
+  shaping 2.0), with a third of the episodes as shield starts. The same
+  four criteria (regular starts). The pincer share and the shield-start
+  catch rate are reported. If it passes, mixed self-play with shield starts
+  follows automatically (18,000 updates).
+- Evidence: `artifacts/isaac/experiments/2026-10-13_predator_stage_shield/`
+  and `.../2026-10-13_selfplay_shield/`.
