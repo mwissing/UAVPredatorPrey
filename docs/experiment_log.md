@@ -776,3 +776,17 @@ are those of the predator (higher = better predator, lower = better prey).
 - Candidate next steps (user decision): a predator crash-cost curriculum
   (lower cost in shield starts, then restore), or accept the end-game
   exploit and move on.
+
+## 2026-10-14: Predator crash-cost curriculum (pre-registered)
+
+- User approval: "ok continue with option 1".
+- A test of the skill-trap hypothesis.
+- Phase A: the shield-start stage, but with predator crash -300 per drone
+  (-100 for the team) for practice, 9600 updates. It passes if time-outs
+  <= 0.5x and the catch rate gains >= +0.05 (losses reported).
+- Phase B, only if A passes: back to -600 for 3840 updates. It passes on
+  the four original stage criteria.
+- If A and B pass, mixed self-play with shield starts follows automatically.
+  If A fails, the hypothesis is not supported, and the recommendation is to
+  accept the end-game exploit and move on.
+- Evidence: `artifacts/isaac/experiments/2026-10-14_predator_crash_curriculum/`.
