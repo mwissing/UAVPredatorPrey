@@ -790,3 +790,19 @@ are those of the predator (higher = better predator, lower = better prey).
   If A fails, the hypothesis is not supported, and the recommendation is to
   accept the end-game exploit and move on.
 - Evidence: `artifacts/isaac/experiments/2026-10-14_predator_crash_curriculum/`.
+- Result, phase A (crash -300): **does not pass** (time-outs 0.070 ->
+  0.052, needed <= 0.035), although the catch rate rose 0.661 -> 0.729. The
+  chain stopped; phase B did not run.
+- Partly supported:
+  - a cheaper crash made the predators engage more (closing speed in short
+    episodes 0.09 -> 0.36 m/s) and catch more (shield starts 0.326 ->
+    0.459, time-outs there halved);
+  - they crash more (hazard 0.097 -> 0.123).
+- Not broken: in the remaining long episodes the predators still hover
+  about 7 m away without a pincer, and half end by time-out.
+- After six predator stages, the pillar-shield exploit is robust to horizon,
+  shaping, curriculum, and crash cost. Breaking it would likely need
+  multi-agent coordination learning (a separate step).
+- Options: accept the exploit and move on (the pre-registered
+  consequence), a lower predator crash cost as a compromise, or a
+  coordination research step.
