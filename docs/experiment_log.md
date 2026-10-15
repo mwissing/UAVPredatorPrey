@@ -841,3 +841,26 @@ are those of the predator (higher = better predator, lower = better prey).
 - Next (user decision): count a forced prey crash (predator within 1.5 m)
   as a predator success, or accept the exploit. Role embeddings are paused.
 - Evidence: `artifacts/isaac/experiments/2026-10-15_scripted_pincer_control/`.
+
+## 2026-10-15/16: Forced-crash outcome, predator stage with a control arm (pre-registered)
+
+- User approval: "go ahead".
+- Code c070ceb: `predator_forced_crash_bonus`. A forced prey crash (a prey
+  exit without a catch while the nearest active predator is within 1.5 m)
+  earns the team as much as a catch: the nearest predator gets bonus x P.
+  It is 200 in the obstacle tasks and 0 otherwise. 3 tests; smoke run
+  checked.
+- Test: two arms from the same start against the frozen waiting prey,
+  predator-only, 9600 updates each, predator crash -400:
+  - f: bonus 200;
+  - c: bonus 0, the control.
+- Arm f passes if:
+  - time-outs <= 0.5x;
+  - success (catch + forced crash) gains >= +0.05;
+  - losses stay <= 1.2x;
+  - own predator ratio >= 1.2;
+  - attribution: time-outs f <= 0.7x c.
+  A shadowing check reports the predator's distance at forced crashes.
+- If it passes, mixed self-play with the new outcome follows automatically
+  (18,000 updates).
+- Evidence: `artifacts/isaac/experiments/2026-10-15_predator_stage_forced_crash/`.
