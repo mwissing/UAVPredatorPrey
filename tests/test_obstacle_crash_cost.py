@@ -1,8 +1,8 @@
 """Crash costs are raised in the obstacle tasks, and only there (user decision 2026-10-10).
 
 The *_oob_penalty fields cover both leaving the arena and touching a pillar. With obstacles, a prey crash (-300)
-costs more than being caught (-200), and one lost predator (-600 per drone, -200 after the team mean) costs the
-team as much as a catch earns. Every obstacle-free task must keep the legacy -200 for both roles, which the anchor
+costs more than being caught (-200), and one lost predator (-400 per drone, -133 after the team mean) costs the
+team two thirds of what a catch earns. Every obstacle-free task must keep the legacy -200 for both roles, which the anchor
 and reference reproductions rely on. The config module needs the Isaac app to import, so the test reads it with ast
 and follows the in-module inheritance itself.
 """
@@ -63,7 +63,7 @@ def test_only_obstacle_tasks_raise_the_crash_costs() -> None:
     for name, f in fields.items():
         if name in obstacle_tasks:
             assert (f["prey_oob_penalty"], f["prey_caught_penalty"]) == (-300.0, -200.0), name
-            # Per drone; the team mean over 3 predators makes it -200, the size of the team's catch bonus.
-            assert (f["predator_oob_penalty"], f["predator_catch_bonus"]) == (-600.0, 200.0), name
+            # Per drone; the team mean over 3 predators makes it -133, two thirds of the team's catch bonus.
+            assert (f["predator_oob_penalty"], f["predator_catch_bonus"]) == (-400.0, 200.0), name
         else:
             assert (f["prey_oob_penalty"], f["predator_oob_penalty"]) == (-200.0, -200.0), name
