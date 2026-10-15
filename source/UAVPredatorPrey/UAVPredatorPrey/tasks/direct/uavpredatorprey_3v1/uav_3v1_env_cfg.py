@@ -202,6 +202,10 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     ghost_max_accel = 12.0                # [m/s^2], about what T/W 1.9 allows after attitude lag
     ghost_lead_times = (0.0, 0.25, 0.5)   # [s] per predator: aim at prey position + lead * prey velocity
     ghost_min_aim_height = 0.6            # [m] relative to the env origin
+    # "lead": the lead-pursuit ghosts above (fly through pillars, never crash). "direct" / "encircle": scripted
+    # predators that treat pillars as obstacles and can crash, a diagnostic positive control for the pillar shield
+    # (ghosts.scripted_pursuit_velocity; ghost_max_speed and ghost_max_accel are their limits).
+    ghost_mode = "lead"
     # Mixed rollouts: this share of the envs (the first ones) gets ghost predators, the rest real ones, so every
     # prey update sees both. The predator then trains only on the real envs (RecurrentMAPPO.set_training_envs).
     # Colliders stay on in all envs (ghost_predators=True disables them). 0 = off.

@@ -14,7 +14,7 @@ from isaaclab.envs import DirectMARLEnv
 from isaaclab.utils.math import subtract_frame_transforms
 
 from .episode_semantics import all_predators_inactive, predator_crash_event_penalty, shifted_squared_speed_penalty
-from .ghosts import ghost_pursuit_velocity
+from .ghosts import ghost_pursuit_velocity, scripted_pursuit_velocity
 from .motion_diagnostics import compute_motion_diagnostics
 from .obstacles import (
     PARKED_DISTANCE,
@@ -331,7 +331,27 @@ class Uav3v1Env(DirectMARLEnv):
         pred_alive_wrench = self._pred_alive[:, :, None, None].float()
         self._pred_thrust *= pred_alive_wrench
         self._pred_moment *= pred_alive_wrench
-        if self._ghosts:
+        if self._ghosts and self.cfg.ghost_mode != "lead":
+            # Scripted predators that respect pillars (diagnostic): same kinematic writes as the ghosts.
+            origins = self._terrain.env_origins
+            pred_pos = torch.stack([p.data.root_pos_w for p in self._predators], dim=1) - origins[:, None, :]
+            self._ghost_velocity[:] = scripted_pursuit_velocity(
+                pred_pos,
+                self._ghost_velocity,
+                self._pred_alive,
+                self._prey.data.root_pos_w - origins,
+                self._prey.data.root_lin_vel_w,
+                self._obstacle_xy if self._K > 0 else torch.full((self.num_envs, 1, 2), 50.0, device=self.device),
+                mode=self.cfg.ghost_mode,
+                max_speed=self.cfg.ghost_max_speed,
+                max_accel=self.cfg.ghost_max_accel,
+                dt=self.step_dt,
+                min_aim_height=self.cfg.ghost_min_aim_height,
+                obstacle_radius=self.cfg.obstacle_radius,
+            )
+            self._pred_thrust[:, :, 0, 2] = self._robot_weight
+            self._pred_moment.zero_()
+        elif self._ghosts:
             # Ghosts ignore their actions. Hover thrust cancels gravity, so the pursuit velocity that
             # _apply_action writes before every physics substep is exactly what the ghost flies.
             origins = self._terrain.env_origins
@@ -476,7 +496,7 @@ class Uav3v1Env(DirectMARLEnv):
             pred_oob_now = pred_oob_now | self._pred_obstacle_hit
             self._prey_oob[:] = self._prey_oob | self._prey_obstacle_hit
 
-        if self._ghosts:
+        if self._ghosts and self.cfg.ghost_mode == "lead":
             # Ghosts never crash: they fly through pillars and stay active for the whole episode.
             pred_oob_now = torch.zeros_like(pred_oob_now)
         elif self._ghosts_mixed:
