@@ -806,3 +806,12 @@ are those of the predator (higher = better predator, lower = better prey).
 - Options: accept the exploit and move on (the pre-registered
   consequence), a lower predator crash cost as a compromise, or a
   coordination research step.
+
+## 2026-10-15: Predator crash cost -400 (user decision)
+
+- The obstacle default for the predator becomes -400 per drone (302ca61):
+  -133 for the team, two thirds of a catch.
+- Reason: at -600 the predators stopped engaging a prey next to a pillar;
+  at -300 they caught more (0.729) but crashed more.
+- Obstacle-free tasks keep -200. The obstacle runs from 2026-10-08 to
+  2026-10-14 used -600.
