@@ -73,6 +73,7 @@ def scripted_pursuit_velocity(
     ring_radius: float = 2.5,
     spread_tolerance: float = 0.8,
     avoid_range: float = 1.0,
+    stop_margin: float = 0.15,
 ) -> torch.Tensor:
     """Next velocity of scripted predators that respect pillars (a diagnostic, not a training opponent).
 
@@ -141,6 +142,11 @@ def scripted_pursuit_velocity(
     inward = torch.clamp((desired_xy[:, :, None, :] * normal).sum(-1, keepdim=True), max=0.0)  # (N, P, K, 1)
     desired_xy = desired_xy - (weight * inward * normal).sum(dim=2)
     desired_xy = desired_xy + (weight * side * tangent).sum(dim=2) * max_speed
+    # Safe approach speed (a control-barrier idea): toward each pillar, never faster than the pursuer can still
+    # brake to a stop before its surface, sqrt(2 a (s - stop_margin)). This bounds collisions for static pillars.
+    allowed = torch.sqrt(2.0 * max_accel * torch.clamp(surface - stop_margin, min=0.0))       # (N, P, K, 1)
+    inward_speed = torch.clamp(-(desired_xy[:, :, None, :] * normal).sum(-1, keepdim=True), min=0.0)
+    desired_xy = desired_xy + (torch.clamp(inward_speed - allowed, min=0.0) * normal).sum(dim=2)
     desired = torch.cat((desired_xy, desired[..., 2:]), dim=-1)
     speed = torch.linalg.norm(desired, dim=-1, keepdim=True)
     desired = desired * torch.clamp(max_speed / speed.clamp(min=1e-9), max=1.0)
