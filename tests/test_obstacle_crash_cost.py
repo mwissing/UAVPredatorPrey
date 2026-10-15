@@ -65,5 +65,8 @@ def test_only_obstacle_tasks_raise_the_crash_costs() -> None:
             assert (f["prey_oob_penalty"], f["prey_caught_penalty"]) == (-300.0, -200.0), name
             # Per drone; the team mean over 3 predators makes it -133, two thirds of the team's catch bonus.
             assert (f["predator_oob_penalty"], f["predator_catch_bonus"]) == (-400.0, 200.0), name
+            # A forced prey crash pays the team like a catch, only with obstacles.
+            assert f["predator_forced_crash_bonus"] == 200.0, name
         else:
             assert (f["prey_oob_penalty"], f["predator_oob_penalty"]) == (-200.0, -200.0), name
+            assert f.get("predator_forced_crash_bonus", 0.0) == 0.0, name

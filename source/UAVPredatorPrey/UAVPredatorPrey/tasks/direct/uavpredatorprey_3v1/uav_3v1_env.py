@@ -13,7 +13,12 @@ from isaaclab.assets import Articulation, RigidObject, RigidObjectCfg
 from isaaclab.envs import DirectMARLEnv
 from isaaclab.utils.math import subtract_frame_transforms
 
-from .episode_semantics import all_predators_inactive, predator_crash_event_penalty, shifted_squared_speed_penalty
+from .episode_semantics import (
+    all_predators_inactive,
+    forced_crash_bonus,
+    predator_crash_event_penalty,
+    shifted_squared_speed_penalty,
+)
 from .ghosts import ghost_pursuit_velocity, scripted_pursuit_velocity
 from .motion_diagnostics import compute_motion_diagnostics
 from .obstacles import (
@@ -765,6 +770,16 @@ class Uav3v1Env(DirectMARLEnv):
         is_catcher = (closest_pred_idx.unsqueeze(0) == pred_indices) & self._caught.unsqueeze(0)  # (P, N)
         # Scale before the team mean so the effective catch reward does not shrink with predator count.
         catch_bonus = is_catcher.float() * self.cfg.predator_catch_bonus * P
+        forced_bonus = None
+        if self.cfg.predator_forced_crash_bonus != 0.0:
+            # A forced prey crash is a predator success too, rewarded like a catch (see the config).
+            forced_bonus = forced_crash_bonus(
+                self._prey_oob,
+                self._caught,
+                self._active_distances,
+                bonus=self.cfg.predator_forced_crash_bonus,
+                assist_distance=self.cfg.assist_distance,
+            )
         is_assisting = (
             (~is_catcher)
             & self._caught.unsqueeze(0)
@@ -798,6 +813,8 @@ class Uav3v1Env(DirectMARLEnv):
                 self._pred_obstacle_clearance.t(), self.cfg.obstacle_soft_margin, self.cfg.obstacle_soft_penalty_scale, dt
             ) * pred_alive_reward_mask
             per_drone_reward = per_drone_reward + pred_obstacle_soft_pen
+        if forced_bonus is not None:
+            per_drone_reward = per_drone_reward + forced_bonus
         pred_team_reward = per_drone_reward.mean(dim=0)  # (N,)
 
         # === Prey reward ===
@@ -901,6 +918,8 @@ class Uav3v1Env(DirectMARLEnv):
             log["Reward/predator_proximity"] = proximity.mean()
             log["Reward/predator_distance_progress"] = predator_distance_progress_reward.mean()
             log["Reward/predator_catch"] = catch_bonus.mean()
+            if forced_bonus is not None:
+                log["Reward/predator_forced_crash"] = forced_bonus.mean()
             log["Reward/predator_assist"] = assist_bonus.mean()
             log["Reward/predator_upright"] = upright.mean()
             log["Reward/predator_boundary"] = -boundary.mean()

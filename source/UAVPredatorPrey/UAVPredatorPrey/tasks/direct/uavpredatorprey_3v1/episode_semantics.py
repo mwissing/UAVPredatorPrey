@@ -30,3 +30,29 @@ def predator_crash_event_penalty(
 def all_predators_inactive(predator_alive: torch.Tensor) -> torch.Tensor:
     """Return the environment mask for episodes with no active predator."""
     return ~predator_alive.any(dim=1)
+
+
+def forced_crash_bonus(
+    prey_oob: torch.Tensor,
+    caught: torch.Tensor,
+    active_distances: torch.Tensor,
+    *,
+    bonus: float,
+    assist_distance: float,
+) -> torch.Tensor:
+    """(P, N) per-drone reward for a forced prey crash, attributed like a catch.
+
+    A forced crash is a prey exit (pillar crash or arena boundary) without a catch while the nearest active
+    predator is within assist_distance, the same definition as the forced_prey_oob metric. That predator gets
+    bonus * P, so after the team mean the team earns bonus, as the catch bonus is scaled.
+
+    Args:
+        prey_oob, caught: (N,) bool for this step.
+        active_distances: (N, P) predator-prey distances, inactive predators far away.
+    """
+    num_predators = active_distances.shape[1]
+    nearest_distance, nearest = active_distances.min(dim=1)
+    forced = prey_oob & ~caught & (nearest_distance < assist_distance)
+    index = torch.arange(num_predators, device=active_distances.device).unsqueeze(1)
+    forcer = (nearest.unsqueeze(0) == index) & forced.unsqueeze(0)
+    return forcer.float() * float(bonus) * num_predators

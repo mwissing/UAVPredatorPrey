@@ -109,6 +109,7 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     predator_distance_progress_reward_scale = 0.0
     predator_distance_progress_reward_clip = 0.08
     predator_catch_bonus = 200.0           # effective team bonus stays constant across predator counts
+    predator_forced_crash_bonus = 0.0      # team reward for a forced prey crash (episode_semantics.forced_crash_bonus); 0 = off
     predator_assist_bonus = 0.0            # disabled while testing whether assist encourages orbiting
     assist_distance = 1.5                  # [m] must be this close to get assist reward
     prey_alive_bonus = 2.0
@@ -365,6 +366,11 @@ class Uav3v1SurvivalSoftOobTeammateVelRandomSpawnLowProgressObstaclesEnvCfg(
     # predators stopped engaging a prey next to a pillar; at -300 they caught more but crashed more (2026-10-14).
     # User decision 2026-10-15; obstacle runs from 2026-10-08 to 2026-10-14 used -600.
     predator_oob_penalty = -400.0
+    # A forced prey crash (a pillar crash or arena exit without a catch, with a predator within assist_distance)
+    # counts as a predator success and earns the team as much as a catch. Without it, a crash the predators forced
+    # paid them nothing, and hovering instead of pressing was rational (scripted pincer control, 2026-10-15).
+    # User decision 2026-10-15. It defines what counts as winning, not how to win.
+    predator_forced_crash_bonus = 200.0
     observation_spaces = {"predator": 90 + 3 * 4 * 4, "prey": 30 + 4 * 4}
     state_space = 120 + 3 * 4 * 4 + 4 * 4
 
