@@ -815,3 +815,29 @@ are those of the predator (higher = better predator, lower = better prey).
   at -300 they caught more (0.729) but crashed more.
 - Obstacle-free tasks keep -200. The obstacle runs from 2026-10-08 to
   2026-10-14 used -600.
+
+## 2026-10-15: Step 0, can a scripted pincer catch the waiting prey? (pre-registered)
+
+- User approval: "ok start with step 0. after that the role embeddings".
+- Code: c968c8c (`ghost_mode` "encircle" / "direct", scripted pursuers that
+  respect pillars and can crash) and a553cbc (safe approach speed). The
+  default lead ghosts are bit-exact. Evaluation only, against the frozen
+  waiting prey.
+- Pre-registered decision: **inconclusive.** The encircle controller loses
+  too many drones to pillars (0.44, then 0.35 per episode; limit 0.27).
+- Robust across both controllers:
+  - the scripted encirclement creates pincers (35-38%) but catches only
+    11-12%;
+  - in 85% of episodes it drives the prey into a pillar instead;
+  - scripted direct pursuit catches 0.35-0.47;
+  - the learned predators catch 0.66 (0.73 at -300), so they are the best
+    catchers.
+- Persistent pressure removes the time-outs (0.2-2.9% vs 7%) through prey
+  crashes. Those pay the predators nothing: their reward counts only
+  catches, so the game is not zero-sum.
+- So the waiting exploit is an incentive gap in the outcome definition,
+  not a missing coordination skill. The premise behind role embeddings is
+  not supported.
+- Next (user decision): count a forced prey crash (predator within 1.5 m)
+  as a predator success, or accept the exploit. Role embeddings are paused.
+- Evidence: `artifacts/isaac/experiments/2026-10-15_scripted_pincer_control/`.
