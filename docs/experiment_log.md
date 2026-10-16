@@ -934,3 +934,35 @@ are those of the predator (higher = better predator, lower = better prey).
   (`option_random_init/`).
 - Recommendation unchanged: consolidate and accept the exploit (user
   decision).
+
+## 2026-10-16: Exploration boost, are the predators stuck in a local optimum? (pre-registered)
+
+- User question: were we stuck in a local optimum the whole time, and
+  simply never got out of the waiting strategy? Approval: "yes do that
+  test".
+- Context:
+  - All nine interventions were local searches from one checkpoint (PPO, LR
+    1e-5, KL early stopping), so they show only that the plateau survives
+    local changes.
+  - Against a local optimum: the only known alternative, scripted pursuers
+    that always press, earns the same outcome return. Outcome return is 200
+    x success - 133 x drones lost: scripted 116.5, learned at point 5
+    108.6-116.7 over four runs.
+  - For one: the forced-crash bonus is almost never experienced, because in
+    long episodes the predators stay about 6.6 m away.
+- Design: one predator-only arm from the shared start, at arm f's setup
+  (seed 70):
+  - 4800 updates with the predator's action-noise floor raised from std
+    0.37 to 0.74;
+  - then the noise reset to the start's value and 4800 updates at the
+    standard level.
+  Arms f (seed 70) and x (seed 71) are the controls.
+- Decision at 9600 updates:
+  1. time-outs <= 0.020 (the four learned point-5 runs give 0.040-0.050);
+  2. outcome return >= 108.6 (the lowest control);
+  3. manipulation check: training forced-crash rate in the boost phase
+     >= 1.25x the controls' 0.072.
+- Interpretation:
+  - 1 and 2 pass: an exploration-limited local optimum.
+  - 1 fails and 3 passes: the plateau is real.
+- Evidence: `artifacts/isaac/experiments/2026-10-16_predator_exploration_boost/`.
