@@ -25,6 +25,11 @@ situation.** Measured on the predator of forced-crash arm f:
    - Line-of-sight and prey-pillar information is present in the input: a
      prey-conditioned probe recovers it at 0.81. After the attention it is
      gone: 0.57 / 0.03.
+   - The module is degenerate for both roles. The prey's attention picks
+     its nearest pillar in 1% of steps and attends the pillar it hugs in
+     0.9% of hugging steps, mostly picking pillars about 5 m away.
+   - The stage start shows the same values, so 9600 updates of predator
+     training did not change them.
 2. **The prey is visible only half the time.** The prey and the two
    teammates share one softmax, which is also one-hot. In 55% of steps the
    attention context holds a teammate instead of the prey.
@@ -60,6 +65,7 @@ That was the blind spot of the investigation.
 | # | claim | status | evidence |
 |---|---|---|---|
 | 1 | Pillar attention can attend "near me", not "next to the prey" | **verified, measured** | Code: query from own state only. One-hot (0.998); attends the shield pillar in 0.4% of standoff steps (chance 10%), the blocking pillar in 4.7% of blocked steps. Prey-conditioned probe 0.81 vs attended pillar 0.57 (line of sight) / 0.03 (prey-pillar R^2). |
+| 1a | (found here) The prey's pillar attention is degenerate too | **measured** | The prey attends its nearest pillar in 1% of steps and the pillar it hugs in 0.9% of hugging steps; it mostly picks pillars ranked 5-9 by distance (72%). The 2026-10-10 probe already showed below-chance weight on the nearest pillar. |
 | 1b | Prey and teammates share one softmax; the prey may crowd out teammates | **verified; the effect runs the other way too** | One-hot: prey > 0.9 in 45% of steps, a teammate in the other 55%. Each crowds out the other. |
 | 2 | The critic cannot value the shield geometry | **verified, measured** | Code: 40 drone-pillar views mean-pooled without identity. EV: 0.43 (short), -0.14 (long), 0.05 (standoff). |
 | 2b | With lambda 0.95, rewards beyond about 17 steps reach the advantage only via the critic | verified (math, config) | (gamma lambda)^k = 0.9405^k; e-folding at 16.8 steps (0.34 s). |
