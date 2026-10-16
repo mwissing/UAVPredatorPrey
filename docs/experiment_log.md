@@ -966,3 +966,20 @@ are those of the predator (higher = better predator, lower = better prey).
   - 1 and 2 pass: an exploration-limited local optimum.
   - 1 fails and 3 passes: the plateau is real.
 - Evidence: `artifacts/isaac/experiments/2026-10-16_predator_exploration_boost/`.
+- Result: **inconclusive by the plan** (criteria 1 and 3 fail, 2 passes).
+  - At e5 the predators sit exactly on the controls' plateau: time-outs
+    0.049 (controls 0.040-0.050), outcome return 116.1 (116.7 / 108.6),
+    long-game distance 6.7 m, pincer 0.01.
+  - The manipulation check missed narrowly: the boost raised the
+    experienced forced crashes by 19% (bar 25%).
+  - More noise made the flight sloppier, not more pressing: closest approach
+    0.89 vs 0.84 m, training catch 0.62 vs 0.67, crash rate 0.30 vs 0.27.
+- The training path was clearly perturbed: the policy lagged the controls
+  during the boost, and its obstacle ablation ratio was 1.02 at the switch.
+  Yet it converged to the same end point, which is consistent with a robust
+  attractor but not a proof.
+- Combined with the scripted always-press strategy (same return) and the
+  capped upside (about +0.05 success), a substantial missed optimum is
+  unlikely; a small end-game one cannot be excluded. Per-episode (parameter)
+  perturbations would be the coherent next probe, if ever wanted.
+- Recommendation unchanged: consolidate (user decision).
