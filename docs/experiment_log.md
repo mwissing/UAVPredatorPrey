@@ -864,3 +864,16 @@ are those of the predator (higher = better predator, lower = better prey).
 - If it passes, mixed self-play with the new outcome follows automatically
   (18,000 updates).
 - Evidence: `artifacts/isaac/experiments/2026-10-15_predator_stage_forced_crash/`.
+- Result: **does not pass.** Arm f (bonus) and arm c (control) are
+  practically identical:
+  - time-outs 0.040 / 0.040 (start 0.070);
+  - catch 0.719 / 0.716 (start 0.661);
+  - forced crashes 0.064 / 0.052.
+- The improvement comes from the lower crash cost (-400), not from the
+  bonus. In long episodes the predators still hover about 6.6 m away. No
+  shadowing.
+- Eight interventions in total; only the predator crash cost moved the
+  result: catch 0.66 -> 0.72-0.73, time-outs 0.070 -> 0.04-0.05. The
+  pillar-shield strategy holds in about 4% of episodes.
+- Recommendation: accept the exploit and consolidate with a final, longer
+  reference run (user decision).
