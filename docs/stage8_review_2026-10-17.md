@@ -38,8 +38,10 @@ situation.** Measured on the predator of forced-crash arm f:
    - 0.43 in short episodes;
    - -0.14 in long episodes;
    - 0.05 in standoffs.
-   With lambda 0.95, long-game credit flows almost entirely through this
-   critic, so flanking gets no usable learning signal.
+   Its features encode agent distances (R^2 0.9) but barely the pillar
+   relations (0.15-0.22). With lambda 0.95, long-game credit flows almost
+   entirely through this critic, so flanking gets no usable learning
+   signal.
 4. **Frames are inconsistent.**
    - Relative positions are in the body frame, relative velocities in the
      world frame, and the heading is not observed.
@@ -67,7 +69,7 @@ That was the blind spot of the investigation.
 | 1 | Pillar attention can attend "near me", not "next to the prey" | **verified, measured** | Code: query from own state only. One-hot (0.998); attends the shield pillar in 0.4% of standoff steps (chance 10%), the blocking pillar in 4.7% of blocked steps. Prey-conditioned probe 0.81 vs attended pillar 0.57 (line of sight) / 0.03 (prey-pillar R^2). |
 | 1a | (found here) The prey's pillar attention is degenerate too | **measured** | The prey attends its nearest pillar in 1% of steps and the pillar it hugs in 0.9% of hugging steps; it mostly picks pillars ranked 5-9 by distance (72%). The 2026-10-10 probe already showed below-chance weight on the nearest pillar. |
 | 1b | Prey and teammates share one softmax; the prey may crowd out teammates | **verified; the effect runs the other way too** | One-hot: prey > 0.9 in 45% of steps, a teammate in the other 55%. Each crowds out the other. |
-| 2 | The critic cannot value the shield geometry | **verified, measured** | Code: 40 drone-pillar views mean-pooled without identity. EV: 0.43 (short), -0.14 (long), 0.05 (standoff). |
+| 2 | The critic cannot value the shield geometry | **verified, measured** | Code: 40 drone-pillar views mean-pooled without identity. EV: 0.43 (short), -0.14 (long), 0.05 (standoff). Linear representation probes, which do not depend on return noise: nearest-predator distance R^2 0.90-0.94, but the prey-pillar distance only 0.15-0.22 and line-of-sight blocking 0.18-0.19 (a prey-conditioned encoder reaches 0.81). A fresh value regressor trained on 770 episodes was too data-limited to serve as a control. |
 | 2b | With lambda 0.95, rewards beyond about 17 steps reach the advantage only via the critic | verified (math, config) | (gamma lambda)^k = 0.9405^k; e-folding at 16.8 steps (0.34 s). |
 | 3 | The team learns as one 12-dimensional agent: one ratio, crashed drones included | verified (code) | One summed log-prob over 12 dimensions; dead drones are 14.0% of drone-steps (measured). |
 | 3b | A shared policy without IDs gets at most half the optimum; IDs restore it | **partly** | Fu et al. 2022, Thm 4.2: a shared policy cannot learn the optimum of the XOR game; the proof's bound is 0.5. IDs reach the optimum only empirically (Bridge), not as a theorem. The bound assumes identical observations; our drones observe different positions, so it bites only in near-symmetric states. |
