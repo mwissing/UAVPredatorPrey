@@ -906,3 +906,31 @@ are those of the predator (higher = better predator, lower = better prey).
 - The role-vector norms per point show whether the learning signal pushes
   the roles apart (the own embedding's norm is about 59).
 - Evidence: `artifacts/isaac/experiments/2026-10-16_predator_role_embedding/`.
+- Result: **the roles did not differentiate** (criterion 1 fails in both
+  seeds, so by the plan the test is inconclusive about coordination).
+  - The role vectors stayed at the gradient-noise level: norms 0.5-0.8,
+    1.0-1.4% of the own embedding.
+  - The functional probe (how differently drones act on identical
+    observations) stayed at about 2%. In seed 70 it shrank from 0.027 to
+    0.019.
+  - Per-index spreads match the index-blind controls (side <= 0.056, lead
+    <= 0.018).
+  - Outcomes match the controls:
+
+    | | time-outs | pincer | catch |
+    |---|---|---|---|
+    | r (roles, seed 70) | 0.042 | 0.02 | 0.722 |
+    | f (control, seed 70) | 0.040 | 0.01 | 0.719 |
+    | s (roles, seed 71) | 0.042 | 0.01 | 0.734 |
+    | x (control, seed 71) | 0.050 | 0.02 | 0.708 |
+- Seed variation, the first replicate of a predator stage (f vs x): catch
+  0.011, time-outs 0.010, success 0.017. Single-run differences of 0.01-0.02
+  are noise.
+- Interpretation: given the capacity to specialize, the predators did not.
+  The symmetric team is a stable solution of the fine-tuning objective.
+  Together with step 0, the evidence says symmetry is not what limits them.
+- Prepared, not run: an imposed-role arm. Random role vectors at norm 10
+  give a lead spread of 0.164 at a start cost of -0.024 catch
+  (`option_random_init/`).
+- Recommendation unchanged: consolidate and accept the exploit (user
+  decision).
