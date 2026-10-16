@@ -877,3 +877,32 @@ are those of the predator (higher = better predator, lower = better prey).
   pillar-shield strategy holds in about 4% of episodes.
 - Recommendation: accept the exploit and consolidate with a final, longer
   reference run (user decision).
+
+## 2026-10-16: Role vectors for the predator team, two seeds (pre-registered)
+
+- User approval: "i want you to test role embedding over the day while i am
+  working (till 16-17)"; earlier "ok then the id version".
+- Code bc55fd9: `predator_role_embedding` adds a learned vector per
+  predator index to the own-state embedding.
+  - Only its deviation from the team mean is used.
+  - It starts at zero and learns in the fast group (x30).
+  - 7 tests. Evaluation with the flag on and off is bit-identical; a role
+    checkpoint fails loudly without the flag.
+- Why: the shared predator network is permutation-equivariant, so it cannot
+  learn conventions such as "drone 0 flanks left". Agent-ID conditioning is
+  the standard fix. Step 0 argued against the premise; the user asked for
+  the test anyway.
+- Design: predator-only against the frozen waiting prey, the setup of
+  forced-crash arm f (crash -400, bonus 200), 9600 updates per arm:
+  - r: roles, seed 70, controlled by arm f (seed 70, done);
+  - s: roles, seed 71;
+  - x: no roles, seed 71, the control for s; it runs last.
+- Decision per seed (point 5 vs the matched control):
+  1. manipulation check: per-index side or lead spread >= 0.15 (the
+     index-blind controls are <= 0.048);
+  2. time-outs <= 0.7x;
+  3. pincer share in long episodes >= 0.10 (controls 0.01);
+  4-6. guards: success, losses, perception.
+- The role-vector norms per point show whether the learning signal pushes
+  the roles apart (the own embedding's norm is about 59).
+- Evidence: `artifacts/isaac/experiments/2026-10-16_predator_role_embedding/`.
