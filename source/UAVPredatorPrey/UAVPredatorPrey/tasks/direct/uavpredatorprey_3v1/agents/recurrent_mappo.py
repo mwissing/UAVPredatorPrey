@@ -49,18 +49,18 @@ def _compute_gae(
 
 
 def _obstacle_param_groups(modules: list[nn.Module], learning_rate: float, multiplier: float) -> list[dict[str, Any]]:
-    """Split parameters into the pretrained part and the new obstacle_* branch.
+    """Split parameters into the pretrained part and the new obstacle_* and role_* parts.
 
-    The obstacle branch starts at zero (see attention_models.py); at a
-    fine-tuning learning rate it would take far too long to reach a useful
-    magnitude. A separate group lets it learn faster while the pretrained
+    Both new parts start at zero (see attention_models.py); at a
+    fine-tuning learning rate they would take far too long to reach a useful
+    magnitude. A separate group lets them learn faster while the pretrained
     parameters keep the conservative rate. The multiplier is stored in the
     group so later learning-rate overrides can preserve it.
     """
     base, obstacle = [], []
     for module in modules:
         for name, parameter in module.named_parameters():
-            (obstacle if name.startswith("obstacle_") else base).append(parameter)
+            (obstacle if name.startswith(("obstacle_", "role_")) else base).append(parameter)
     groups: list[dict[str, Any]] = [{"params": base, "lr": learning_rate}]
     if obstacle:
         groups.append({"params": obstacle, "lr": learning_rate * multiplier, "lr_multiplier": multiplier})
@@ -116,7 +116,7 @@ class RecurrentMAPPO(MAPPO):
                 defaults = {key: val for key, val in optimizer.defaults.items() if key != "lr"}
                 self.optimizers[uid] = type(optimizer)(groups, **defaults)
                 self.checkpoint_modules[uid]["optimizer"] = self.optimizers[uid]
-                print(f"[INFO] {uid}: {sum(p.numel() for p in groups[1]['params'])} obstacle-branch parameters "
+                print(f"[INFO] {uid}: {sum(p.numel() for p in groups[1]['params'])} obstacle/role parameters "
                       f"at learning rate x{multiplier:g}")
 
         self._rnn = False

@@ -575,6 +575,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         predator_mask_inactive_teammates: bool = False,
         inactive_drone_distance: float = 10.0,
         obstacle_attention_heads: int = 0,
+        predator_role_embedding: bool = False,
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
@@ -681,6 +682,14 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
                     self.obstacle_dim, hidden_size, attention_size, int(obstacle_attention_heads), fallback_activation
                 )
 
+        # Optional role vector per predator index (off by default). The shared network is permutation-equivariant:
+        # drones in mirrored situations act alike, so the team cannot settle on conventions such as "drone 0 flanks
+        # left". A learned vector per index, added to the own-state embedding, breaks that symmetry. Only its
+        # deviation from the team mean is used, so it cannot act as a shared bias in the fast learning-rate group.
+        # Zero-initialized and created last, it leaves a loaded network exactly as it was.
+        if self.mode == "predator" and predator_role_embedding:
+            self.role_embedding = nn.Parameter(torch.zeros(self.num_predators, attention_size))
+
     def get_specification(self) -> Mapping[str, Any]:
         if self.mode == "predator":
             hidden_size = self.num_predators * self.rnn_hidden_size
@@ -690,7 +699,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
 
     def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
         result = _strict_load_allow_missing_prefixes(
-            self, state_dict, ("gru.", "obstacle_"), strict=strict, assign=assign
+            self, state_dict, ("gru.", "obstacle_", "role_"), strict=strict, assign=assign
         )
         self.project_log_std_parameter_()
         return result
@@ -759,6 +768,8 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
 
         own_emb = self.own_encoder(own.reshape(batch_size * self.num_predators, 12))
         own_emb = own_emb.view(batch_size, self.num_predators, -1)
+        if hasattr(self, "role_embedding"):
+            own_emb = own_emb + (self.role_embedding - self.role_embedding.mean(dim=0, keepdim=True))
 
         prey_emb = self.prey_encoder(prey.reshape(batch_size * self.num_predators, 6))
         prey_emb = prey_emb.view(batch_size, self.num_predators, 1, -1)
