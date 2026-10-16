@@ -983,3 +983,23 @@ are those of the predator (higher = better predator, lower = better prey).
   unlikely; a small end-game one cannot be excluded. Per-episode (parameter)
   perturbations would be the coherent next probe, if ever wanted.
 - Recommendation unchanged: consolidate (user decision).
+
+## 2026-10-16/17: Obstacle reference self-play, closing Stage 8 (pre-registered)
+
+- User decisions: "ok so exploit accepted"; "ok lets do step 1".
+- Design: the prepared forced-crash part-2 design, run as the reference.
+  - Start: arm f's final pair (the f5 predator plus the waiting prey).
+  - Mixed self-play: both roles train, a third of the envs have 3.5 m/s
+    ghosts.
+  - 10 pillars, seed 60, 18,000 updates.
+  - Current defaults: prey crash -300, predator crash -400, forced-crash
+    bonus 200.
+  - The config differs from the wall-pillar run only in these defaults.
+- Acceptance gate at points 4 and 5 ("competent and stable"):
+  1. both roles use perception (own-matchup ablation ratio >= 1.1);
+  2. own catch within 0.3-0.7;
+  3. no forgetting against the fixed anchor-v3 opponents (catch within 0.05
+     of point 0 in the bad direction);
+  4. own catch changes by <= 0.05 from point 4 to 5.
+- If all pass, the final pair becomes the obstacle reference (anchor v4).
+- Evidence: `artifacts/isaac/experiments/2026-10-16_obstacle_reference_selfplay/`.
