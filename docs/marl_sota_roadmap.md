@@ -381,6 +381,25 @@ against the frozen trained predator stayed blind. The prey also exploits the
 pillar-free outer belt (pillar axes lie within 3.5 m), so a version with
 pillars up to the wall and faster ghosts is running.
 
+Update (2026-10-17, [review](stage8_review_2026-10-17.md)): with pillars up
+to the wall, the prey learned to wait behind a pillar (about 4-5% time-outs).
+- Nine pre-registered interventions on incentives and noise did not break
+  this: horizon, shaping, shield starts, crash cost, forced-crash bonus, role
+  vectors, and an exploration boost.
+- Diagnostics on the trained networks show why: the predators cannot
+  represent the situation.
+  - The one-hot pillar attention, queried by own state only, attends the
+    prey's pillar in 0.4% of standoff steps.
+  - The prey and teammates share a one-hot softmax, so the prey is absent
+    from the attention context in 55% of steps.
+  - The critic's explained variance is -0.14 in long episodes.
+  - Relative positions and velocities are in different frames, while the
+    drones yaw about 120 deg/s.
+- Accepted for Stage 8: a current-architecture reference pair (anchor v4
+  candidate). The fixes (prey-conditioned entity attention, separate prey
+  slot, consistent frames, an identity-aware critic, per-drone ratios)
+  precede Stage 9, as a from-scratch protocol.
+
 ### Stage 9: Partial Observability, Belief, and Communication
 
 Memory becomes necessary when the prey can be hidden. Use it when agents can
@@ -674,7 +693,7 @@ controlled A/Bs. Record throughput before and after changes to the update path.
     pool stack intact.
   - https://arxiv.org/abs/2606.06011
 
-## Near-Term Sequence (2026-10-07)
+## Near-Term Sequence (2026-10-07, updated 2026-10-17)
 
 1. Prey agility curriculum: done; no coordination gain, better individual
    interception (see the experiment log).
@@ -686,10 +705,22 @@ controlled A/Bs. Record throughput before and after changes to the update path.
    implemented (2026-10-08). The predator learns perception-based avoidance
    with a crash price plus exploration. Next: the prey's crash price, a
    presence mask, then a new joint run (see Stage 8).
-6. Add line-of-sight masking with the simple belief baselines, then the GRU,
+6. Close Stage 8 with a current-architecture reference pair (2026-10-16/17)
+   and fix the measured representation and credit defects before Stage 9
+   ([review](stage8_review_2026-10-17.md)):
+   - a prey-conditioned, soft, multi-head entity attention over self, prey,
+     teammates, and pillars;
+   - consistent frames with the heading observed;
+   - an identity-aware critic;
+   - per-drone ratios with crashed drones masked;
+   - lambda and upright-term hygiene;
+   - then one from-scratch run with 3 seeds as the new anchor. The
+     blind-spot probes (attention, relation probes, critic EV in long
+     episodes) are its gate.
+7. Add line-of-sight masking with the simple belief baselines, then the GRU,
    the estimator, and belief sharing (Stage 9).
-7. Distill toward perception (Stage 10).
-8. Take research branches only against a measured bottleneck.
+8. Distill toward perception (Stage 10).
+9. Take research branches only against a measured bottleneck.
 
 ## History
 
