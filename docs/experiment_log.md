@@ -1066,3 +1066,25 @@ are those of the predator (higher = better predator, lower = better prey).
   3. guards on success, losses and perception.
   A blind-spot probe of h5 reports the critic's explained variance.
 - Evidence: `artifacts/isaac/experiments/2026-10-17_predator_credit_horizon/`.
+
+## 2026-10-17: Relation graft, predator stage with pillar-prey relation branches (pre-registered)
+
+- User approval: "yes", chained after the credit-horizon test.
+- Code eace487:
+  - `predator_obstacle_relation` (actor): every present pillar becomes a
+    token with the prey (pillar offset and distance, prey offset, prey
+    minus pillar, axis distance to the drone -> prey segment), with masked
+    max + mean pooling;
+  - `obstacle_relation` (critic): one token per pillar with everyone's
+    rotation-invariant view of it, in a fixed order;
+  - both zero-initialized in the fast group; evaluation is bit-identical
+    with the flags on or off; 7 tests.
+- Design: arm g is forced-crash arm f plus both flags (seed 70, 9600
+  updates, rollouts 24, lambda 0.95). Controls f and x.
+- Decision at g5:
+  0. manipulation check from the blind-spot probe: policy line of sight
+     >= 0.70 or prey-pillar R^2 >= 0.4, and critic prey-pillar R^2 >= 0.4;
+  1. time-outs <= 0.028;
+  2. long-game distance <= 5.5 m;
+  3. guards.
+- Evidence: `artifacts/isaac/experiments/2026-10-17_predator_relation_graft/`.
