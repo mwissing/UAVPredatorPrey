@@ -97,6 +97,9 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     # === REWARD HIERARCHY ===
     # Priority 1: Learn to fly (MUST dominate early training)
     upright_reward_scale = 5.0             # was 2.0 — stronger signal to stay level
+    # Predators only: the upright term as scale x dt x (cos(tilt) - 1), zero when level, instead of a positive per-step
+    # stream that also pays them for staying airborne (Stage 8 review). Default off (existing checkpoints).
+    predator_upright_zero_at_level = False
     target_height = 1.0
     height_penalty_scale = -8.0            # was -3.0 — stronger penalty for wrong altitude
 

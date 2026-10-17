@@ -18,6 +18,7 @@ from .episode_semantics import (
     forced_crash_bonus,
     predator_crash_event_penalty,
     shifted_squared_speed_penalty,
+    upright_reward,
 )
 from .frames import rotate_into_frame
 from .ghosts import ghost_pursuit_velocity, scripted_pursuit_velocity
@@ -724,7 +725,9 @@ class Uav3v1Env(DirectMARLEnv):
         pred_alive_reward_mask = self._pred_alive.t().float()
 
         # Flight stability (P, N)
-        upright = (-pred_grav_z) * self.cfg.upright_reward_scale * dt * pred_alive_reward_mask
+        upright = upright_reward(
+            pred_grav_z, self.cfg.upright_reward_scale, dt, self.cfg.predator_upright_zero_at_level
+        ) * pred_alive_reward_mask
         pred_low_height_err = torch.clamp(self.cfg.target_height - self._pred_pos_rel[:, :, 2].t(), min=0.0)  # (P, N)
         height = torch.square(pred_low_height_err) * self.cfg.height_penalty_scale * dt * pred_alive_reward_mask
         lin_vel = shifted_squared_speed_penalty(

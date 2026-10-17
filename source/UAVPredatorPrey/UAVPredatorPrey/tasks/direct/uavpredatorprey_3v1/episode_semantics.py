@@ -19,6 +19,19 @@ def shifted_squared_speed_penalty(
     return penalized_speed_squared * float(penalty_scale) * float(dt)
 
 
+def upright_reward(gravity_z: torch.Tensor, scale: float, dt: float, zero_at_level: bool = False) -> torch.Tensor:
+    """Per-step upright term from the body-frame gravity z component (-1 when level, so -gravity_z = cos(tilt)).
+
+    The default pays scale x dt per step for a level drone, so it doubles as an alive bonus that a catch ends: in calm
+    standoffs it is what makes waiting slightly positive for the predators (Stage 8 review). With zero_at_level the
+    term is scale x dt x (cos(tilt) - 1): the same tilt gradient, but a level drone earns nothing for staying airborne.
+    """
+    upright = -gravity_z
+    if zero_at_level:
+        upright = upright - 1.0
+    return upright * scale * dt
+
+
 def predator_crash_event_penalty(
     newly_oob: torch.Tensor,
     penalty: float,
