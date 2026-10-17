@@ -213,3 +213,17 @@ def test_the_predator_flag_does_not_give_the_prey_a_branch() -> None:
         predator_obstacle_relation=True,
     )
     assert not hasattr(model, "obstacle_rel_encoder")
+
+
+def test_recomputed_token_encoding_gives_the_same_values_and_gradients() -> None:
+    torch.manual_seed(11)
+    encoder = attention_models._mlp(11, (16,), 8, "elu")
+    tokens = torch.randn(50, 11)
+    stored = encoder(tokens)
+    stored.square().sum().backward()
+    grads = [p.grad.clone() for p in encoder.parameters()]
+    encoder.zero_grad()
+    recomputed = attention_models._encode_tokens(encoder, tokens)
+    recomputed.square().sum().backward()
+    assert torch.equal(stored, recomputed)
+    assert all(torch.allclose(a, p.grad) for a, p in zip(grads, encoder.parameters()))

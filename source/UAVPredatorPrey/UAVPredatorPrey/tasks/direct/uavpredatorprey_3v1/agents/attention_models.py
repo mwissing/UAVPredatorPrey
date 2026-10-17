@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 
 from skrl.models.torch import DeterministicMixin, Model
 from skrl.utils.spaces.torch import unflatten_tensorized_space
@@ -190,11 +191,22 @@ def _segment_axis_distance(axis_xy: torch.Tensor, target_xy: torch.Tensor) -> to
 
 def _masked_max_mean(tokens: torch.Tensor, present: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Pool (..., K, F) tokens over present entries (..., K): concatenated max and mean (..., 2F), and the count."""
-    mask = present.unsqueeze(-1)
-    maxed = torch.where(mask, tokens, torch.full_like(tokens, -1.0e4)).amax(dim=-2)
+    absent = ~present.unsqueeze(-1)
+    maxed = tokens.masked_fill(absent, -1.0e4).amax(dim=-2)
     count = present.sum(dim=-1, keepdim=True)
-    mean = (tokens * mask.to(tokens.dtype)).sum(dim=-2) / count.clamp(min=1).to(tokens.dtype)
+    mean = tokens.masked_fill(absent, 0.0).sum(dim=-2) / count.clamp(min=1).to(tokens.dtype)
     return torch.cat((maxed, mean), dim=-1), count
+
+
+def _encode_tokens(encoder: nn.Module, tokens: torch.Tensor) -> torch.Tensor:
+    """Apply a token encoder; with gradients on, recompute its activations in the backward pass instead of storing them.
+
+    The pillar-relation tokens are many (a 2048-env minibatch of 24 steps holds 1.5 M predator tokens), and their stored
+    hidden activations ran the 4096-env update out of GPU memory (2026-10-17). Recomputation is exact.
+    """
+    if torch.is_grad_enabled() and any(p.requires_grad for p in encoder.parameters()):
+        return torch.utils.checkpoint.checkpoint(encoder, tokens, use_reentrant=False)
+    return encoder(tokens)
 
 
 def _raw_states(observation_space, inputs: Mapping[str, Any], batch_size: int) -> torch.Tensor | None:
@@ -725,7 +737,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         # to the prey -> predator segment (a pillar that hides the prey from that predator).
         relation = (self.mode == "predator" and predator_obstacle_relation) or (self.mode == "prey" and prey_obstacle_relation)
         if self.num_obstacles > 0 and relation:
-            self.obstacle_rel_encoder = _mlp(11, (hidden_size,), attention_size, fallback_activation)
+            self.obstacle_rel_encoder = _mlp(11, (attention_size,), attention_size, fallback_activation)
             self.obstacle_out_rel = nn.Linear(2 * attention_size, attention_size)
             nn.init.zeros_(self.obstacle_out_rel.weight)
             nn.init.zeros_(self.obstacle_out_rel.bias)
@@ -866,7 +878,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         target = target.unsqueeze(-2).expand_as(offset)
         segment = _segment_axis_distance(offset[..., :2], target[..., :2])
         tokens = torch.cat((offset, pillars[..., 3:4], target, target - offset, segment), dim=-1)
-        encoded = self.obstacle_rel_encoder(tokens.reshape(-1, tokens.shape[-1])).view(*offset.shape[:-1], -1)
+        encoded = _encode_tokens(self.obstacle_rel_encoder, tokens.reshape(-1, tokens.shape[-1])).view(*offset.shape[:-1], -1)
         pooled, count = _masked_max_mean(encoded, _obstacle_presence(pillars))
         out = self.obstacle_out_rel(pooled)
         return torch.where(count > 0, out, torch.zeros_like(out))
@@ -1276,7 +1288,7 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
             ),
             dim=-1,
         )
-        encoded = self.obstacle_rel_encoder(tokens.reshape(-1, tokens.shape[-1])).view(batch, k, -1)
+        encoded = _encode_tokens(self.obstacle_rel_encoder, tokens.reshape(-1, tokens.shape[-1])).view(batch, k, -1)
         pooled, count = _masked_max_mean(encoded, _obstacle_presence(prey_pillars))
         out = self.obstacle_out_rel(pooled)
         return torch.where(count > 0, out, torch.zeros_like(out))
