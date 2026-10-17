@@ -34,9 +34,11 @@ draft lays out what that would mean. Nothing here has run.
 | long-horizon credit (B6) | `agent.agent.rollouts=96 agent.agent.lambda=0.99 agent.agent.mini_batches=8` | config only | no effect on the long game; fewer crashes mid-run |
 
 Open items before a from-scratch run:
-- **The prey has the same degenerate pillar attention.** In 0.2-1% of
-  hugging steps it attends the pillar it hugs. A prey relation branch would
-  be its counterpart; it is not implemented.
+- Done (92af76c, branch): the prey's counterpart,
+  `+agent.models.policy.prey_obstacle_relation=true`. Its pillar attention
+  is equally degenerate (it attends the pillar it hugs in 0.2-1% of those
+  steps), so the same tokens are built relative to the nearest live
+  predator.
 - **The old one-hot pillar attention stays in both actors.** From scratch,
   it could be replaced by the relation pooling; there is no option yet.
 - **Correlated exploration (C8, colored noise or gSDE)** is not
@@ -87,10 +89,5 @@ known recipes.
    - Against: one more change in the same run, which goes against "one new
      difficulty per stage".
    - Recommendation: not in the first from-scratch run.
-3. **Scope:**
-   - the prey relation branch;
-   - replacing the old pillar attention;
-   - correlated exploration.
-
-   Implement the prey branch first; the rest after the first from-scratch
-   result.
+3. **Scope:** replacing the old pillar attention and correlated exploration
+   can wait for the first from-scratch result. The prey branch is ready.
