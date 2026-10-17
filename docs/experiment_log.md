@@ -1067,6 +1067,19 @@ are those of the predator (higher = better predator, lower = better prey).
   A blind-spot probe of h5 reports the critic's explained variance.
 - Evidence: `artifacts/isaac/experiments/2026-10-17_predator_credit_horizon/`.
 
+- Result: **direct credit up to about 2 s does not change the long game**
+  (criteria 1 and 2 fail; guards hold; 16:08-20:11).
+  - h5: time-outs 0.049 (f5 0.040, x5 0.050); long-game nearest predator
+    6.21 m (f5 6.15).
+  - Success 0.778, outcome return 116.9 (f5 116.7).
+- Along the way arm h lost fewer drones (0.26-0.27 vs 0.32-0.35 per episode
+  at points 1-3). Longer credit sharpens crash avoidance, which the
+  predators can perceive, but not the end game, which they cannot.
+- The h5 probe shows the same blind spots: critic EV -0.11 in long
+  episodes, prey's pillar attended in 0.3% of standoff steps.
+- By the rule: representation first. The relation graft (arm g) started
+  automatically at 20:15.
+
 ## 2026-10-17: Relation graft, predator stage with pillar-prey relation branches (pre-registered)
 
 - User approval: "yes", chained after the credit-horizon test.
