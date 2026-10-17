@@ -1117,3 +1117,31 @@ are those of the predator (higher = better predator, lower = better prey).
   - Otherwise: a continuation of the graft to 19,200 updates
     (`2026-10-18_relation_graft_continuation/`), with the same criteria at
     c5.
+
+## 2026-10-18 00:20: Relation graft crashed (CUDA out of memory); fixed and rerun
+
+- The first graft run crashed at 21:36 after 1920 updates. The relation
+  tokens' stored activations and copies added about 5 GB, and the training
+  process reached 29.6 GB.
+  - My mistake: its smoke run used 256 envs, not the full 4096.
+  - The night chain v1 then fell through (no verdict, so the continuation
+    started without a g5 checkpoint and failed). The GPU was idle from
+    21:39 to 00:18.
+- Fix (171fd3b): the actor's token encoder is 128 units wide, encodings are
+  recomputed in the backward pass, and the pooling masks in place.
+  Full-size smoke peak: 21.2 GB vs 20.2 GB without the branches.
+- The drivers now stop without analysis if training fails. The chain v2
+  stops on any technical failure.
+- The crashed run is archived in `crashed_run_1/`, with its probe of g1
+  renamed from the mislabelled "g5". At g1 the critic's long-episode
+  explained variance was 0.19 (f5 -0.14); an observation, not a criterion.
+- Also merged into dev-3v1-obstacles (fast-forward from branch
+  stage8b-fixes), all default-off and bit-exact (training smoke identical
+  to the old code):
+  - body-frame observations;
+  - per-drone PPO ratios;
+  - the zero-at-level upright term;
+  - the prey's relation branch;
+  - the draft from-scratch protocol.
+- The rerun of the graft test (same plan and criteria) started at 00:18.
+  The chain v2 follows with the replication or the continuation.
