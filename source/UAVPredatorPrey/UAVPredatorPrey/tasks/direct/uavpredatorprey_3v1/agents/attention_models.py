@@ -595,6 +595,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         obstacle_attention_heads: int = 0,
         predator_role_embedding: bool = False,
         predator_obstacle_relation: bool = False,
+        prey_obstacle_relation: bool = False,
         obstacle_feature_scale: float = 5.0,
         **_: Any,
     ) -> None:
@@ -718,7 +719,12 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         # max + mean pooling over the pillars replace the one-hot selection. The zero-initialized output, created last,
         # leaves a loaded network exactly as it was.
         self.obstacle_feature_scale = float(obstacle_feature_scale)
-        if self.mode == "predator" and self.num_obstacles > 0 and predator_obstacle_relation:
+        # The prey's counterpart (prey_obstacle_relation): its pillar attention is equally degenerate (it attends the pillar
+        # it hugs in under 1% of those steps), so the same tokens are built with the nearest live predator in the role of
+        # the target: pillar offset and distance, predator offset, predator minus pillar, and the pillar axis' distance
+        # to the prey -> predator segment (a pillar that hides the prey from that predator).
+        relation = (self.mode == "predator" and predator_obstacle_relation) or (self.mode == "prey" and prey_obstacle_relation)
+        if self.num_obstacles > 0 and relation:
             self.obstacle_rel_encoder = _mlp(11, (hidden_size,), attention_size, fallback_activation)
             self.obstacle_out_rel = nn.Linear(2 * attention_size, attention_size)
             nn.init.zeros_(self.obstacle_out_rel.weight)
@@ -851,14 +857,29 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         """(B, P, A) pooled pillar-prey relations of each drone from its raw block (B, P, per_predator_block)."""
         batch, drones = raw_blocks.shape[:2]
         pillars = raw_blocks[:, :, self.per_predator_obs :].reshape(batch, drones, self.num_obstacles, self.obstacle_dim)
+        prey = raw_blocks[:, :, 12:15] / self.obstacle_feature_scale
+        return self._pooled_relation(pillars, prey)
+
+    def _pooled_relation(self, pillars: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Pool pillar tokens (..., K, obstacle_dim raw features) relative to one target offset (..., 3) / scale."""
         offset = pillars[..., :3]
-        prey = (raw_blocks[:, :, 12:15] / self.obstacle_feature_scale).unsqueeze(2).expand_as(offset)
-        segment = _segment_axis_distance(offset[..., :2], prey[..., :2])
-        tokens = torch.cat((offset, pillars[..., 3:4], prey, prey - offset, segment), dim=-1)
-        encoded = self.obstacle_rel_encoder(tokens.reshape(-1, tokens.shape[-1]))
-        pooled, count = _masked_max_mean(encoded.view(batch, drones, self.num_obstacles, -1), _obstacle_presence(pillars))
+        target = target.unsqueeze(-2).expand_as(offset)
+        segment = _segment_axis_distance(offset[..., :2], target[..., :2])
+        tokens = torch.cat((offset, pillars[..., 3:4], target, target - offset, segment), dim=-1)
+        encoded = self.obstacle_rel_encoder(tokens.reshape(-1, tokens.shape[-1])).view(*offset.shape[:-1], -1)
+        pooled, count = _masked_max_mean(encoded, _obstacle_presence(pillars))
         out = self.obstacle_out_rel(pooled)
         return torch.where(count > 0, out, torch.zeros_like(out))
+
+    def _prey_obstacle_relation(self, raw_states: torch.Tensor) -> torch.Tensor:
+        """(B, A) pooled pillar relations of the prey to its nearest live predator from the raw prey observation."""
+        batch = raw_states.shape[0]
+        predator_end = 12 + 6 * self.num_predators
+        predators = raw_states[:, 12:predator_end].view(batch, self.num_predators, 6)
+        distance = predators[..., :3].norm(dim=-1).masked_fill(self._inactive_placeholder(predators), float("inf"))
+        nearest = predators[torch.arange(batch, device=raw_states.device), distance.argmin(dim=-1), :3]
+        pillars = raw_states[:, predator_end:].view(batch, self.num_obstacles, self.obstacle_dim)
+        return self._pooled_relation(pillars, nearest / self.obstacle_feature_scale)
 
     def _prey_features(self, states: torch.Tensor, raw_states: torch.Tensor | None = None) -> torch.Tensor:
         batch_size = states.shape[0]
@@ -888,6 +909,8 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
                     raw_states[:, predator_end:].view(batch_size, self.num_obstacles, self.obstacle_dim)
                 )
             context = context + self._obstacle_context(own_emb, obstacles, present)
+            if hasattr(self, "obstacle_rel_encoder") and raw_states is not None:
+                context = context + self._prey_obstacle_relation(raw_states)
         return torch.cat((own_emb, context), dim=-1)
 
     def compute(self, inputs, role=""):

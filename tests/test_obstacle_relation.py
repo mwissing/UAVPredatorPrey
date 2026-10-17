@@ -168,3 +168,48 @@ def test_the_relation_branches_learn_in_the_fast_group_and_count_as_pillar_input
     # zero_obstacle_branch.py zeroes every key that starts with obstacle_out: the ablation removes these branches too.
     assert all(n.startswith("obstacle_out") for n, _ in actor.named_parameters() if n.startswith("obstacle_out_rel"))
     assert fast["lr"] == pytest.approx(3e-4)
+
+
+def _prey(relation: bool):
+    torch.manual_seed(3)
+    return attention_models.RecurrentPredatorPreyAttentionGaussianModel(
+        _box(PREY_OBS + 4 * K), _box(4), device="cpu", hidden_size=32, attention_size=16, rnn_hidden_size=24,
+        num_obstacles=K, prey_mask_inactive_predators=True, prey_obstacle_relation=relation,
+    )
+
+
+def _prey_states(batch: int, seed: int) -> torch.Tensor:
+    generator = torch.Generator().manual_seed(seed)
+    states = torch.randn(batch, PREY_OBS + 4 * K, generator=generator)
+    states[:, 12:PREY_OBS].view(batch, P, 6)[..., :3] *= 3.0                    # predators a few meters away
+    states[:, 12:PREY_OBS].view(batch, P, 6)[:, 0, :3] = torch.tensor([0.5, 0.0, 0.0])   # predator 0 is the nearest
+    states[:, PREY_OBS:].view(batch, K, 4)[..., 3] = PRESENT
+    return states
+
+
+def test_the_prey_branch_starts_at_zero_and_follows_the_nearest_live_predator() -> None:
+    old, new = _prey(False), _prey(True)
+    new.load_state_dict(old.state_dict())
+    states = _prey_states(4, seed=6)
+    inputs = {"states": states, "raw_states": states}
+    assert torch.equal(old.compute(inputs)[0], new.compute(inputs)[0])
+    _randomize(new)
+    relation = lambda s: new._prey_obstacle_relation(s)
+    far = states.clone()
+    far[:, 12:PREY_OBS].view(4, P, 6)[:, 2, :3] += torch.tensor([3.0, 3.0, 0.0])  # a farther predator moves
+    near = states.clone()
+    near[:, 12:PREY_OBS].view(4, P, 6)[:, 0, :3] = torch.tensor([0.0, 0.6, 0.0])  # the nearest predator moves
+    assert torch.equal(relation(states), relation(far))
+    assert (relation(states) - relation(near)).abs().amax() > 1e-4
+    crashed = states.clone()
+    crashed[:, 12:PREY_OBS].view(4, P, 6)[:, 1, :3] = torch.tensor([10.0, 0.0, 0.0])  # placeholder: crashed predator
+    crashed[:, 12:PREY_OBS].view(4, P, 6)[:, 1, 3:] = 0.0
+    assert torch.equal(relation(states), relation(crashed))
+
+
+def test_the_predator_flag_does_not_give_the_prey_a_branch() -> None:
+    model = attention_models.RecurrentPredatorPreyAttentionGaussianModel(
+        _box(PREY_OBS + 4 * K), _box(4), device="cpu", hidden_size=32, attention_size=16, num_obstacles=K,
+        predator_obstacle_relation=True,
+    )
+    assert not hasattr(model, "obstacle_rel_encoder")
