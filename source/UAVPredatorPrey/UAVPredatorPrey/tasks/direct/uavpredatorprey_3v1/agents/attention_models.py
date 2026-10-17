@@ -179,6 +179,24 @@ def _obstacle_presence(raw_obstacles: torch.Tensor) -> torch.Tensor:
     return raw_obstacles[..., 3] < OBSTACLE_PRESENCE_LIMIT
 
 
+def _segment_axis_distance(axis_xy: torch.Tensor, target_xy: torch.Tensor) -> torch.Tensor:
+    """(..., 1) horizontal distance of pillar axes (..., 2) to the segment origin -> target (..., 2), in input units.
+
+    The observer sits at the origin, so a value below the pillar radius means the pillar blocks the line of sight.
+    """
+    t = (axis_xy * target_xy).sum(-1) / (target_xy * target_xy).sum(-1).clamp(min=1e-6)
+    return (axis_xy - t.clamp(0.0, 1.0).unsqueeze(-1) * target_xy).norm(dim=-1, keepdim=True)
+
+
+def _masked_max_mean(tokens: torch.Tensor, present: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Pool (..., K, F) tokens over present entries (..., K): concatenated max and mean (..., 2F), and the count."""
+    mask = present.unsqueeze(-1)
+    maxed = torch.where(mask, tokens, torch.full_like(tokens, -1.0e4)).amax(dim=-2)
+    count = present.sum(dim=-1, keepdim=True)
+    mean = (tokens * mask.to(tokens.dtype)).sum(dim=-2) / count.clamp(min=1).to(tokens.dtype)
+    return torch.cat((maxed, mean), dim=-1), count
+
+
 def _raw_states(observation_space, inputs: Mapping[str, Any], batch_size: int) -> torch.Tensor | None:
     """Raw (unnormalized) states passed by the agent as inputs["raw_states"], or None (no presence mask)."""
     raw = inputs.get("raw_states")
@@ -576,6 +594,8 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         inactive_drone_distance: float = 10.0,
         obstacle_attention_heads: int = 0,
         predator_role_embedding: bool = False,
+        predator_obstacle_relation: bool = False,
+        obstacle_feature_scale: float = 5.0,
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
@@ -689,6 +709,20 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         # Zero-initialized and created last, it leaves a loaded network exactly as it was.
         if self.mode == "predator" and predator_role_embedding:
             self.role_embedding = nn.Parameter(torch.zeros(self.num_predators, attention_size))
+
+        # Optional pillar-prey relation branch for the predators (off by default). The single pillar attention is queried
+        # by the drone's own state, so it cannot pick the pillar next to the prey or the one blocking the line of sight
+        # (Stage 8 review, 2026-10-17). Here every present pillar becomes a token together with the prey: pillar offset
+        # and surface distance, prey offset, prey minus pillar, and the pillar axis' distance to the drone -> prey
+        # segment, all from the raw body-frame features (meters / obstacle_feature_scale). A shared encoder and masked
+        # max + mean pooling over the pillars replace the one-hot selection. The zero-initialized output, created last,
+        # leaves a loaded network exactly as it was.
+        self.obstacle_feature_scale = float(obstacle_feature_scale)
+        if self.mode == "predator" and self.num_obstacles > 0 and predator_obstacle_relation:
+            self.obstacle_rel_encoder = _mlp(11, (hidden_size,), attention_size, fallback_activation)
+            self.obstacle_out_rel = nn.Linear(2 * attention_size, attention_size)
+            nn.init.zeros_(self.obstacle_out_rel.weight)
+            nn.init.zeros_(self.obstacle_out_rel.bias)
 
     def get_specification(self) -> Mapping[str, Any]:
         if self.mode == "predator":
@@ -807,7 +841,24 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
                 own_emb.reshape(batch_size * self.num_predators, -1), obstacles, present
             )
             context = context + obstacle_context.view(batch_size, self.num_predators, -1)
+            if hasattr(self, "obstacle_rel_encoder") and raw_states is not None:
+                context = context + self._obstacle_relation(
+                    raw_states.view(batch_size, self.num_predators, self.per_predator_block)
+                )
         return torch.cat((own_emb, context), dim=-1)
+
+    def _obstacle_relation(self, raw_blocks: torch.Tensor) -> torch.Tensor:
+        """(B, P, A) pooled pillar-prey relations of each drone from its raw block (B, P, per_predator_block)."""
+        batch, drones = raw_blocks.shape[:2]
+        pillars = raw_blocks[:, :, self.per_predator_obs :].reshape(batch, drones, self.num_obstacles, self.obstacle_dim)
+        offset = pillars[..., :3]
+        prey = (raw_blocks[:, :, 12:15] / self.obstacle_feature_scale).unsqueeze(2).expand_as(offset)
+        segment = _segment_axis_distance(offset[..., :2], prey[..., :2])
+        tokens = torch.cat((offset, pillars[..., 3:4], prey, prey - offset, segment), dim=-1)
+        encoded = self.obstacle_rel_encoder(tokens.reshape(-1, tokens.shape[-1]))
+        pooled, count = _masked_max_mean(encoded.view(batch, drones, self.num_obstacles, -1), _obstacle_presence(pillars))
+        out = self.obstacle_out_rel(pooled)
+        return torch.where(count > 0, out, torch.zeros_like(out))
 
     def _prey_features(self, states: torch.Tensor, raw_states: torch.Tensor | None = None) -> torch.Tensor:
         batch_size = states.shape[0]
@@ -1049,6 +1100,8 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
         max_predators: int = 6,
         num_obstacles: int = 0,
         obstacle_dim: int = 4,
+        obstacle_relation: bool = False,
+        obstacle_feature_scale: float = 5.0,
         **_: Any,
     ) -> None:
         Model.__init__(self, observation_space, action_space, device)
@@ -1101,6 +1154,19 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
             self.obstacle_out = nn.Linear(attention_size, self.feature_size)
             nn.init.zeros_(self.obstacle_out.weight)
             nn.init.zeros_(self.obstacle_out.bias)
+
+        # Optional identity-aware pillar relations (off by default). The summary above mean-pools all drones' pillar views
+        # without saying whose view each one is, so the critic cannot tell "prey next to pillar k" from "predator passing
+        # pillar k" (Stage 8 review). Here each pillar is one token holding everyone's view of it, in a fixed order and
+        # rotation-invariant: the prey's surface distance, each predator's surface distance and alive flag, and each
+        # predator's distance to the prey (all / obstacle_feature_scale). Encoded per pillar, max + mean pooled; the
+        # zero-initialized output, created last, leaves a loaded critic unchanged.
+        self.obstacle_feature_scale = float(obstacle_feature_scale)
+        if self.num_obstacles > 0 and self.uses_entity_attention and obstacle_relation:
+            self.obstacle_rel_encoder = _mlp(1 + 3 * self.num_predators, (hidden_size,), attention_size, fallback_activation)
+            self.obstacle_out_rel = nn.Linear(2 * attention_size, self.feature_size)
+            nn.init.zeros_(self.obstacle_out_rel.weight)
+            nn.init.zeros_(self.obstacle_out_rel.bias)
 
     def get_specification(self) -> Mapping[str, Any]:
         return {"rnn": {"sizes": [(1, 0, self.rnn_hidden_size)], "sequence_length": self.rnn_sequence_length}}
@@ -1158,7 +1224,39 @@ class RecurrentEntityAttentionCentralizedValueModel(DeterministicMixin, Model):
                 mean = (summary * present.unsqueeze(-1).to(summary.dtype)).sum(dim=1) / count.clamp(min=1).to(summary.dtype)
                 out = self.obstacle_out(mean)
                 feature = feature + torch.where(count > 0, out, torch.zeros_like(out))
+                if hasattr(self, "obstacle_rel_encoder"):
+                    feature = feature + self._obstacle_relation(raw_states)
         return feature
+
+    def _obstacle_relation(self, raw_states: torch.Tensor) -> torch.Tensor:
+        """(B, feature_size) pooled per-pillar relations of all entities from the raw centralized state."""
+        batch = raw_states.shape[0]
+        block = self.per_predator_obs + self.obstacle_block
+        predator_dim = self.num_predators * block
+        predator_blocks = raw_states[:, :predator_dim].view(batch, self.num_predators, block)
+        prey_obs = raw_states[:, predator_dim : predator_dim + self.prey_obs_dim]
+        prey_pillars = raw_states[:, predator_dim + self.prey_obs_dim :].view(batch, self.num_obstacles, self.obstacle_dim)
+        predator_pillars = predator_blocks[:, :, self.per_predator_obs :].reshape(
+            batch, self.num_predators, self.num_obstacles, self.obstacle_dim
+        )
+        # A crashed predator's own features are zeroed, so its projected gravity (normally unit length) vanishes.
+        alive = (predator_blocks[:, :, 6:9].norm(dim=-1) > 0.5).to(raw_states.dtype)              # (B, P)
+        to_predators = prey_obs[:, 12 : 12 + 6 * self.num_predators].view(batch, self.num_predators, 6)[..., :3]
+        prey_distance = to_predators.norm(dim=-1) / self.obstacle_feature_scale * alive          # (B, P)
+        k = self.num_obstacles
+        tokens = torch.cat(
+            (
+                prey_pillars[..., 3:4],                                                          # (B, K, 1)
+                predator_pillars[..., 3].transpose(1, 2) * alive.unsqueeze(1),                   # (B, K, P)
+                alive.unsqueeze(1).expand(batch, k, self.num_predators),
+                prey_distance.unsqueeze(1).expand(batch, k, self.num_predators),
+            ),
+            dim=-1,
+        )
+        encoded = self.obstacle_rel_encoder(tokens.reshape(-1, tokens.shape[-1])).view(batch, k, -1)
+        pooled, count = _masked_max_mean(encoded, _obstacle_presence(prey_pillars))
+        out = self.obstacle_out_rel(pooled)
+        return torch.where(count > 0, out, torch.zeros_like(out))
 
     def compute(self, inputs, role=""):
         states = unflatten_tensorized_space(self.observation_space, inputs.get("states"))
