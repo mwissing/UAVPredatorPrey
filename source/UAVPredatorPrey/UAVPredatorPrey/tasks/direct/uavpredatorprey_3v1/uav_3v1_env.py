@@ -19,6 +19,7 @@ from .episode_semantics import (
     predator_crash_event_penalty,
     shifted_squared_speed_penalty,
 )
+from .frames import rotate_into_frame
 from .ghosts import ghost_pursuit_velocity, scripted_pursuit_velocity
 from .motion_diagnostics import compute_motion_diagnostics
 from .obstacles import (
@@ -43,6 +44,8 @@ class Uav3v1Env(DirectMARLEnv):
     cfg: Uav3v1EnvCfg
 
     def __init__(self, cfg: Uav3v1EnvCfg, render_mode: str | None = None, **kwargs):
+        if cfg.observation_frame not in ("mixed", "body"):
+            raise ValueError(f"observation_frame must be 'mixed' or 'body', got {cfg.observation_frame!r}")
         super().__init__(cfg, render_mode, **kwargs)
 
         N = self.num_envs
@@ -601,6 +604,9 @@ class Uav3v1Env(DirectMARLEnv):
 
         # Pred-to-prey velocity (simple subtraction, no frame transform needed)
         to_prey_vel = prey_vel_w.unsqueeze(0) - pred_lin_vel_w  # (P, N, 3)
+        body = self.cfg.observation_frame == "body"  # every relative vector in the observer's body frame
+        if body:
+            to_prey_vel = rotate_into_frame(pred_quat_w, to_prey_vel)
         pred_alive_t = self._pred_alive.t().unsqueeze(-1)  # (P, N, 1)
         far_predator_obs = torch.zeros(P, N, 3, device=self.device)
         far_predator_obs[:, :, 0] = self.cfg.arena_radius * 2.0
@@ -616,6 +622,8 @@ class Uav3v1Env(DirectMARLEnv):
             flat_teammate_b, _ = subtract_frame_transforms(src_pos, src_quat, dst_pos)
             teammate_b = flat_teammate_b.view(n_pairs, N, 3)
             teammate_vel = pred_lin_vel_w[self._teammate_dst] - pred_lin_vel_w[self._teammate_src]
+            if body:
+                teammate_vel = rotate_into_frame(pred_quat_w[self._teammate_src], teammate_vel)
             teammate_alive = self._pred_alive[:, self._teammate_dst].t().unsqueeze(-1)
             far_teammate_obs = torch.zeros(n_pairs, N, 3, device=self.device)
             far_teammate_obs[:, :, 0] = self.cfg.arena_radius * 2.0
@@ -629,6 +637,8 @@ class Uav3v1Env(DirectMARLEnv):
             pred_obstacle_obs = self._obstacle_features(self._pred_pos_rel, pred_quat_w.permute(1, 0, 2))  # (N, P, K*4)
             prey_obstacle_obs = self._obstacle_features(self._prey_pos_rel[:, None, :], prey_quat_w[:, None, :])[:, 0]
 
+        pred_pos_obs = (rotate_into_frame(pred_quat_w.permute(1, 0, 2), self._pred_pos_rel) if body
+                        else self._pred_pos_rel)  # (N, P, 3)
         # Assemble per-predator observations and stack them for the shared predator agent.
         pred_obs_parts = []
         tm_idx = 0
@@ -638,7 +648,7 @@ class Uav3v1Env(DirectMARLEnv):
                 torch.where(alive_i, pred_lin_vel_b[i], torch.zeros_like(pred_lin_vel_b[i])),        # 3
                 torch.where(alive_i, pred_ang_vel_b[i], torch.zeros_like(pred_ang_vel_b[i])),         # 3
                 torch.where(alive_i, pred_grav_b[i], torch.zeros_like(pred_grav_b[i])),               # 3
-                torch.where(alive_i, self._pred_pos_rel[:, i], torch.zeros_like(self._pred_pos_rel[:, i])),  # 3
+                torch.where(alive_i, pred_pos_obs[:, i], torch.zeros_like(pred_pos_obs[:, i])),  # 3
                 to_prey_b[i],              # 3
                 to_prey_vel[i],            # 3
             ]
@@ -660,6 +670,8 @@ class Uav3v1Env(DirectMARLEnv):
         flat_to_pred_b, _ = subtract_frame_transforms(prey_pos_rep2, prey_quat_rep, flat_pred_pos)
         to_pred_b = flat_to_pred_b.view(P, N, 3)          # (P, N, 3)
         to_pred_vel = pred_lin_vel_w - prey_vel_w.unsqueeze(0)  # (P, N, 3)
+        if body:
+            to_pred_vel = rotate_into_frame(prey_quat_w.unsqueeze(0).expand(P, -1, -1), to_pred_vel)
         to_pred_b = torch.where(pred_alive_t, to_pred_b, far_predator_obs)
         to_pred_vel = torch.where(pred_alive_t, to_pred_vel, torch.zeros_like(to_pred_vel))
 
@@ -667,7 +679,7 @@ class Uav3v1Env(DirectMARLEnv):
             self._prey.data.root_lin_vel_b,       # 3
             self._prey.data.root_ang_vel_b,        # 3
             self._prey.data.projected_gravity_b,   # 3
-            self._prey_pos_rel,                    # 3
+            rotate_into_frame(prey_quat_w, self._prey_pos_rel) if body else self._prey_pos_rel,  # 3
         ]
         for i in range(P):
             prey_obs_parts.extend([to_pred_b[i], to_pred_vel[i]])

@@ -166,6 +166,12 @@ class Uav3v1EnvCfg(DirectMARLEnvCfg):
     random_spawn_resample_attempts = 32
     predator_teammate_close_distance = 0.5  # diagnostics only: flags near teammate contact
     predator_teammate_velocity_observation = False
+    # Frame of the relative quantities in the observations. "mixed" (the default, all existing checkpoints): relative
+    # positions in the observer's body frame, relative velocities and the arena position in the world frame, and no
+    # heading observed, so the two cannot be combined without inferring yaw (Stage 8 review, 2026-10-17). "body": every
+    # vector in the observer's body frame, which makes the observations invariant to a global rotation about the vertical
+    # axis. Same layout and size; a policy trained in one frame does not transfer to the other.
+    observation_frame = "mixed"
 
     # Vertical pillar obstacles (0 = none). Collisions are analytic: touching a
     # pillar counts as a crash (predator inactive, or prey OOB). Rendered
