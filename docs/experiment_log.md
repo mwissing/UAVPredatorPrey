@@ -1046,3 +1046,23 @@ are those of the predator (higher = better predator, lower = better prey).
   - One citation not found (Gavin & Bronz, ICUAS 2026).
 - Next (user decision): representation and credit fixes, then a
   from-scratch run (3 seeds) against anchor v4, then Stage 9.
+
+## 2026-10-17: Credit horizon, predator stage with 96-step rollouts and lambda 0.99 (pre-registered)
+
+- User approval: "continue as suggested", the cheap credit test before the
+  architecture work.
+- Correction found while designing it: GAE runs inside each 24-step rollout
+  and bootstraps there.
+  - The direct credit window therefore averages about 12 steps (0.24 s)
+    whatever lambda is, so a lambda-only A/B would barely change anything.
+  - Arm h changes the rollout to 96 steps (1.92 s), lambda to 0.99, and the
+    minibatches to 8. The minibatch size and gradient steps per env step
+    stay as in arm f.
+  - It runs 2400 updates, the same env steps as arm f; seed 70.
+- Decision at h5:
+  1. time-outs <= 0.028;
+  2. long-episode nearest-predator distance <= 5.5 m (all six earlier runs
+     5.96-6.57);
+  3. guards on success, losses and perception.
+  A blind-spot probe of h5 reports the critic's explained variance.
+- Evidence: `artifacts/isaac/experiments/2026-10-17_predator_credit_horizon/`.
