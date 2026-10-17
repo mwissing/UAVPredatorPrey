@@ -76,6 +76,7 @@ class TanhGaussianMixin(GaussianMixin):
             )
 
         log_prob_per_dimension = self._log_prob_per_dimension(evaluated_pre_tanh)
+        outputs["log_prob_per_dimension"] = log_prob_per_dimension  # per-drone PPO ratios (recurrent_mappo)
         log_prob = log_prob_per_dimension
         if self._g_reduction is not None:
             log_prob = self._g_reduction(log_prob, dim=-1)

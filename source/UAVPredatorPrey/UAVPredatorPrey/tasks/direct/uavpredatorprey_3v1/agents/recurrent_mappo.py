@@ -67,6 +67,49 @@ def _obstacle_param_groups(modules: list[nn.Module], learning_rate: float, multi
     return groups
 
 
+def _per_drone_policy_loss(
+    next_log_prob_dims: torch.Tensor,
+    old_log_prob_dims: torch.Tensor,
+    advantages: torch.Tensor,
+    alive: torch.Tensor,
+    ratio_clip: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """PPO clipped surrogate with one ratio per drone of a team action, crashed drones masked out (MAPPO-style).
+
+    The predator team acts as one agent with a 12-dimensional action. A single joint ratio multiplies the three drones'
+    ratios, so one drone's large change clips the whole team's update, and crashed drones (whose actions do nothing)
+    still add log-probability noise. Here each drone gets its own ratio and clip, with the shared team advantage, and
+    only live drones count.
+
+    Args:
+        next_log_prob_dims, old_log_prob_dims: (B, A) per-dimension log-probs of the taken actions under the current and
+            the behaviour policy; A = action dimensions per drone x drones.
+        advantages: (B, 1) team advantages.
+        alive: (B, D) live drones.
+        ratio_clip: PPO clip range.
+
+    Returns:
+        The policy loss, the approximate KL and the ratio clip fraction, both over live drones.
+    """
+    drones = alive.shape[1]
+    log_ratio = (next_log_prob_dims - old_log_prob_dims).view(-1, drones, next_log_prob_dims.shape[1] // drones).sum(-1)
+    ratio = torch.exp(log_ratio)
+    surrogate = torch.min(advantages * ratio, advantages * torch.clip(ratio, 1.0 - ratio_clip, 1.0 + ratio_clip))
+    weight = alive.to(ratio.dtype)
+    count = weight.sum().clamp(min=1.0)
+    loss = -(surrogate * weight).sum() / count
+    with torch.no_grad():
+        kl = (((ratio - 1.0) - log_ratio) * weight).sum() / count
+        clipped = (((ratio < 1.0 - ratio_clip) | (ratio > 1.0 + ratio_clip)).to(ratio.dtype) * weight).sum() / count
+    return loss, kl, clipped
+
+
+def _live_drones(raw_states: torch.Tensor, drones: int) -> torch.Tensor:
+    """(B, D) live drones of a team observation (B, D x block): a crashed drone's own features, incl. its projected
+    gravity (normally unit length, features 6:9 of its block), are zeroed by the environment."""
+    return raw_states.view(raw_states.shape[0], drones, -1)[:, :, 6:9].norm(dim=-1) > 0.5
+
+
 def _env_minibatches(
     num_envs: int, mini_batches: int, envs: torch.Tensor | None, device: torch.device | str
 ) -> tuple[torch.Tensor, ...]:
@@ -128,6 +171,10 @@ class RecurrentMAPPO(MAPPO):
         self._training_envs: dict[str, torch.Tensor] = {}
         self._uid_squashed: dict[str, bool] = {}
         self._current_pre_tanh_actions: dict[str, torch.Tensor] = {}
+        # Optional per-drone PPO ratios for team agents (off by default; see _per_drone_policy_loss).
+        per_drone_ratio = bool(self.cfg.get("per_drone_ratio", False))
+        self._uid_drones: dict[str, int] = {}
+        self._current_log_prob_dims: dict[str, torch.Tensor] = {}
 
         for uid in self.possible_agents:
             memory = self.memories[uid]
@@ -181,6 +228,11 @@ class RecurrentMAPPO(MAPPO):
                     size=self.policies[uid].num_actions,
                     dtype=torch.float32,
                 )
+                num_actions = self.policies[uid].num_actions
+                if per_drone_ratio and num_actions > 4 and num_actions % 4 == 0:
+                    self._uid_drones[uid] = num_actions // 4
+                    memory.create_tensor(name="log_prob_dims", size=num_actions, dtype=torch.float32)
+                    print(f"[INFO] {uid}: per-drone PPO ratios for {num_actions // 4} drones")
 
     def set_frozen_agents(self, agent_names: set[str]) -> None:
         """Exclude roles from learning while preserving policy inference state."""
@@ -258,6 +310,8 @@ class RecurrentMAPPO(MAPPO):
                 if pre_tanh_actions is None:
                     raise RuntimeError(f"Squashed policy '{uid}' did not return pre_tanh_actions")
                 self._current_pre_tanh_actions[uid] = pre_tanh_actions
+            if uid in self._uid_drones:
+                self._current_log_prob_dims[uid] = outputs[uid]["log_prob_per_dimension"]
 
         return actions, log_prob, outputs
 
@@ -363,6 +417,7 @@ class RecurrentMAPPO(MAPPO):
                         if self._uid_squashed.get(uid, False)
                         else {}
                     ),
+                    **({"log_prob_dims": self._current_log_prob_dims[uid]} if uid in self._uid_drones else {}),
                     **rnn_states,
                 )
 
@@ -510,6 +565,11 @@ class RecurrentMAPPO(MAPPO):
                     sampled_values = memory.get_tensor_by_name("values")[:, env_batch].reshape(-1, 1)
                     sampled_returns = memory.get_tensor_by_name("returns")[:, env_batch].reshape(-1, 1)
                     sampled_advantages = memory.get_tensor_by_name("advantages")[:, env_batch].reshape(-1, 1)
+                    sampled_log_prob_dims = None
+                    if uid in self._uid_drones:
+                        sampled_log_prob_dims = memory.get_tensor_by_name("log_prob_dims")[:, env_batch].reshape(
+                            -1, policy.num_actions
+                        )
                     sampled_pre_tanh_actions = None
                     if self._uid_squashed.get(uid, False):
                         sampled_pre_tanh_actions = memory.get_tensor_by_name("pre_tanh_actions")[:, env_batch].reshape(
@@ -552,7 +612,16 @@ class RecurrentMAPPO(MAPPO):
                         }
                         if sampled_pre_tanh_actions is not None:
                             policy_inputs["pre_tanh_actions"] = sampled_pre_tanh_actions
-                        _, next_log_prob, _ = policy.act(policy_inputs, role="policy")
+                        _, next_log_prob, next_policy_outputs = policy.act(policy_inputs, role="policy")
+                        per_drone = None
+                        if sampled_log_prob_dims is not None:
+                            per_drone = _per_drone_policy_loss(
+                                next_policy_outputs["log_prob_per_dimension"],
+                                sampled_log_prob_dims,
+                                sampled_advantages,
+                                _live_drones(raw_sampled_states, self._uid_drones[uid]),
+                                self._ratio_clip[uid],
+                            )
 
                         with torch.no_grad():
                             log_ratio = next_log_prob - sampled_log_prob
@@ -565,6 +634,8 @@ class RecurrentMAPPO(MAPPO):
                                 (diagnostic_ratio < 1.0 - self._ratio_clip[uid])
                                 | (diagnostic_ratio > 1.0 + self._ratio_clip[uid])
                             ).float().mean()
+                            if per_drone is not None:  # KL early stopping and diagnostics over live drones
+                                kl_divergence, ratio_clip_fraction = per_drone[1], per_drone[2]
                             kl_divergences.append(kl_divergence)
                             evaluated_minibatch_count += 1
 
@@ -597,6 +668,8 @@ class RecurrentMAPPO(MAPPO):
                             1.0 + self._ratio_clip[uid],
                         )
                         policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
+                        if per_drone is not None:
+                            policy_loss = per_drone[0]
 
                         predicted_values, _, _ = value.act(
                             {"states": sampled_shared_states, "raw_states": raw_sampled_shared_states, **rnn_value},
