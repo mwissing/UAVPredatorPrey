@@ -101,7 +101,7 @@ Each rule was learned from a concrete failure or near miss in this project.
 | Spawn robustness (Stage 5) | random spawn in the spherical arena; no initial-velocity randomization yet |
 | League hardening (Stage 6) | pools, cross-play, PFSP weights, per-env mixing, rehearsal; forgetting and non-transitivity are measured but unsolved; no exploiters |
 | Locked obstacle-free baseline (Stage 7) | anchor v3 ([doc](anchor_v3_2026-10-08.md)), accepted 2026-10-08 by a pre-registered rule; training-seed replicates missing |
-| Obstacles (Stage 8) | implemented 2026-10-08 (four pillars, zero-initialized obstacle branches). Reference predator with perception-based pillar avoidance frozen 2026-10-10 ([doc](obstacle_predator_2026-10-10.md)). The prey learns avoidance against scripted ghost pursuers only when evasion is easy, and loses it again in self-play (see Stage 8) |
+| Obstacles (Stage 8) | closed 2026-10-17 with [anchor v4](anchor_v4_2026-10-17.md), a 10-pillar reference pair with perception in both roles (own catch 0.680). Known weakness: the prey waits behind pillars (6.2% time-outs). The [review](stage8_review_2026-10-17.md) traces it to representation defects (pillar attention, prey/teammate softmax, critic pooling, frames), to be fixed before Stage 9 |
 | Partial observability, perception (Stages 9-10) | not started |
 | Correctness gate | all items closed except three open ones (see Correctness Gate) |
 
@@ -395,10 +395,11 @@ to the wall, the prey learned to wait behind a pillar (about 4-5% time-outs).
   - The critic's explained variance is -0.14 in long episodes.
   - Relative positions and velocities are in different frames, while the
     drones yaw about 120 deg/s.
-- Accepted for Stage 8: a current-architecture reference pair (anchor v4
-  candidate). The fixes (prey-conditioned entity attention, separate prey
-  slot, consistent frames, an identity-aware critic, per-drone ratios)
-  precede Stage 9, as a from-scratch protocol.
+- Accepted for Stage 8: [anchor v4](anchor_v4_2026-10-17.md), a
+  current-architecture reference pair (2026-10-17). The fixes
+  (prey-conditioned entity attention, separate prey slot, consistent frames,
+  an identity-aware critic, per-drone ratios) precede Stage 9, as a
+  from-scratch protocol.
 
 ### Stage 9: Partial Observability, Belief, and Communication
 

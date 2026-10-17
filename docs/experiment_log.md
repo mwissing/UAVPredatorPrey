@@ -1003,3 +1003,46 @@ are those of the predator (higher = better predator, lower = better prey).
   4. own catch changes by <= 0.05 from point 4 to 5.
 - If all pass, the final pair becomes the obstacle reference (anchor v4).
 - Evidence: `artifacts/isaac/experiments/2026-10-16_obstacle_reference_selfplay/`.
+- Result: **accepted; all six criteria pass**. The final pair is anchor v4
+  ([doc](anchor_v4_2026-10-17.md); read-only bundle
+  `.pretrained_checkpoints/anchor_v4_2026-10-17/`, bit-exact).
+  - Own ablation ratios: prey 1.03 / 1.25, predator 1.20 / 1.23.
+  - Own catch 0.678 / 0.680.
+  - No forgetting: predator vs the fixed prey 0.149 (start 0.146); the fixed
+    predator vs our prey 0.147 (start 0.167).
+- Self-play partly undid the predator stage: time-outs 0.040 -> 0.062,
+  predators lost 0.29 -> 0.37 per episode, and the prey slowed to 2.55 m/s.
+- The prey got worse against ghosts (catch hazard 0.159 -> 0.274/s).
+- No coordination emerged.
+- Blind-spot probes give the same values as for f5 and point 0, so the
+  defects belong to the architecture.
+
+## 2026-10-16/17: Stage 8 blind-spot diagnostics and review
+
+- User request: integrate an external review and "do everything that is
+  necessary, so we get a full analysis".
+- Tooling, `artifacts/isaac/diagnostics/2026-10-16_stage8_blind_spots/`:
+  - `probe_record.py` wraps evaluate.py; a deterministic run with it is
+    bit-identical to a plain evaluation. It records attention weights,
+    critic values and features.
+  - Relation probes and a value control.
+- Measured on three pairs (stage start, f5, anchor v4):
+
+  | measurement | value | chance or reference |
+  |---|---|---|
+  | predators attend the prey's pillar in standoffs | 0.4-0.7% | 10% |
+  | prey in a predator's attention context | 45-49% of steps | |
+  | hugging prey attends its own pillar | 0.2-1% | |
+  | critic EV in long episodes | -0.14 to 0.00 | 0.38-0.43 short |
+  | critic features: prey-pillar distance R^2 | 0.08-0.22 | 0.9 for agent distances |
+  | line of sight blocked: set encoder / attended pillar / GRU | 0.83 / 0.57 / 0.55 | |
+  | yaw rate, median | 117-125 deg/s | |
+
+  The yaw matters because relative positions are in the body frame,
+  velocities in the world frame, and the heading is not observed.
+- Review: [`stage8_review_2026-10-17.md`](stage8_review_2026-10-17.md).
+  - Verified: most claims, plus four corrections of our earlier
+    conclusions.
+  - One citation not found (Gavin & Bronz, ICUAS 2026).
+- Next (user decision): representation and credit fixes, then a
+  from-scratch run (3 seeds) against anchor v4, then Stage 9.

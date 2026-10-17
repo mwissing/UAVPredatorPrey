@@ -167,9 +167,9 @@ That was the blind spot of the investigation.
 - That argues for **one from-scratch training with the fixed architecture, 3
   seeds**. It would give a reproducible anchor and a real answer to the
   local-optimum question.
-- The current-architecture reference pair (anchor v4 candidate, run
-  2026-10-16/17) is the baseline to beat. The same evaluation suite and these
-  blind-spot probes are the gate.
+- The current-architecture reference pair, [anchor v4](anchor_v4_2026-10-17.md)
+  (accepted 2026-10-17; own catch 0.680, time-outs 0.062), is the baseline to
+  beat. The same evaluation suite and these blind-spot probes are the gate.
 - Stage 9 (line-of-sight masking) waits for A1. Masking is about which pillar
   hides the prey, exactly the relation the current encoder cannot represent.
 - Whether to bundle the thrust-plus-body-rate migration (CTBR) into the
@@ -178,8 +178,15 @@ That was the blind spot of the investigation.
 
 ## Open questions
 
-- Do the blind spots look the same in the reference pair after mixed
-  self-play? It will be probed when the run ends.
+- Answered: the blind spots look the same in the reference pair after
+  18,000 updates of mixed self-play (anchor v4, accepted 2026-10-17):
+  - shield-pillar attention 0.7% in standoffs;
+  - prey visible 49%;
+  - critic EV -0.09 in long episodes;
+  - critic prey-pillar R^2 0.12-0.17.
+
+  Three pairs from different stages agree, so the defects belong to the
+  architecture and observation design. See the diagnostics README.
 - How much does each fix contribute? Use ablations on the from-scratch
   protocol, with the attention, probe and EV gates as intermediate metrics.
 - Cost: the lineage was built over months. A from-scratch recipe for the
