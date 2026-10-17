@@ -1101,3 +1101,19 @@ are those of the predator (higher = better predator, lower = better prey).
   2. long-game distance <= 5.5 m;
   3. guards.
 - Evidence: `artifacts/isaac/experiments/2026-10-17_predator_relation_graft/`.
+
+## 2026-10-17/18: Night chain after the relation graft (pre-registered, conditional)
+
+- User: "pls continue with tasks during the night".
+- `artifacts/isaac/experiments/night_chain_2026-10-18.sh` waits for the
+  graft test, then branches. Each follow-up has its own PLAN.md.
+  - If the graft verdict is "the missing relations were the bottleneck":
+    1. the seed-71 replication (arm q,
+       `2026-10-18_relation_graft_seed71/`);
+    2. if that replicates, the graft self-play
+       (`2026-10-18_relation_graft_selfplay/`, the reference recipe with the
+       graft, 18,000 updates). Its gate is the reference gate plus
+       time-outs <= 0.040 (anchor v4: 0.062).
+  - Otherwise: a continuation of the graft to 19,200 updates
+    (`2026-10-18_relation_graft_continuation/`), with the same criteria at
+    c5.
