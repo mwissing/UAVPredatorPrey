@@ -1230,3 +1230,34 @@ are those of the predator (higher = better predator, lower = better prey).
     about 8 h; the plan needs an amendment);
   - the graft self-play from c5;
   - the from-scratch protocol.
+
+## 2026-10-18: Seed-71 replication of the relation graft, with the continuation (pre-registered amendment)
+
+- User approval: "yes we can continue as recommended".
+- The night chain's seed-71 plan replicated only the 9600-update graft stage.
+  At seed 70 the effect appeared only in the continuation (g5 117.3, c5
+  143.2, k5 112.7). The amendment of 14:47, made before any data, therefore
+  adds the continuation:
+  - arm q is arm g with seed 71, 9600 updates (q1-q5);
+  - then it continues from q5 with its optimizer state for 9600 more updates
+    (q6-q10), as c continued g5;
+  - code 171fd3b.
+  - At q10: the analyses, the probe, and the branch ablation (relation
+    branch off, old attention off).
+- Decision at q10:
+  1. time-outs <= 0.028;
+  2. outcome return q10 - x5 >= 10;
+  3. guards against x5 (success, losses, own ratio).
+  The policy probe and the long-game distance are reported only, because c5
+  missed both while its effect was large.
+- Attribution:
+  - A gap of >= 20 counts as the graft (k drifted -4 over the same
+    continuation).
+  - At 10-20, the matched control y starts automatically: x5 continued to
+    19,200 updates, with k's rule (`2026-10-18_control_continuation_seed71/`).
+- The decision logic was tested on mock data (seed 70 replayed as q). The
+  three cases replicate, y-trigger and not replicated came out as intended,
+  and y's attribution reproduced k's verdict.
+- The graft self-play does not start automatically.
+- Started 14:51.
+- Evidence: `artifacts/isaac/experiments/2026-10-18_relation_graft_seed71/`.
