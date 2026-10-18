@@ -1196,3 +1196,37 @@ are those of the predator (higher = better predator, lower = better prey).
   - k5 <= 0.028 and a gap < 10: training time explains it;
   - otherwise both contribute.
 - Evidence: `artifacts/isaac/experiments/2026-10-18_control_continuation/`.
+- Result (10:00-13:21, status 0): the pre-registered verdict is "the graft
+  is the cause: without it the waiting game survives the longer training".
+
+  | 19,200 updates | k5 (no graft) | c5 (graft) |
+  |---|---|---|
+  | time-out share | 0.047 | **0.008** |
+  | catch | 0.751 | **0.840** |
+  | drones lost / episode | 0.366 | **0.253** |
+  | pillar-crash rate | 0.268 | **0.173** |
+  | outcome return | 112.7 | **143.2** |
+
+  - The no-graft arm stays at 114 +- 3 for all 19,200 updates. c leads k at
+    every continuation checkpoint, by 11.2 to 30.5.
+  - Every k5 probe is at f5's level: policy GRU line of sight 0.56, critic
+    prey-pillar R^2 0.10, critic EV in long episodes -0.17. Training time
+    does not move the blind spots; the graft does.
+  - One seed per arm, frozen prey.
+- Follow-up ablation (pre-registered 14:25, evaluation only,
+  `artifacts/isaac/diagnostics/2026-10-18_c5_branch_ablation/`). c5's
+  actor branches were zeroed one at a time:
+  - relation branch off: outcome return 76.2, below k5; pillar crashes
+    0.362, time-outs 0.032;
+  - old one-hot attention off: 138.8, crashes unchanged.
+  - So the c5 policy flies and hunts through its relation branch, which has
+    replaced the old pillar attention. The g5 reading "most likely through
+    the critic" is superseded.
+  - The no-graft lineage hardly uses pillar perception: the crash hazard
+    ratio with its pillar branch zeroed fell from 1.24 (point 0) to 0.97
+    (k5).
+- Next, the user decides between:
+  - the seed-71 replication of graft plus continuation (recommended first,
+    about 8 h; the plan needs an amendment);
+  - the graft self-play from c5;
+  - the from-scratch protocol.

@@ -395,6 +395,13 @@ to the wall, the prey learned to wait behind a pillar (about 4-5% time-outs).
   - The critic's explained variance is -0.14 in long episodes.
   - Relative positions and velocities are in different frames, while the
     drones yaw about 120 deg/s.
+- An architectural test confirms it (2026-10-18). Zero-initialized
+  prey-pillar relation branches, grafted into the trained predators, broke
+  the waiting game against the frozen prey after 19,200 updates:
+  time-outs 0.008, outcome return 143. A matched control without the
+  graft, trained as long, stayed at 0.047 and 113. The policy relies on the new
+  branch when it acts; it has replaced the old pillar attention. One seed
+  and a frozen prey: replication and self-play are open.
 - Accepted for Stage 8: [anchor v4](anchor_v4_2026-10-17.md), a
   current-architecture reference pair (2026-10-17). The fixes
   (prey-conditioned entity attention, separate prey slot, consistent frames,

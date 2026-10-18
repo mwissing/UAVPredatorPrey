@@ -40,14 +40,21 @@ Open items before a from-scratch run:
   steps), so the same tokens are built relative to the nearest live
   predator.
 - **The old one-hot pillar attention stays in both actors.** From scratch,
-  it could be replaced by the relation pooling; there is no option yet.
+  it could be replaced by the relation pooling; there is no option yet. In
+  the graft predators it is nearly redundant (zeroing it costs 4 points of
+  outcome return, 2026-10-18).
 - **Correlated exploration (C8, colored noise or gSDE)** is not
   implemented.
 
 The graft result strengthens the case for training from scratch. The new
 features reach the encoder and the critic, but the pretrained recurrent core
 of the policy, at LR 1e-5, does not route them to the actions within 9600
-updates. The continuation (2026-10-18) tests whether more time is enough.
+updates. With more time it did: the continuation to 19,200 updates broke the
+waiting game against the frozen prey (time-outs 0.008, outcome return 143).
+A matched control without the graft stayed at 0.047 and 113. When the
+relation branch is zeroed, the policy loses 67 points, while the old
+one-hot attention has become nearly redundant (-4). One seed, frozen
+prey (`artifacts/isaac/experiments/2026-10-18_control_continuation/`).
 
 ## Curriculum (each phase pre-registered with gates)
 
@@ -86,9 +93,10 @@ known recipes.
 
 ## Decisions for the user
 
-1. **When:** now, or after the graft evidence from the night chain. If the
-   graft breaks the waiting game, the self-play with the graft already gives
-   a candidate. From scratch is still the reproducible version.
+1. **When:** now, or after the seed-71 replication and the graft self-play.
+   The graft broke the waiting game against the frozen prey (one seed), so
+   the self-play with the graft may already give a candidate. From scratch
+   is still the reproducible version.
 2. **Bundle CTBR** (thrust plus body rates, the deployment migration)?
    - For: one retraining instead of two.
    - Against: one more change in the same run, which goes against "one new
