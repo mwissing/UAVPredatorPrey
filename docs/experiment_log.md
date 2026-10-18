@@ -1145,3 +1145,22 @@ are those of the predator (higher = better predator, lower = better prey).
   - the draft from-scratch protocol.
 - The rerun of the graft test (same plan and criteria) started at 00:18.
   The chain v2 follows with the replication or the continuation.
+- Rerun result (00:18-04:07, status 0): **inconclusive about the
+  representation**. The policy-side manipulation check fails; criteria 1
+  and 2 fail; the guards hold.
+  - The probe shows where the representation stops:
+
+    | relation probe | encoder (GRU input) | GRU output |
+    |---|---|---|
+    | policy: line of sight | 0.74 (earlier 0.55) | 0.56 (unchanged) |
+    | critic: prey-pillar distance R^2 | 0.93 (earlier 0.08-0.15) | 0.71 |
+
+  - The branches deliver the relations. The predators' pretrained GRU and
+    actor head, at LR 1e-5, do not route them to the actions in 9600
+    updates.
+  - Best predator stage so far: catch 0.754 and success 0.810 (f5 0.719 /
+    0.783); time-outs 0.032 (f5 0.040, x5 0.050, bar 0.028); long episodes
+    7%.
+  - Critic explained variance in long episodes 0.20 (f5 -0.14), so the gain
+    most likely comes through the critic.
+  - By the chain, the continuation to 19,200 updates started at 04:11.
