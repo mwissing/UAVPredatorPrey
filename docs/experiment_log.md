@@ -1164,3 +1164,22 @@ are those of the predator (higher = better predator, lower = better prey).
   - Critic explained variance in long episodes 0.20 (f5 -0.14), so the gain
     most likely comes through the critic.
   - By the chain, the continuation to 19,200 updates started at 04:11.
+- Continuation result (04:11-08:01, status 0): the pre-registered verdict is
+  "the branches did not learn the relations". The policy-side check missed
+  narrowly: GRU line of sight 0.670 vs the 0.70 bar, up from 0.558. The
+  outcome changed sharply.
+
+  | c5 vs | c5 | g5 | f5 |
+  |---|---|---|---|
+  | time-out share | **0.008** | 0.032 | 0.040 |
+  | catch | **0.840** | 0.754 | 0.719 |
+  | success | 0.885 | | |
+  | losses / episode | 0.24 | | |
+  | outcome return | 143.2 | 117.3 | 116.7 |
+  | long episodes | 3.5% | | |
+
+- Not attributable yet: no stage without the graft was ever trained beyond
+  9600 updates, so training time against the frozen prey may explain part
+  or all of it.
+- The matched control (arm f continued to 19,200 updates) is the next
+  step, pending the user's go. GPU idle since 08:04.
