@@ -26,8 +26,8 @@ draft lays out what that would mean. Nothing here has run.
 
 | fix (review item) | option | code | evidence so far |
 |---|---|---|---|
-| prey-conditioned pillar relations (A1, A2) | `+agent.models.policy.predator_obstacle_relation=true` | eace487 | graft test running (2026-10-17) |
-| identity-aware critic (A4) | `+agent.models.value.obstacle_relation=true` | eace487 | graft test running |
+| prey-conditioned pillar relations (A1, A2) | `+agent.models.policy.predator_obstacle_relation=true` | eace487, 171fd3b | graft (2026-10-18): line of sight in the encoder 0.74 (from 0.55), but not in the pretrained GRU output (0.56) |
+| identity-aware critic (A4) | `+agent.models.value.obstacle_relation=true` | eace487, 171fd3b | graft: prey-pillar R^2 0.93 (from 0.08-0.15); critic EV in long episodes 0.20 (from -0.14) |
 | consistent frames (A3) | `env.observation_frame=body` | 52dfd8d (branch stage8b-fixes) | live: matches Isaac Lab's quat_apply_inverse to 1e-6 |
 | per-drone PPO ratios, crashed drones masked (B5) | `+agent.agent.per_drone_ratio=true` | 3c9a71f (branch) | smoke: trains, KL 0.003-0.014 |
 | upright term zero at level (B7) | `env.predator_upright_zero_at_level=true` | 5dd0e15 (branch) | unit tests |
@@ -43,6 +43,11 @@ Open items before a from-scratch run:
   it could be replaced by the relation pooling; there is no option yet.
 - **Correlated exploration (C8, colored noise or gSDE)** is not
   implemented.
+
+The graft result strengthens the case for training from scratch. The new
+features reach the encoder and the critic, but the pretrained recurrent core
+of the policy, at LR 1e-5, does not route them to the actions within 9600
+updates. The continuation (2026-10-18) tests whether more time is enough.
 
 ## Curriculum (each phase pre-registered with gates)
 
