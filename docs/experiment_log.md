@@ -1261,3 +1261,31 @@ are those of the predator (higher = better predator, lower = better prey).
 - The graft self-play does not start automatically.
 - Started 14:51.
 - Evidence: `artifacts/isaac/experiments/2026-10-18_relation_graft_seed71/`.
+
+## 2026-10-18: Relation-graft self-play from c5, chained after the replication (pre-registered amendment)
+
+- User approval: "yes schedule 1. if it passes".
+- The amendment of 15:49, made before any data, to the prepared self-play
+  plan (`2026-10-18_relation_graft_selfplay/`):
+  - **Condition.** It starts only if the seed-71 replication's verdict is
+    "the effect replicates with seed 71". If the conditional control y runs,
+    the self-play waits for it. Any other verdict: decide together.
+  - **Start.** c5's pair (the c5 predator plus the waiting prey, optimizers
+    dropped) instead of g5's. c5 is the predator whose result was attributed
+    to the graft; g5 had not yet broken the waiting game.
+  - **Unchanged.** Seed 60, 18,000 updates, a third of the envs with ghosts,
+    the obstacle defaults, both masks, both relation flags (the prey's
+    critic gets the branch, its actor does not), the reference gate, and
+    criterion 5: time-outs at point 5 <= 0.040.
+  - **Evaluations after the training.** On this GPU (RTX 5090, 32.6 GB) the
+    predator-only graft training plateaus at 26.2 GB, and self-play adds the
+    prey's update. The first graft run ran out of memory when an evaluation
+    started next to its training. The evaluations are deterministic, so no
+    number changes. The run writes a GPU memory log.
+- `artifacts/isaac/experiments/chain_2026-10-18_selfplay_after_replication.sh`
+  does this, without touching the running replication driver. It was tested
+  on mock folders: replicates, replicates after y, not replicated and partly
+  replicated each took the intended path. It also checks that no other
+  Isaac job is running.
+- Waiting since 15:53. Expected: the self-play from about 23:00 to 09:30, or
+  from about 02:30 if y runs first.
