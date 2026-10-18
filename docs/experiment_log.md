@@ -1183,3 +1183,16 @@ are those of the predator (higher = better predator, lower = better prey).
   or all of it.
 - The matched control (arm f continued to 19,200 updates) is the next
   step, pending the user's go. GPU idle since 08:04.
+
+## 2026-10-18: Matched control, arm f continued to 19,200 updates without the graft (pre-registered)
+
+- User approval: "yes start it".
+- Arm k continues forced-crash arm f from f5, with its optimizer state, for
+  9600 more updates. It is exactly arm c's protocol without the relation
+  flags; the configs differ only in those two flags. Started 10:00.
+- Attribution at k5 vs c5:
+  - k5 time-outs > 0.028 and an outcome-return gap c5 - k5 >= 10: the graft
+    is the cause;
+  - k5 <= 0.028 and a gap < 10: training time explains it;
+  - otherwise both contribute.
+- Evidence: `artifacts/isaac/experiments/2026-10-18_control_continuation/`.
