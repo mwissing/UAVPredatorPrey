@@ -215,6 +215,46 @@ def test_the_predator_flag_does_not_give_the_prey_a_branch() -> None:
     assert not hasattr(model, "obstacle_rel_encoder")
 
 
+def _pillar_only_actor():
+    torch.manual_seed(1)
+    return attention_models.RecurrentPredatorPreyAttentionGaussianModel(
+        _box(P * BLOCK), _box(P * 4), device="cpu", hidden_size=32, attention_size=16, rnn_hidden_size=24,
+        num_obstacles=K, predator_mask_inactive_teammates=True, predator_obstacle_relation=True,
+        predator_obstacle_relation_pillar_only=True,
+    )
+
+
+def test_the_pillar_only_branch_sees_the_pillars_but_not_the_prey() -> None:
+    full, pillar_only = _actor(True), _pillar_only_actor()
+    pillar_only.load_state_dict(full.state_dict())        # a checkpoint without the marker loads (start of the arm)
+    _randomize(full)
+    _randomize(pillar_only)
+    states = _actor_states(4, seed=7)
+    moved_prey = states.clone()
+    moved_prey.view(4, P, BLOCK)[:, :, 12:15] += 1.5
+    moved_pillar = states.clone()
+    moved_pillar.view(4, P, BLOCK)[:, :, 30:].reshape(4, P, K, 4)[:, :, 0, :3] += 2.0
+    relation = lambda model, s: model._obstacle_relation(s.view(4, P, BLOCK))
+    assert torch.equal(relation(pillar_only, states), relation(pillar_only, moved_prey))
+    assert (relation(pillar_only, states) - relation(pillar_only, moved_pillar)).abs().amax() > 1e-4
+    assert (relation(full, states) - relation(full, moved_prey)).abs().amax() > 1e-4
+
+
+def test_a_pillar_only_checkpoint_needs_its_flag() -> None:
+    with pytest.raises(RuntimeError):
+        _actor(True).load_state_dict(_pillar_only_actor().state_dict())
+    with pytest.raises(ValueError):
+        attention_models.RecurrentPredatorPreyAttentionGaussianModel(
+            _box(P * BLOCK), _box(P * 4), device="cpu", hidden_size=32, attention_size=16, rnn_hidden_size=24,
+            num_obstacles=K, predator_obstacle_relation_pillar_only=True,
+        )
+    prey = attention_models.RecurrentPredatorPreyAttentionGaussianModel(
+        _box(PREY_OBS + 4 * K), _box(4), device="cpu", hidden_size=32, attention_size=16, num_obstacles=K,
+        predator_obstacle_relation=True, predator_obstacle_relation_pillar_only=True,
+    )
+    assert not prey.relation_pillar_only and "obstacle_relation_pillar_only" not in prey.state_dict()
+
+
 def test_recomputed_token_encoding_gives_the_same_values_and_gradients() -> None:
     torch.manual_seed(11)
     encoder = attention_models._mlp(11, (16,), 8, "elu")

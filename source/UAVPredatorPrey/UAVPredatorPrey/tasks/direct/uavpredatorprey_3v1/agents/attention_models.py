@@ -607,6 +607,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         obstacle_attention_heads: int = 0,
         predator_role_embedding: bool = False,
         predator_obstacle_relation: bool = False,
+        predator_obstacle_relation_pillar_only: bool = False,
         prey_obstacle_relation: bool = False,
         obstacle_feature_scale: float = 5.0,
         **_: Any,
@@ -741,6 +742,15 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             self.obstacle_out_rel = nn.Linear(2 * attention_size, attention_size)
             nn.init.zeros_(self.obstacle_out_rel.weight)
             nn.init.zeros_(self.obstacle_out_rel.bias)
+        # Ablation of the predators' branch (predator_obstacle_relation_pillar_only): the prey-dependent token features
+        # (prey offset, prey minus pillar, segment distance) are zeroed, so the branch is a plain set encoder over the
+        # present pillars with the same shapes. It separates all-pillar perception (fewer crashes) from the pillar-prey
+        # relation. The marker buffer makes such a checkpoint fail to load without the flag instead of seeing the prey.
+        self.relation_pillar_only = self.mode == "predator" and bool(predator_obstacle_relation_pillar_only)
+        if self.relation_pillar_only:
+            if not hasattr(self, "obstacle_rel_encoder"):
+                raise ValueError("predator_obstacle_relation_pillar_only needs predator_obstacle_relation and pillars")
+            self.register_buffer("obstacle_relation_pillar_only", torch.ones(()))
 
     def get_specification(self) -> Mapping[str, Any]:
         if self.mode == "predator":
@@ -878,6 +888,8 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         target = target.unsqueeze(-2).expand_as(offset)
         segment = _segment_axis_distance(offset[..., :2], target[..., :2])
         tokens = torch.cat((offset, pillars[..., 3:4], target, target - offset, segment), dim=-1)
+        if self.relation_pillar_only:
+            tokens = torch.cat((tokens[..., :4], torch.zeros_like(tokens[..., 4:])), dim=-1)
         encoded = _encode_tokens(self.obstacle_rel_encoder, tokens.reshape(-1, tokens.shape[-1])).view(*offset.shape[:-1], -1)
         pooled, count = _masked_max_mean(encoded, _obstacle_presence(pillars))
         out = self.obstacle_out_rel(pooled)
