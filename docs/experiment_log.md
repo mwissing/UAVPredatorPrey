@@ -1349,3 +1349,32 @@ are those of the predator (higher = better predator, lower = better prey).
 - The driver waits for the self-play and the seed-71 gap fill (about 08:45),
   then runs about 8.5 h.
 - Evidence: `artifacts/isaac/experiments/2026-10-19_relation_graft_pillar_only/`.
+- Self-play result (training 23:05-07:38, status 0; evaluations after it,
+  done 07:56): the pre-registered verdict is "the graft's advantage survives
+  self-play and the pair passes the reference gate: anchor v5 candidate
+  (freeze after the user's review)". All seven criteria pass.
+
+  | own matchup | point 0 (c5 pair) | point 5 | anchor v4 (no graft) |
+  |---|---|---|---|
+  | time-outs | 0.008 | **0.005** | 0.062 |
+  | catch | 0.840 | 0.564 | 0.680 |
+  | prey crashes / episode | 0.144 | **0.418** | 0.247 |
+  | predators lost / episode | 0.24 | 0.27 | 0.37 |
+  | long episodes: nearest predator | 5.82 m | **2.01 m** | 6.57 m |
+  | own ratio prey / predator | 0.80 / 1.65 | 1.15 / 2.83 | 1.25 / 1.23 |
+
+  - The prey did not bring the waiting game back. It flees faster (3.9 m/s)
+    and higher through the pillar zone and hides less (line of sight
+    blocked 0.079 of the frames; anchor v4 0.217).
+  - It crashes in 42% of the episodes: head-on at 4.7 m/s, half of them
+    forced (a predator within 1.5 m).
+  - The prey's perception is the weak side: its own ratio passes by 0.002
+    (mean 1.102), the 4-pillar yardstick fell 2.44 -> 0.67, and it is
+    weaker against ghosts. This is the expected asymmetry: only the
+    predators have the relation branch.
+  - Review options (user):
+    - freeze the pair as anchor v5 with the caveat;
+    - freeze only the predator and give the prey its relation branch first;
+    - fold both into the from-scratch protocol.
+- Seed-71 gap fill (07:57, GPU free): q2 117.4 and q4 127.3; all three
+  evaluations succeeded. The decision is unchanged.
