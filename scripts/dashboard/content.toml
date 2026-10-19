@@ -66,6 +66,13 @@ date = "2026-10-17"
 detail = "Reference pair for the ten-pillar task, accepted by a pre-registered gate (competent and stable). Own catch 0.680, own ablation ratios 1.25 (prey) and 1.23 (predator); the bundle reproduces bit-exactly."
 path = "UAVPredatorPrey/.pretrained_checkpoints/anchor_v4_2026-10-17/"
 
+[[reference]]
+name = "Graft predator"
+scope = "10 pillars, predator role only"
+date = "2026-10-19"
+detail = "Relation-graft predators after self-play: the waiting game stays broken (time-outs 0.005), own-matchup ablation ratio 2.4-2.8, 0.29 drones lost per episode. Bundle reproduces bit-exactly; needs the relation flags."
+path = "UAVPredatorPrey/.pretrained_checkpoints/graft_predator_2026-10-19/"
+
 # =========================================================================================== featured charts
 # kind = "lines": each series is a crash/catch hazard (`matchup`) or an ablation ratio (`with` / `zeroed`: hazard
 # with the obstacle branch zeroed divided by the hazard with it) read from the experiment's eval JSONs.
@@ -828,7 +835,7 @@ label = "k5: the matched control"
 
 [[chapter.stage]]
 id = "graft-selfplay"
-title = "Graft self-play: the waiting game stays broken (anchor v5 candidate)"
+title = "Graft self-play: the waiting game stays broken (new reference predator)"
 dates = "2026-10-18 → 10-19"
 verdict = "worked"
 takeaway = "When the prey trains again, it does not return to waiting: it flees instead, and crashes more. The pair passes the reference gate; the prey's perception is the weak side."
@@ -842,7 +849,7 @@ result = """
 why = """
 The predators see where the prey hides relative to the pillars; the prey's actor still has the one-hot pillar
 attention. So the prey cannot hold a position behind a pillar against them and escapes at speed, and its crashes
-are the price. Freezing the pair as anchor v5 is the user's decision; giving the prey its relation branch is the
+are the price. The user froze the predator as the graft reference (2026-10-19); the prey's relation branch is the
 symmetric next step.
 """
 experiment = "2026-10-18_relation_graft_selfplay"
@@ -1294,14 +1301,9 @@ notes = "Run on the host from /home/marc/RL; each driver names its start checkpo
 # =========================================================================================== next steps
 
 [[next]]
-title = "Review the anchor v5 candidate"
-why = "The graft self-play passed the reference gate, but its prey crashes in 42 % of the episodes and its perception passed at the bar. Freeze the pair, freeze only the predator, or first give the prey its relation branch (user decision)."
-cost = "the user's review of the video, replays and RESULTS.md"
-
-[[next]]
 title = "Symmetric graft: give the prey its relation branch"
-why = "In self-play only the predators can see where the prey hides relative to the pillars, and the prey pays with crashes. The prey's branch (pillars relative to its nearest live predator) is implemented and tested."
-cost = "a self-play run, about 8-9 h, pre-registered"
+why = "In self-play only the predators can see where the prey hides relative to the pillars, and the prey pays with crashes. With its own branch, can the prey hold cover safely again (the waiting game returns), or does it become a safer evader? Matched to the asymmetric self-play."
+cost = "about 9 h of GPU, pre-registered (running 2026-10-19 evening)"
 
 [[next]]
 title = "Stage 8b: from scratch with the fixed architecture"
