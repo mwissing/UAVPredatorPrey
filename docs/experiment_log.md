@@ -1289,3 +1289,26 @@ are those of the predator (higher = better predator, lower = better prey).
   Isaac job is running.
 - Waiting since 15:53. Expected: the self-play from about 23:00 to 09:30, or
   from about 02:30 if y runs first.
+- Replication result (stage q 14:51-18:52, stage qc 18:55-22:56, both
+  status 0): the pre-registered verdict is "the effect replicates with seed
+  71; attributed to the graft as at seed 70 (gap >= 20)".
+
+  | 19,200 updates | q10 (graft, seed 71) | x5 (no graft, seed 71) | c5 (graft, seed 70) |
+  |---|---|---|---|
+  | time-out share | **0.020** | 0.050 | 0.008 |
+  | catch | 0.832 | 0.708 | 0.840 |
+  | outcome return | **137.2** | 108.6 | 143.2 |
+
+  - The gap is +28.6 (seed 70: +30.5), so y did not run. Seed 71 rose from
+    the start: q5 was already at 125.3.
+  - Ablation: relation branch off gives 32.9 (3.65 times the gap; c5 2.2);
+    old attention off gives 139.3.
+  - The critic's EV in long episodes is 0.20 (k5 -0.17).
+  - The policy probe misses the 0.70 bar again (0.633), while the ablation
+    shows strong reliance.
+  - No pincers (2% of frames).
+  - Measurement gap: three curve evaluations (q2, q4) ran out of GPU memory
+    next to the 26.8 GB training. They failed silently: Isaac's scripts exit
+    with 0 after the exception. The decision is not affected; `fill_gaps.sh`
+    reruns them after the self-play.
+- By the chain, the graft self-play started at 23:01.
