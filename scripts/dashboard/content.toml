@@ -851,6 +851,28 @@ evidence = ["artifacts/isaac/experiments/2026-10-18_relation_graft_selfplay/"]
 path = "isaac/experiments/2026-10-18_relation_graft_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
 label = "final pair after 18,000 updates of self-play"
 
+[[chapter.stage]]
+id = "pillar-only"
+title = "Pillar-only graft: do fewer crashes alone break the waiting game?"
+dates = "2026-10-19"
+verdict = "partial"
+takeaway = "Only in part: seeing all pillars cuts crashes and lifts the outcome a little, but the waiting game breaks only when the actor sees where the prey is relative to the pillars."
+metric = "time-outs 0.033 (full graft 0.008)"
+goal = "Separate the two things the relation branch gives the predators: all-pillar perception (fewer crashes) and the pillar-prey relation. Arm n zeroes the prey-dependent token features; everything else as the full graft (seed 70, 19,200 updates)."
+result = """
+- Pillar-crash rate 0.217 (full graft 0.173, no graft 0.268); outcome return 122.9 (143.2 / 112.7); time-outs **0.033** (0.008 / 0.047).
+- The curve levels off at about 123, where the full graft kept climbing to 143.
+- Its branch zeroed: −15.5 points, crashes up, time-outs unchanged (the full branch zeroed: −67).
+- The critic had the full relation branch and values the long game (explained variance 0.20 in long episodes), yet the waiting game stayed.
+"""
+why = """
+The hypothesis was that fewer crashes are what break the waiting game. They help, with about a third of the gain,
+but the actor also needs the prey-relative tokens: the prey's offset, the prey relative to each pillar, and whether a
+pillar blocks the line to the prey. A critic that knows the long game does not make up for an actor that cannot see it.
+"""
+experiment = "2026-10-19_relation_graft_pillar_only"
+evidence = ["artifacts/isaac/experiments/2026-10-19_relation_graft_pillar_only/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1001,6 +1023,12 @@ verdict = "worked"
 what = "Test a gain against a frozen opponent again in self-play."
 why = "A frozen prey can be exploited in ways a learning one closes. Here the waiting game stayed broken when the prey trained again (time-outs 0.005), but the game changed: the prey now flees and crashes instead of hiding."
 evidence = ["artifacts/isaac/experiments/2026-10-18_relation_graft_selfplay/"]
+
+[[lesson]]
+verdict = "partial"
+what = "A plain pillar set encoder for the predators, without prey-relative tokens."
+why = "It lowered crashes (0.268 → 0.217) and added 10 points, but the waiting game stayed (time-outs 0.033), even with a critic that values the long game. The actor has to see where the prey is relative to the pillars."
+evidence = ["artifacts/isaac/experiments/2026-10-19_relation_graft_pillar_only/"]
 
 [[lesson]]
 verdict = "partial"
@@ -1271,18 +1299,13 @@ why = "The graft self-play passed the reference gate, but its prey crashes in 42
 cost = "the user's review of the video, replays and RESULTS.md"
 
 [[next]]
-title = "Pillar-only graft: do fewer crashes alone break the waiting game?"
-why = "The relation branch gives all-pillar perception and the pillar-prey relation. Arm n keeps only the pillars (prey-dependent token features zeroed). If it breaks the waiting game too, crash-free perception is the mechanism and a plain pillar set encoder suffices."
-cost = "about 8.5 h of GPU, pre-registered (running 2026-10-19)"
-
-[[next]]
 title = "Symmetric graft: give the prey its relation branch"
 why = "In self-play only the predators can see where the prey hides relative to the pillars, and the prey pays with crashes. The prey's branch (pillars relative to its nearest live predator) is implemented and tested."
 cost = "a self-play run, about 8-9 h, pre-registered"
 
 [[next]]
 title = "Stage 8b: from scratch with the fixed architecture"
-why = "Relation pooling for both roles (it can replace the one-hot pillar attention), body-frame observations, an identity-aware critic, per-drone PPO ratios over live drones (the dead-drone mask) and the zero-at-level upright term, trained from scratch in 3 seeds against anchor v4. All of it is implemented and default-off; replacing the old attention is not."
+why = "Relation pooling with the prey-relative tokens for both roles (a pillar-only encoder is not enough; it can replace the one-hot pillar attention), body-frame observations, an identity-aware critic, per-drone PPO ratios over live drones (the dead-drone mask) and the zero-at-level upright term, trained from scratch in 3 seeds against anchor v4. All of it is implemented and default-off; replacing the old attention is not."
 cost = "days of GPU; protocol drafted (UAVPredatorPrey/docs/stage8b_from_scratch_protocol.md)"
 
 [[next]]
