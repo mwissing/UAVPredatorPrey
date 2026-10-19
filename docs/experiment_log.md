@@ -1312,3 +1312,40 @@ are those of the predator (higher = better predator, lower = better prey).
     with 0 after the exception. The decision is not affected; `fill_gaps.sh`
     reruns them after the self-play.
 - By the chain, the graft self-play started at 23:01.
+
+## 2026-10-19: Pillar-only graft, do fewer crashes alone break the waiting game? (pre-registered)
+
+- User: "if predator crash less and by that no waiting game. maybe we just
+  need to train longer? maybe ... test with longer horizon again? pls
+  whatever you think schedule something for the day."
+- **Training longer** without the graft is answered by the matched control:
+  k crashed more (0.228 -> 0.268) and kept the waiting game.
+- **A longer horizon** is deferred. With the graft, time-outs against the
+  frozen prey are already 0.008-0.020. It matters if the self-play brings
+  the waiting game back.
+- **The user's mechanism** (fewer crashes -> no waiting game) is testable.
+  The graft's actor branch carries all-pillar perception and the
+  pillar-prey relation.
+- Code 92c2909: `predator_obstacle_relation_pillar_only`.
+  - It zeroes the prey-dependent token features (prey offset, prey minus
+    pillar, segment distance), so the branch is a plain set encoder over
+    the pillars, with the same shapes.
+  - A marker buffer makes such a checkpoint fail to load without the flag.
+  - Off by default and bit-exact; 239 tests pass.
+- Design: arm n is arm g/c with the flag. Seed 70, shared start, 9600
+  updates plus a continuation of 9600 from n5. The critic keeps its full
+  branch.
+  - Each stage is evaluated after its training (memory).
+  - The driver also checks that the flag reaches the model: first the
+    config, then the marker in the first checkpoint.
+- Decision at n10, against c5 (full) and k5 (none):
+  - time-outs <= 0.028 and outcome return >= 133.2: all-pillar perception
+    is enough;
+  - time-outs <= 0.028, lower return: partly;
+  - time-outs > 0.028 and crashes <= 0.22: the waiting game needs the
+    relation;
+  - otherwise: the prey tokens carry the avoidance too.
+- The decision tree was tested on mock data (all four branches).
+- The driver waits for the self-play and the seed-71 gap fill (about 08:45),
+  then runs about 8.5 h.
+- Evidence: `artifacts/isaac/experiments/2026-10-19_relation_graft_pillar_only/`.
