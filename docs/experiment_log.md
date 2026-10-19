@@ -1378,3 +1378,25 @@ are those of the predator (higher = better predator, lower = better prey).
     - fold both into the from-scratch protocol.
 - Seed-71 gap fill (07:57, GPU free): q2 117.4 and q4 127.3; all three
   evaluations succeeded. The decision is unchanged.
+- Pillar-only result (stage n 07:59-11:41, stage nc 11:48-15:32, status 0;
+  every evaluation after training succeeded; the flag marker was present in
+  both stages): the pre-registered verdict is "perception lowers crashes,
+  but breaking the waiting game needs the pillar-prey relation".
+
+  | 19,200 updates, seed 70 | n10 (pillars only) | c5 (full) | k5 (none) |
+  |---|---|---|---|
+  | pillar-crash rate | 0.217 | 0.173 | 0.268 |
+  | time-out share | **0.033** | 0.008 | 0.047 |
+  | outcome return | 122.9 | 143.2 | 112.7 |
+
+  - All-pillar perception explains part of the gain: about half the crash
+    reduction and +10 in outcome, mostly fewer drone losses. The curve
+    levels off at about 123.
+  - The waiting game stays. The user's hypothesis (fewer crashes ->
+    no waiting game) holds only in part.
+  - Ablation: the pillar-only branch off costs 15.5 points (crashes 0.217
+    -> 0.282), with time-outs unchanged. The full branch off cost 67 (c5).
+  - The critic had the full branch and values the long game (EV 0.20), so
+    the full graft's gain runs through the actor's prey-relative tokens.
+  - From scratch: keep the full relation tokens; the old one-hot attention
+    can go.

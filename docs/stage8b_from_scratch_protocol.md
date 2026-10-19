@@ -56,6 +56,18 @@ relation branch is zeroed, the policy loses 67 points, while the old
 one-hot attention has become nearly redundant (-4). One seed, frozen
 prey (`artifacts/isaac/experiments/2026-10-18_control_continuation/`).
 
+Since then (2026-10-19):
+- the effect replicated at seed 71 (time-outs 0.020, +28.6 over its no-graft
+  arm);
+- it held in self-play: the prey did not return to waiting (time-outs
+  0.005; anchor v4 0.062);
+- a pillar-only branch (prey-dependent tokens zeroed) lowered crashes but
+  left the waiting game (time-outs 0.033, outcome 123), even with the full
+  critic.
+
+So the from-scratch actor needs the prey-relative tokens, not only a pillar
+set encoder.
+
 ## Curriculum (each phase pre-registered with gates)
 
 It follows `curriculum_learning_plan.md`: one missing capability at a time,
