@@ -29,7 +29,7 @@ facts = ["3 predators vs 1 prey", "sphere arena, r = 5 m", "10 pillars", "policy
 [[tile]]
 value = "−83 %"
 label = "Waiting-game time-outs with the relation graft"
-detail = "0.008 vs 0.047 for a matched control trained just as long (19,200 updates against the frozen waiting prey, one seed). Zeroing the new branch costs 67 points of outcome return: the predators hunt through it."
+detail = "0.008 vs 0.047 for a matched control trained just as long (19,200 updates against the frozen waiting prey). Replicated at seed 71 (0.020 vs 0.050), and the waiting game stays broken in self-play (0.005; anchor v4: 0.062)."
 href = "#stage-relation-graft"
 
 [[tile]]
@@ -141,6 +141,12 @@ S021_jul18 = "scratch, July 18 (S021)"
 # =========================================================================================== 3D replay
 # Evaluations with recorded trajectories (evaluate.py --trajectory-npz). dashboard.py picks representative
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
+
+[[replay]]
+id = "graft-selfplay-final"
+title = "Graft self-play, final pair (anchor v5 candidate, own matchup)"
+note = "18,000 updates of mixed self-play from c5's pair. The waiting game stays broken (time-outs 0.005): the prey flees fast through the pillars instead of hiding, is caught in 56 % of the episodes and crashes in 42 %, half of them with a predator close. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-18_relation_graft_selfplay/evals/point5_own.npz"
 
 [[replay]]
 id = "graft-c5"
@@ -795,7 +801,7 @@ id = "relation-graft"
 title = "Relation graft: the predators learn to see the pillar shield"
 dates = "2026-10-17 → 10-18"
 verdict = "worked"
-takeaway = "Zero-initialized pillar-prey relation branches broke the waiting game against the frozen prey. A matched control trained just as long did not. One seed so far."
+takeaway = "Zero-initialized pillar-prey relation branches broke the waiting game against the frozen prey, at two seeds. A matched control trained just as long did not."
 metric = "time-outs 0.047 → 0.008"
 goal = "Give the trained predators the missing relations, and test whether that, rather than more training, breaks the waiting game."
 result = """
@@ -804,20 +810,46 @@ result = """
 - 19,200 updates (c5): catch **0.840**, time-outs **0.008**, 0.25 drones lost per episode, outcome return **143.2**. The pre-registered policy probe missed narrowly (GRU line of sight 0.670, bar 0.70).
 - Matched control k5 (no graft, the same 19,200 updates): catch 0.751, time-outs 0.047, outcome return 112.7, and its probes stay at the old level.
 - Ablation: c5 with the relation branch zeroed falls to 76.2, below the control (pillar crashes 0.173 → 0.362); zeroing the old one-hot attention costs 4.4.
+- Seed-71 replication (graft plus continuation): time-outs **0.020**, outcome return 137.2 vs 108.6 for seed 71 without the graft (gap +28.6; seed 70: +30.5). Its relation branch zeroed: 32.9.
 """
 why = """
 The branch shows each drone all pillars relative to itself and the prey, instead of one pillar picked by its own
-state. The predators fly and hunt through it, and the old attention has become redundant. With one seed and a frozen
-prey, the seed-71 replication and self-play come next.
+state. The predators fly and hunt through it, and the old attention has become redundant. All of this is against
+a prey that cannot adapt; the self-play below tests that.
 """
 experiment = "2026-10-18_control_continuation"
-evidence = ["artifacts/isaac/experiments/2026-10-17_predator_relation_graft/", "artifacts/isaac/experiments/2026-10-18_relation_graft_continuation/", "artifacts/isaac/experiments/2026-10-18_control_continuation/", "artifacts/isaac/diagnostics/2026-10-18_c5_branch_ablation/"]
+evidence = ["artifacts/isaac/experiments/2026-10-17_predator_relation_graft/", "artifacts/isaac/experiments/2026-10-18_relation_graft_continuation/", "artifacts/isaac/experiments/2026-10-18_control_continuation/", "artifacts/isaac/diagnostics/2026-10-18_c5_branch_ablation/", "artifacts/isaac/experiments/2026-10-18_relation_graft_seed71/"]
 [[chapter.stage.video]]
 path = "isaac/experiments/2026-10-18_relation_graft_continuation/videos/c5_camera_D/rl-video-step-0.mp4"
 label = "c5: graft predators vs the waiting prey"
 [[chapter.stage.video]]
 path = "isaac/experiments/2026-10-18_control_continuation/videos/k5_camera_D/rl-video-step-0.mp4"
 label = "k5: the matched control"
+
+[[chapter.stage]]
+id = "graft-selfplay"
+title = "Graft self-play: the waiting game stays broken (anchor v5 candidate)"
+dates = "2026-10-18 → 10-19"
+verdict = "worked"
+takeaway = "When the prey trains again, it does not return to waiting: it flees instead, and crashes more. The pair passes the reference gate; the prey's perception is the weak side."
+metric = "time-outs 0.005 (anchor v4 0.062)"
+goal = "Test the graft's advantage against a prey that adapts: mixed self-play from c5's pair with the reference recipe (18,000 updates), plus the condition that the waiting game stays broken."
+result = """
+- All seven pre-registered criteria pass: both roles use perception (prey 1.10, at the bar; predator 2.62), own catch 0.576 / 0.564, no forgetting, stable, time-outs **0.005** (bar 0.040; anchor v4, the same recipe without the graft: 0.062).
+- In long episodes the predators stay close (nearest 2.0 m, 2.95 m/s) instead of hovering 6.6 m away; they lose 0.27 drones per episode (anchor v4: 0.37).
+- The prey flees faster (3.9 m/s) and higher through the pillar zone and hides less (line of sight blocked 0.079 of the frames; anchor v4 0.217). It is caught less (0.84 → 0.56), but crashes in 42 % of the episodes, head-on at 4.7 m/s, half of them with a predator within 1.5 m.
+"""
+why = """
+The predators see where the prey hides relative to the pillars; the prey's actor still has the one-hot pillar
+attention. So the prey cannot hold a position behind a pillar against them and escapes at speed, and its crashes
+are the price. Freezing the pair as anchor v5 is the user's decision; giving the prey its relation branch is the
+symmetric next step.
+"""
+experiment = "2026-10-18_relation_graft_selfplay"
+evidence = ["artifacts/isaac/experiments/2026-10-18_relation_graft_selfplay/"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-18_relation_graft_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
+label = "final pair after 18,000 updates of self-play"
 
 # =========================================================================================== featured videos
 
@@ -860,6 +892,11 @@ note = "The obstacle reference pair (2026-10-17): both roles avoid pillars by pe
 path = "isaac/experiments/2026-10-18_relation_graft_continuation/videos/c5_camera_D/rl-video-step-0.mp4"
 title = "The relation graft against the waiting prey"
 note = "Predators with the pillar-prey relation branch after 19,200 updates: catch 0.84 and time-outs 0.008 against a frozen prey that hides behind pillars (matched control: 0.75 / 0.047)."
+
+[[featured]]
+path = "isaac/experiments/2026-10-18_relation_graft_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
+title = "The graft predators against an adapting prey"
+note = "After 18,000 updates of self-play the prey no longer waits: it flees through the pillars, and the predators stay close (time-outs 0.005; anchor v4: 0.062)."
 
 # =========================================================================================== lessons
 
@@ -956,8 +993,14 @@ evidence = ["artifacts/isaac/experiments/2026-10-18_control_continuation/"]
 [[lesson]]
 verdict = "worked"
 what = "Zero-initialized relation branches: all pillars relative to the drone and the prey."
-why = "They broke the waiting game against the frozen prey (time-outs 0.008 vs 0.047) and replaced the one-hot pillar attention. With them zeroed the policy falls below the control, so it really uses them. One seed so far."
+why = "They broke the waiting game against the frozen prey (time-outs 0.008 vs 0.047, replicated at seed 71) and replaced the one-hot pillar attention. With them zeroed the policy falls below the control, so it really uses them."
 evidence = ["artifacts/isaac/experiments/2026-10-18_relation_graft_continuation/", "artifacts/isaac/diagnostics/2026-10-18_c5_branch_ablation/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Test a gain against a frozen opponent again in self-play."
+why = "A frozen prey can be exploited in ways a learning one closes. Here the waiting game stayed broken when the prey trained again (time-outs 0.005), but the game changed: the prey now flees and crashes instead of hiding."
+evidence = ["artifacts/isaac/experiments/2026-10-18_relation_graft_selfplay/"]
 
 [[lesson]]
 verdict = "partial"
@@ -1018,6 +1061,12 @@ verdict = "failed"
 what = "A smoke run at 256 envs for a new module."
 why = "It hid about 5 GB of activations: the full 4096-env run ran out of GPU memory after 1920 updates, and the GPU idled for 2.5 h. Memory smoke runs use the full env count."
 evidence = ["artifacts/isaac/experiments/2026-10-17_predator_relation_graft/crashed_run_1/"]
+
+[[lesson]]
+verdict = "failed"
+what = "Trusting the exit code of an evaluation."
+why = "Isaac's scripts exit with 0 even after an exception: three evaluations ran out of GPU memory next to a 26.8 GB training, and only the missing JSONs showed it. Drivers now check the output file, and tight runs evaluate after training."
+evidence = ["artifacts/isaac/experiments/2026-10-18_relation_graft_seed71/"]
 
 # =========================================================================================== reproduction recipe
 
@@ -1217,14 +1266,19 @@ notes = "Run on the host from /home/marc/RL; each driver names its start checkpo
 # =========================================================================================== next steps
 
 [[next]]
-title = "Seed-71 replication of the relation graft"
-why = "The graft's result rests on one seed. Arm q repeats graft plus continuation (19,200 updates) with seed 71, with the same criteria and the relation-branch ablation at the end; x5 (no graft, seed 71) is the floor."
-cost = "about 8 h of GPU, pre-registered (next run)"
+title = "Review the anchor v5 candidate"
+why = "The graft self-play passed the reference gate, but its prey crashes in 42 % of the episodes and its perception passed at the bar. Freeze the pair, freeze only the predator, or first give the prey its relation branch (user decision)."
+cost = "the user's review of the video, replays and RESULTS.md"
 
 [[next]]
-title = "Graft self-play: does the prey bring the waiting game back?"
-why = "The waiting game broke against a frozen prey. In mixed self-play from c5's pair the prey trains again. The reference gate plus time-outs ≤ 0.040 (anchor v4: 0.062) decide whether the pair becomes an anchor v5 candidate."
-cost = "about 8–9 h of GPU, pre-registered"
+title = "Pillar-only graft: do fewer crashes alone break the waiting game?"
+why = "The relation branch gives all-pillar perception and the pillar-prey relation. Arm n keeps only the pillars (prey-dependent token features zeroed). If it breaks the waiting game too, crash-free perception is the mechanism and a plain pillar set encoder suffices."
+cost = "about 8.5 h of GPU, pre-registered (running 2026-10-19)"
+
+[[next]]
+title = "Symmetric graft: give the prey its relation branch"
+why = "In self-play only the predators can see where the prey hides relative to the pillars, and the prey pays with crashes. The prey's branch (pillars relative to its nearest live predator) is implemented and tested."
+cost = "a self-play run, about 8-9 h, pre-registered"
 
 [[next]]
 title = "Stage 8b: from scratch with the fixed architecture"
