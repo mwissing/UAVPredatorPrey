@@ -1400,3 +1400,40 @@ are those of the predator (higher = better predator, lower = better prey).
     the full graft's gain runs through the actor's prey-relative tokens.
   - From scratch: keep the full relation tokens; the old one-hot attention
     can go.
+
+## 2026-10-19: Graft reference predator frozen
+
+- User: "yes the chasing looks pretty good in replay" (the recommendation:
+  freeze only the predator).
+- The predator role of the graft self-play's final pair (point 5) is the
+  reference predator for the 10-pillar task with the relation graft. The
+  prey role is not a reference: it crashes in 42% of the episodes.
+- Read-only bundle `.pretrained_checkpoints/graft_predator_2026-10-19/`
+  (agent_432000.pt, sha256 002f1cd7...). The bundled copy reproduces
+  `point5_own.json` bit-exactly (23 of 23 metrics).
+- Loading needs both masks and both relation flags. Doc:
+  [graft_predator_2026-10-19.md](graft_predator_2026-10-19.md).
+
+## 2026-10-19: Symmetric graft self-play (pre-registered)
+
+- User approval: "you can start with the recommended symmetric graft
+  self-play".
+- Question: once the prey also has its relation branch, can it hold cover
+  safely and bring the waiting game back, or does it become a safer evader?
+- Design: the graft self-play with one change,
+  `+agent.models.policy.prey_obstacle_relation=true` (92af76c,
+  zero-initialized). The same start (c5's pair), seed 60, recipe and
+  evaluations after training.
+  - Checks: point 0 must reproduce the asymmetric run's point 0
+    bit-exactly; the prey's branch is checked in the first checkpoint.
+  - A full-size memory smoke (120 updates at 4096 envs) passed: status 0,
+    peak 20.5 GB.
+- Decision at points 4 and 5:
+  - the reference gate;
+  - plus 5: time-outs <= 0.040;
+  - plus 6: prey crashes <= 0.33 per episode (asymmetric 0.418).
+  Outcomes: all pass -> anchor v5 pair candidate; 5 fails -> the prey brings
+  the waiting game back; 6 fails -> the branch does not make the prey safer.
+  The decision logic was tested on mock data.
+- Started 16:26; about 9 h.
+- Evidence: `artifacts/isaac/experiments/2026-10-19_symmetric_graft_selfplay/`.
