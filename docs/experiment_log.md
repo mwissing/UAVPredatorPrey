@@ -1437,3 +1437,29 @@ are those of the predator (higher = better predator, lower = better prey).
   The decision logic was tested on mock data.
 - Started 16:26; about 9 h.
 - Evidence: `artifacts/isaac/experiments/2026-10-19_symmetric_graft_selfplay/`.
+- Symmetric result (training 16:30-02:01, status 0; evaluations after it,
+  all 54 succeeded; point 0 bit-exact with the asymmetric run; the prey
+  branch learned): the pre-registered verdict is "with the relation branch
+  the prey brings the waiting game back (time-outs > 0.040); decide
+  together". Criteria 5 (time-outs 0.126) and 3b (forgetting) fail; the
+  others pass, including 6 (prey crashes 0.285).
+- **The mechanism is not the old waiting game.**
+
+  | long episodes | symmetric | asymmetric | anchor v4 | k5 |
+  |---|---|---|---|---|
+  | share | **35%** | 5% | 11% | 9.5% |
+  | nearest predator | **1.76 m** | 2.01 m | 6.57 m | 6.52 m |
+  | two predators within 4 m of the prey's pillar | **0.74** | 0.49 | 0.10 | 0.06 |
+  | pincer | 0.13 | 0.08 | 0.03 | 0.01 |
+
+  - In the time-out episodes, the line of sight to the prey is blocked in
+    only 3% of the frames. The prey dodges engaged predators around
+    pillars at close range (1.9 rad/s), a "pillar dance". Coordination is
+    now the open gap.
+  - Both roles use their perception heavily (own ratios: prey 6.4,
+    predator 3.8).
+  - The predators lose 0.20 drones per episode; the prey runs at 4.8 m/s.
+  - Forgetting: the obstacle-blind fixed predator catches the prey in 0.32
+    of the episodes (point 0: 0.17).
+  - Lesson: time-outs alone no longer identify the strategy. Gates should
+    pair them with the long-game mechanism.

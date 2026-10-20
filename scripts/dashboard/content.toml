@@ -150,6 +150,12 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "symmetric-selfplay-final"
+title = "Symmetric graft self-play, final pair (own matchup)"
+note = "Both roles with relation branches after 18,000 updates of mixed self-play. Look at the long episodes: the prey circles a pillar fast while two predators press from close range, and survives a tenth of the episodes (time-outs 0.126). Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-19_symmetric_graft_selfplay/evals/point5_own.npz"
+
+[[replay]]
 id = "graft-selfplay-final"
 title = "Graft self-play, final pair (anchor v5 candidate, own matchup)"
 note = "18,000 updates of mixed self-play from c5's pair. The waiting game stays broken (time-outs 0.005): the prey flees fast through the pillars instead of hiding, is caught in 56 % of the episodes and crashes in 42 %, half of them with a predator close. Both crashed-drone masks on."
@@ -880,6 +886,31 @@ pillar blocks the line to the prey. A critic that knows the long game does not m
 experiment = "2026-10-19_relation_graft_pillar_only"
 evidence = ["artifacts/isaac/experiments/2026-10-19_relation_graft_pillar_only/"]
 
+[[chapter.stage]]
+id = "symmetric-selfplay"
+title = "Symmetric graft self-play: from hiding to a pillar dance"
+dates = "2026-10-19 → 10-20"
+verdict = "partial"
+takeaway = "With relation branches on both sides the prey neither hides nor flees blindly: it dodges engaged predators around pillars at close range. Time-outs return, but as successful evasion; coordination is the open gap."
+metric = "time-outs 0.126 · nearest predator 1.8 m"
+goal = "Give the prey its relation branch too (pillars relative to its nearest live predator) and repeat the graft self-play from the same start, seed and recipe."
+result = """
+- Pre-registered verdict: "the prey brings the waiting game back" (time-outs **0.126**, bar 0.040); the prey forgot the old obstacle-blind predator (caught 0.17 → 0.32); prey crashes fell to 0.285 (asymmetric 0.418).
+- But the mechanism is new: 35 % of the episodes last 5 s or more, the nearest predator is 1.8 m away (waiting game: 6.5 m), two predators are at the prey's pillar in 74 % of its orbit frames (waiting game: 6–10 %), pincers 13 %, and in time-out episodes the line of sight is blocked in only 3 % of the frames.
+- Both roles rely on their pillar perception as never before (own ablation ratios: prey 6.4, predator 3.8); the predators lose 0.20 drones per episode.
+"""
+why = """
+Seeing the same relations, the prey no longer needs to hide or flee blindly: it circles a pillar at 1.9 rad/s while
+the predators press, and it survives a tenth of the episodes. Shared-weight predators mostly approach from the same
+side (spread 15°), so converting the dance needs coordination: role differentiation or longer credit. The time-out
+bar no longer identifies the strategy.
+"""
+experiment = "2026-10-19_symmetric_graft_selfplay"
+evidence = ["artifacts/isaac/experiments/2026-10-19_symmetric_graft_selfplay/"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-19_symmetric_graft_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
+label = "final pair: the pillar dance (camera D)"
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -926,6 +957,11 @@ note = "Predators with the pillar-prey relation branch after 19,200 updates: cat
 path = "isaac/experiments/2026-10-18_relation_graft_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
 title = "The graft predators against an adapting prey"
 note = "After 18,000 updates of self-play the prey no longer waits: it flees through the pillars, and the predators stay close (time-outs 0.005; anchor v4: 0.062)."
+
+[[featured]]
+path = "isaac/experiments/2026-10-19_symmetric_graft_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
+title = "The pillar dance"
+note = "Both roles see the pillar relations: the prey dodges engaged predators around pillars at close range, with time-outs back at 0.126 but the predators only 1.8 m away."
 
 # =========================================================================================== lessons
 
@@ -1102,6 +1138,12 @@ verdict = "failed"
 what = "Trusting the exit code of an evaluation."
 why = "Isaac's scripts exit with 0 even after an exception: three evaluations ran out of GPU memory next to a 26.8 GB training, and only the missing JSONs showed it. Drivers now check the output file, and tight runs evaluate after training."
 evidence = ["artifacts/isaac/experiments/2026-10-18_relation_graft_seed71/"]
+
+[[lesson]]
+verdict = "failed"
+what = "The time-out share alone as the test for the waiting game."
+why = "In the symmetric self-play time-outs returned (0.126) while the predators were 1.8 m away and engaged, with the line of sight blocked in 3 % of the time-out frames: a different strategy. A gate should pair an outcome proxy with the mechanism it stands for."
+evidence = ["artifacts/isaac/experiments/2026-10-19_symmetric_graft_selfplay/"]
 
 # =========================================================================================== reproduction recipe
 
@@ -1301,9 +1343,14 @@ notes = "Run on the host from /home/marc/RL; each driver names its start checkpo
 # =========================================================================================== next steps
 
 [[next]]
-title = "Symmetric graft: give the prey its relation branch"
-why = "In self-play only the predators can see where the prey hides relative to the pillars, and the prey pays with crashes. With its own branch, can the prey hold cover safely again (the waiting game returns), or does it become a safer evader? Matched to the asymmetric self-play."
-cost = "about 9 h of GPU, pre-registered (running 2026-10-19 evening)"
+title = "Coordination in the pillar dance"
+why = "The predators now reach the prey's pillar together but mostly from the same side (spread 15°, pincers 13 %). Two levers that failed while the predators were blind now have a target: role differentiation (imposed role vectors, prepared 2026-10-16) and longer credit or horizon, since long episodes are common again (35 %)."
+cost = "predator-only stages against the frozen symmetric prey, about 4 h per arm, pre-registered (user decision)"
+
+[[next]]
+title = "Rehearsal against the fixed opponents"
+why = "The symmetric prey forgot the old obstacle-blind predator (caught 0.17 → 0.32). A rehearsal share of fixed opponents, as in the anchor runs, before freezing a symmetric pair."
+cost = "a self-play run with a rehearsal pool, about 9 h"
 
 [[next]]
 title = "Stage 8b: from scratch with the fixed architecture"
