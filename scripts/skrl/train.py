@@ -346,11 +346,14 @@ class _PoolPolicy:
     @torch.no_grad()
     def act(self, observations: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         mask = mask.reshape(-1).bool()
-        states = observations[mask]
+        raw_states = observations[mask]
+        states = raw_states
         if self.state_preprocessor is not None:
             states = self.state_preprocessor(states)
 
-        inputs: dict[str, Any] = {"states": states}
+        # raw_states as in RecurrentMAPPO.act: the pillar presence mask, the crashed-drone masks and the relation
+        # branches read unnormalized features, so without them a pool opponent plays with those paths switched off.
+        inputs: dict[str, Any] = {"states": states, "raw_states": raw_states}
         if self._rnn_states:
             inputs["rnn"] = [state[:, mask].contiguous() for state in self._rnn_states]
         actions, _, outputs = self.policy.act(inputs, role="policy")
