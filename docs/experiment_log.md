@@ -1507,3 +1507,36 @@ are those of the predator (higher = better predator, lower = better prey).
   - Next candidates: discount 0.995 as the self-play default, and
     credit-based coordination levers (per-drone counterfactual advantages,
     separate actor weights).
+
+## 2026-10-20: Consolidation self-play, symmetric branches + discount 0.995 + rehearsal (pre-registered)
+
+- User: "i would to consolidate rune (option 1)". The user also asked to see
+  arm H in the 3D replay: H and the control are on the dashboard now
+  (304cd97).
+- **Fix first (5a2fa0c):** per-env pool opponents received no raw states, so
+  their masks and relation branches were switched off. They now get raw
+  states, as RecurrentMAPPO.act passes them. A test fails on the old code;
+  240 tests pass. Earlier pool runs used open-space models without these
+  paths and are unaffected.
+- **Design:**
+  - The start is arm H's final pair (the discount-0.995 predator plus the
+    symmetric prey).
+  - Five cycles: a joint phase of 3000 updates (both roles, a third of the
+    envs with ghosts), then a prey rehearsal phase of 600 updates.
+  - In the rehearsal phase, half of the envs face fixed predators: the
+    obstacle-blind anchor v3 (weight 2), anchor v4 and the graft predator.
+  - Discount 0.995, all relation flags; 18,000 updates.
+  - Evaluations after each cycle.
+  - Full-size smoke runs of both phase types passed; the pool loaded all
+    three policies.
+- **Gate at points 4 and 5:**
+  - perception, balance and stability as before;
+  - no forgetting as absolute bars: the fixed predator vs the prey <= 0.217,
+    the predator vs the fixed prey >= 0.111;
+  - no waiting game by mechanism: long episodes with the nearest predator
+    <= 3 m and the line blocked <= 0.30;
+  - prey crashes <= 0.33.
+  All pass -> anchor v5 pair candidate. Tested on stand-in data: the
+  symmetric run fails exactly 3b.
+- Started 19:28; about 10 h.
+- Evidence: `artifacts/isaac/experiments/2026-10-20_consolidation_selfplay/`.
