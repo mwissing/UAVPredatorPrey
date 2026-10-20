@@ -1463,3 +1463,25 @@ are those of the predator (higher = better predator, lower = better prey).
     of the episodes (point 0: 0.17).
   - Lesson: time-outs alone no longer identify the strategy. Gates should
     pair them with the long-game mechanism.
+
+## 2026-10-20: Coordination in the pillar dance, horizon vs imposed roles vs control (pre-registered)
+
+- User approval: "yes three-arm test. start with 3 then 2 then 1 pls".
+- Three predator-only arms against the frozen symmetric prey (the symmetric
+  self-play's final pair). Seed 70, 9600 updates each, run in the user's
+  order:
+  - H: discount 0.995 (the user's longer-horizon idea);
+  - R: imposed random role vectors, norm 10, from the option prepared on
+    2026-10-16;
+  - C: the control.
+  - Evaluations after each arm's training. The driver checks each arm's
+    flag in its config.
+- Decision per lever at point 5 against C:
+  - time-outs <= 0.7x C's and outcome return >= C's + 10: converts;
+  - one of the two: partly;
+  - guards: drone losses <= 1.2x, own ratio >= 1.0.
+  Reported: the dance (two predators at the pillar, pincers), the long game,
+  R's role spread and role-norm decay, and C against point 0.
+- The decision logic was tested on mock arms.
+- Started 07:04; about 12 h.
+- Evidence: `artifacts/isaac/experiments/2026-10-20_dance_coordination_test/`.
