@@ -911,6 +911,29 @@ evidence = ["artifacts/isaac/experiments/2026-10-19_symmetric_graft_selfplay/"]
 path = "isaac/experiments/2026-10-19_symmetric_graft_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
 label = "final pair: the pillar dance (camera D)"
 
+[[chapter.stage]]
+id = "dance-levers"
+title = "Coordination levers in the dance: longer horizon, imposed roles, control"
+dates = "2026-10-20"
+verdict = "partial"
+takeaway = "The longer horizon helps once the predators can see the shield (outcome +15.5 over the control, a third fewer drone losses); imposed role vectors are ignored. Pincers stay rare."
+metric = "H: time-outs 0.064 vs 0.086"
+goal = "Against the frozen symmetric prey, three predator-only arms from the same start (9600 updates each): discount 0.995 (H), random role vectors at norm 10 (R), and a control (C)."
+result = """
+- H: time-outs **0.064**, outcome return **133.4**, 0.105 drones lost per episode; the control: 0.086, 117.9, 0.163. Pre-registered: "partly" (time-outs 26 % below the control, bar 30 %).
+- R: the role vectors kept their size, but the drones behave index-blind again (lead spread 0.077 → 0.010); the result equals the control.
+- More training alone also gains against this frozen prey (time-outs 0.126 → 0.086), which is why every lever is measured against the control.
+- Pincers stay at 13–16 % in every arm.
+"""
+why = """
+At a 4 s horizon a lost drone costs twice as much future catch chance as at 2 s, so the critic values a safe, sustained
+approach: the gain is mostly safety. The γ test of 2026-10-12 did nothing because the predators could not represent the
+shield then. With one shared policy and a team reward, the learning signal keeps the team symmetric even when it starts
+with identities, so coordination needs levers that act on credit rather than identity.
+"""
+experiment = "2026-10-20_dance_coordination_test"
+evidence = ["artifacts/isaac/experiments/2026-10-20_dance_coordination_test/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1145,6 +1168,18 @@ what = "The time-out share alone as the test for the waiting game."
 why = "In the symmetric self-play time-outs returned (0.126) while the predators were 1.8 m away and engaged, with the line of sight blocked in 3 % of the time-out frames: a different strategy. A gate should pair an outcome proxy with the mechanism it stands for."
 evidence = ["artifacts/isaac/experiments/2026-10-19_symmetric_graft_selfplay/"]
 
+[[lesson]]
+verdict = "failed"
+what = "Imposed random role vectors for a shared-weight predator team."
+why = "The vectors kept their size (norm about 10), but the network learned to ignore them: the drones' lead spread fell from 0.077 to 0.010, and the arm ended level with the control. A team reward under one shared policy pulls the team back to symmetry."
+evidence = ["artifacts/isaac/experiments/2026-10-20_dance_coordination_test/"]
+
+[[lesson]]
+verdict = "worked"
+what = "Re-test a lever after the bottleneck that blocked it is removed."
+why = "Discount 0.995 did nothing on 2026-10-12, when the predators could not see the shield. With the relation branches it added 15.5 points over a matched control, mostly by making the predators safer."
+evidence = ["artifacts/isaac/experiments/2026-10-20_dance_coordination_test/", "artifacts/isaac/experiments/2026-10-12_predator_stage_gamma995/"]
+
 # =========================================================================================== reproduction recipe
 
 recipe_intro = """
@@ -1344,8 +1379,8 @@ notes = "Run on the host from /home/marc/RL; each driver names its start checkpo
 
 [[next]]
 title = "Coordination in the pillar dance"
-why = "The predators now reach the prey's pillar together but mostly from the same side (spread 15°, pincers 13 %). Two levers that failed while the predators were blind now have a target: role differentiation (imposed role vectors, prepared 2026-10-16) and longer credit or horizon, since long episodes are common again (35 %)."
-cost = "predator-only stages against the frozen symmetric prey, about 4 h per arm, pre-registered (user decision)"
+why = "Discount 0.995 helps (2026-10-20) and should become the self-play default, but pincers stay at 13–16 % and imposed role vectors are ignored. Next levers act on credit instead of identity: per-drone (counterfactual) advantages, or separate actor weights per drone."
+cost = "code + tests, then predator-only arms against the frozen symmetric prey, about 4 h each (user decision)"
 
 [[next]]
 title = "Rehearsal against the fixed opponents"

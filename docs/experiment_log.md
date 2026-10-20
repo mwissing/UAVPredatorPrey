@@ -1485,3 +1485,25 @@ are those of the predator (higher = better predator, lower = better prey).
 - The decision logic was tested on mock arms.
 - Started 07:04; about 12 h.
 - Evidence: `artifacts/isaac/experiments/2026-10-20_dance_coordination_test/`.
+- Result (H 07:07-10:51, R 10:58-14:43, C 14:50-18:39, all status 0; every
+  evaluation succeeded): the pre-registered verdict is "H: partly; R: the
+  lever does not convert the dance".
+
+  | point 5 | H (discount 0.995) | R (roles) | C (control) | point 0 |
+  |---|---|---|---|---|
+  | time-outs | **0.064** | 0.086 | 0.086 | 0.126 |
+  | outcome return | **133.4** | 117.6 | 117.9 | 108.4 |
+  | drones lost | **0.105** | 0.162 | 0.163 | 0.205 |
+
+  - H: +15.5 over C, mostly from safety (losses -36%, pillar crashes 0.091
+    vs 0.134). Time-outs are 26% below C (bar 30%), so "partly". H leads C
+    at every checkpoint.
+  - R: the role vectors kept their size (norms about 9-10), but behavior
+    re-symmetrized: the lead spread fell from 0.077 (r0) to 0.010. The
+    result equals C.
+  - C against point 0: time-outs 0.126 -> 0.086, so more training alone
+    gains against the frozen prey.
+  - Pincers stay at 13-16% in every arm; coordination is still open.
+  - Next candidates: discount 0.995 as the self-play default, and
+    credit-based coordination levers (per-drone counterfactual advantages,
+    separate actor weights).
