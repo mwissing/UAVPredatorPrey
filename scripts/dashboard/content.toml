@@ -150,6 +150,18 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "dance-h-gamma995"
+title = "Dance test arm H: discount 0.995 vs the frozen symmetric prey"
+note = "The symmetric self-play's predators after 9600 more updates with a 4 s horizon (discount 0.995) against the frozen symmetric prey: time-outs 0.064, 0.105 drones lost per episode, outcome return 133.4. Compare with the control arm below (0.086, 0.163, 117.9). Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-20_dance_coordination_test/evals/h5_own.npz"
+
+[[replay]]
+id = "dance-c-control"
+title = "Dance test arm C: the control (discount 0.99)"
+note = "The same 9600 updates against the frozen symmetric prey without any change: time-outs 0.086, 0.163 drones lost per episode, outcome return 117.9. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-20_dance_coordination_test/evals/c5_own.npz"
+
+[[replay]]
 id = "symmetric-selfplay-final"
 title = "Symmetric graft self-play, final pair (own matchup)"
 note = "Both roles with relation branches after 18,000 updates of mixed self-play. Look at the long episodes: the prey circles a pillar fast while two predators press from close range, and survives a tenth of the episodes (time-outs 0.126). Both crashed-drone masks on."
