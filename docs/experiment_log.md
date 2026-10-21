@@ -1557,3 +1557,19 @@ are those of the predator (higher = better predator, lower = better prey).
     - freeze it as anchor v5 now, with the 3b caveat documented;
     - or two more cycles under the same gate, with a commitment to freeze
       either way.
+
+## 2026-10-21: Anchor v5 frozen
+
+- User: "ok do as recommended", i.e. freeze the consolidated pair now and
+  document the 3b miss.
+- Anchor v5 is the reference pair with symmetric perception (relation
+  branches in both actors and both critics) and discount 0.995. It replaces
+  anchor v4 as the current reference pair.
+- Read-only bundle `.pretrained_checkpoints/anchor_v5_2026-10-21/`
+  (agent_14400.pt, sha256 cc17264a..., 84 files with checksums). The bundled
+  copy reproduces `point5_own.json` bit-exactly (23 of 23 metrics).
+- Doc: [anchor_v5_2026-10-21.md](anchor_v5_2026-10-21.md). It covers the
+  required flags, the lineage, the evaluation against anchor v4, and the
+  accepted limit: the obstacle-blind anchor v3 predator catches this prey in
+  22-27% of the episodes (bar 21.7%).
+- The dashboard now shows anchor v5 as the hero and as a reference.

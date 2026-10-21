@@ -18,11 +18,12 @@ title = "Three drones learn to hunt one"
 pitch = """
 Three predator quadrotors learn to catch a more agile prey drone while the prey learns to escape: two teams of
 neural-network policies that train against each other in physics simulation. Since stage 8 they fly among ten
-pillars, where a touch is a crash, and the prey learned to hide behind them. Since 7 October every change is a
-pre-registered experiment with a decision rule, an ablation and a bit-reproducible evaluation.
+pillars, where a touch is a crash: the prey first learned to hide behind them, and once both sides could see the
+pillar relations, to dodge around them. Since 7 October every change is a pre-registered experiment with a decision
+rule, an ablation and a bit-reproducible evaluation.
 """
-video = "isaac/experiments/2026-10-16_obstacle_reference_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
-caption = "Anchor v4 (2026-10-17), the reference pair for the ten-pillar task: both roles avoid pillars by perception, and the prey waits behind them."
+video = "isaac/experiments/2026-10-20_consolidation_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
+caption = "Anchor v5 (2026-10-21), the reference pair for the ten-pillar task: both roles see the pillar relations, and the prey dodges at close range instead of hiding."
 facts = ["3 predators vs 1 prey", "sphere arena, r = 5 m", "10 pillars", "policy at 50 Hz", "10 s episodes", "prey thrust/weight 2.2 vs 1.9", "MAPPO · attention + GRU"]
 
 # Milestone numbers. A fourth tile (experiment count) is generated from the experiment log.
@@ -72,6 +73,13 @@ scope = "10 pillars, predator role only"
 date = "2026-10-19"
 detail = "Relation-graft predators after self-play: the waiting game stays broken (time-outs 0.005), own-matchup ablation ratio 2.4-2.8, 0.29 drones lost per episode. Bundle reproduces bit-exactly; needs the relation flags."
 path = "UAVPredatorPrey/.pretrained_checkpoints/graft_predator_2026-10-19/"
+
+[[reference]]
+name = "Anchor v5"
+scope = "10 pillars, both roles, symmetric perception"
+date = "2026-10-21"
+detail = "Relation branches in both roles, discount 0.995, prey rehearsal. Catch 0.66, prey crashes 0.23, close pillar dance (nearest predator 1.8 m). Seven of eight gate criteria; the forgetting miss against the old obstacle-blind predator (22–27 %, bar 21.7 %) accepted. Bit-exact; needs all relation flags."
+path = "UAVPredatorPrey/.pretrained_checkpoints/anchor_v5_2026-10-21/"
 
 # =========================================================================================== featured charts
 # kind = "lines": each series is a crash/catch hazard (`matchup`) or an ablation ratio (`with` / `zeroed`: hazard
@@ -954,10 +962,10 @@ evidence = ["artifacts/isaac/experiments/2026-10-20_dance_coordination_test/"]
 
 [[chapter.stage]]
 id = "consolidation"
-title = "Consolidation: symmetric branches, discount 0.995, rehearsal"
+title = "Consolidation → anchor v5"
 dates = "2026-10-20 → 10-21"
-verdict = "partial"
-takeaway = "A balanced, safe symmetric pair that plays the pillar dance without hiding. Seven of eight gate criteria pass; forgetting against the old obstacle-blind predator misses its bar narrowly while still falling."
+verdict = "worked"
+takeaway = "A balanced, safe symmetric pair that plays the pillar dance without hiding, frozen as anchor v5. Seven of eight gate criteria pass; the narrow forgetting miss against the old obstacle-blind predator was accepted."
 metric = "7 of 8 criteria · old predator 0.316 → 0.221"
 goal = "Turn the symmetric game into a reference pair: from the discount-0.995 predators, five cycles of joint self-play plus prey rehearsal against fixed old predators (half the envs in the rehearsal phases), 18,000 updates."
 result = """
@@ -968,7 +976,7 @@ result = """
 why = """
 Rehearsal against fixed old predators is the self-play analogue of a replay buffer, as in the anchor runs; first the
 pool code had to pass raw states, or the pool opponents would have played with their masks and relation branches off.
-Freezing the pair as anchor v5 with the documented miss, or two more cycles, is the user's decision.
+The user froze the pair as anchor v5 with the documented miss (2026-10-21).
 """
 experiment = "2026-10-20_consolidation_selfplay"
 evidence = ["artifacts/isaac/experiments/2026-10-20_consolidation_selfplay/"]
@@ -1420,19 +1428,9 @@ notes = "Run on the host from /home/marc/RL; each driver names its start checkpo
 # =========================================================================================== next steps
 
 [[next]]
-title = "Decide anchor v5"
-why = "The consolidated pair passes seven of eight gate criteria; the old obstacle-blind predator still catches its prey in 22–27 % of the episodes (bar 21.7 %). Freeze it now with the caveat, or run two more cycles under the same gate and freeze either way."
-cost = "the user's decision; two more cycles would be about 2.7 h"
-
-[[next]]
 title = "Coordination in the pillar dance"
 why = "Discount 0.995 helps (2026-10-20) and should become the self-play default, but pincers stay at 13–16 % and imposed role vectors are ignored. Next levers act on credit instead of identity: per-drone (counterfactual) advantages, or separate actor weights per drone."
 cost = "code + tests, then predator-only arms against the frozen symmetric prey, about 4 h each (user decision)"
-
-[[next]]
-title = "Rehearsal against the fixed opponents"
-why = "The symmetric prey forgot the old obstacle-blind predator (caught 0.17 → 0.32). A rehearsal share of fixed opponents, as in the anchor runs, before freezing a symmetric pair."
-cost = "a self-play run with a rehearsal pool, about 9 h"
 
 [[next]]
 title = "Stage 8b: from scratch with the fixed architecture"
