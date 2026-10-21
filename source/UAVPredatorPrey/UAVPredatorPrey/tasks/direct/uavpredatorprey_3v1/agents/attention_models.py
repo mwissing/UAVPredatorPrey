@@ -43,6 +43,18 @@ def _mlp(input_dim: int, layers: Sequence[int], output_dim: int, activation: str
     return nn.Sequential(*modules)
 
 
+def split_actor_head(policy_state: dict[str, torch.Tensor], num_predators: int) -> dict[str, torch.Tensor]:
+    """A predator policy state dict for predator_drone_heads: each drone index gets an exact copy of the shared actor
+    head, so the converted network acts as before. The copies diverge in training because each head learns only from
+    its own drone's actions."""
+    converted = {key: value for key, value in policy_state.items() if not key.startswith("actor_head.")}
+    for key, value in policy_state.items():
+        if key.startswith("actor_head."):
+            for i in range(num_predators):
+                converted[f"drone_heads.{i}.{key[len('actor_head.'):]}"] = value.clone()
+    return converted
+
+
 def _strict_load_allow_missing_prefixes(
     module: nn.Module,
     state_dict: dict[str, torch.Tensor],
@@ -608,6 +620,7 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
         predator_role_embedding: bool = False,
         predator_obstacle_relation: bool = False,
         predator_obstacle_relation_pillar_only: bool = False,
+        predator_drone_heads: bool = False,
         prey_obstacle_relation: bool = False,
         obstacle_feature_scale: float = 5.0,
         **_: Any,
@@ -661,7 +674,15 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
             self.key = nn.Linear(attention_size, attention_size)
             self.value = nn.Linear(attention_size, attention_size)
             self.gru = nn.GRU(self.feature_size, self.rnn_hidden_size)
-            self.actor_head = _mlp(self.rnn_hidden_size, (hidden_size,), 4, fallback_activation)
+            if predator_drone_heads:
+                # One decision head per drone index on top of the shared perception and GRU. A drone's head gets
+                # gradients only from its own actions, so alike inputs no longer force alike actions (Fu et al. 2022).
+                # Start from split_actor_head: exact copies of a trained shared head.
+                self.drone_heads = nn.ModuleList(
+                    [_mlp(self.rnn_hidden_size, (hidden_size,), 4, fallback_activation) for _ in range(self.num_predators)]
+                )
+            else:
+                self.actor_head = _mlp(self.rnn_hidden_size, (hidden_size,), 4, fallback_activation)
             self.log_std_parameter = nn.Parameter(torch.full((4,), float(initial_log_std)))
         elif prey_num_predators is not None:
             self.mode = "prey"
@@ -998,8 +1019,11 @@ class RecurrentPredatorPreyAttentionGaussianModel(TanhGaussianMixin, Model):
                 sequence_batch,
                 self.num_predators * self.rnn_hidden_size,
             )
-            actions = self.actor_head(recurrent_output.reshape(-1, self.rnn_hidden_size))
-            actions = actions.view(sequence_length * sequence_batch, self.num_predators * 4)
+            if hasattr(self, "drone_heads"):
+                actions = torch.stack([head(recurrent_output[:, i]) for i, head in enumerate(self.drone_heads)], dim=1)
+            else:
+                actions = self.actor_head(recurrent_output.reshape(-1, self.rnn_hidden_size))
+            actions = actions.reshape(sequence_length * sequence_batch, self.num_predators * 4)
             return actions, self.log_std_parameter.repeat(self.num_predators), {"rnn": [next_hidden]}
 
         features = self._prey_features(states, raw_states)
