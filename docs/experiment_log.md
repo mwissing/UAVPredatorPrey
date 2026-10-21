@@ -1573,3 +1573,24 @@ are those of the predator (higher = better predator, lower = better prey).
   accepted limit: the obstacle-blind anchor v3 predator catches this prey in
   22-27% of the episodes (bar 21.7%).
 - The dashboard now shows anchor v5 as the hero and as a reference.
+
+## 2026-10-21: Does flanking pay in the pillar dance? (pre-registered diagnostic)
+
+- User: "ok continue with 1." (coordination). Before building a credit
+  lever, a check on existing trajectories: does a pincer raise the chance of
+  success? Pre-registered at 18:05.
+  - Engaged orbit frames: two predators within 4 m of the prey's pillar.
+  - Success (catch or forced crash) within 1 s, pincer vs one-sided,
+    standardized by the nearest-predator distance.
+  - 90% bootstrap over episodes.
+- Result on anchor v5: RR 1.34 [1.13, 1.58], i.e. 0.238 vs 0.178. The
+  pre-registered reading is **"weak"** (bar 1.5).
+  - Point 4: 1.18 [0.98, 1.41].
+  - The symmetric self-play: 1.24 [1.04, 1.49].
+  - The dance arms against the frozen symmetric prey: 0.92-1.10 (no
+    effect).
+- A rough ceiling: if every engaged moment were a pincer, anchor v5's
+  time-outs would fall from about 0.10 to about 0.07. That is a small target
+  for a coordination lever. Part of the remaining time-outs is likely the
+  intended balance with the more agile prey.
+- Evidence: `artifacts/isaac/diagnostics/2026-10-21_flanking_value/`.
