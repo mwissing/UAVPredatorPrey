@@ -1594,3 +1594,31 @@ are those of the predator (higher = better predator, lower = better prey).
   for a coordination lever. Part of the remaining time-outs is likely the
   intended balance with the more agile prey.
 - Evidence: `artifacts/isaac/diagnostics/2026-10-21_flanking_value/`.
+
+## 2026-10-21: Separate decision heads per drone, the cheap coordination test (pre-registered)
+
+- User: "1." (the cheap coordination test, after the flanking diagnostic).
+- Code f2368f6: `predator_drone_heads` replaces the shared actor head with one
+  head per drone index on top of the shared perception and GRU.
+  - A drone's head learns only from its own actions (agent-specific
+    parameters, Fu et al. 2022).
+  - `split_actor_head` converts a trained checkpoint into exact copies,
+    which act as before up to float rounding.
+  - The two layouts refuse to load into each other. Off by default; 244
+    tests pass.
+- Design: predator-only against the frozen anchor v5 prey, seed 70, 9600
+  updates, discount 0.995.
+  - Arm S: drone heads plus per-drone PPO ratios, from the converted start.
+  - Arm C: the control.
+  - Evaluations after training. A full-size smoke of arm S passed (both
+    flags in the config).
+- Decision at point 5, S against C:
+  1. specialization: per-index lead or side spread >= 0.15;
+  2. pincer share >= 1.5x C;
+  3. outcome: time-outs <= 0.7x and return >= +10 (converts), one of them
+     (partly);
+  4. guards.
+  The flanking ceiling is small, so "no outcome gain" is expected even if 1
+  and 2 pass.
+- Started 18:14; about 8 h.
+- Evidence: `artifacts/isaac/experiments/2026-10-21_drone_heads_test/`.
