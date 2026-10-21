@@ -1540,3 +1540,20 @@ are those of the predator (higher = better predator, lower = better prey).
   symmetric run fails exactly 3b.
 - Started 19:28; about 10 h.
 - Evidence: `artifacts/isaac/experiments/2026-10-20_consolidation_selfplay/`.
+- Result (19:28-04:33, all ten phases status 0, every evaluation
+  succeeded): the pre-registered verdict is "criteria 3b fail; decide
+  together". Seven of eight criteria pass.
+  - The rehearsal works but falls just short. The old obstacle-blind
+    predator catches the prey in 0.316 -> 0.282 -> 0.263 -> 0.256 -> 0.268
+    -> 0.221 of the episodes. The mean of points 4 and 5 is 0.245, against a
+    bar of 0.217.
+  - The pair at point 5: catch 0.663, outcome return 130.3, prey crashes
+    0.231 (symmetric run 0.285), predators lost 0.13. Both roles' ablation
+    ratios are 5-10.
+  - The game is the pillar dance: long episodes 29%, nearest predator
+    1.81 m, line blocked 0.10, two predators at the pillar 0.88, pincers
+    0.10, prey at 5.2 m/s.
+  - User decision:
+    - freeze it as anchor v5 now, with the 3b caveat documented;
+    - or two more cycles under the same gate, with a commitment to freeze
+      either way.
