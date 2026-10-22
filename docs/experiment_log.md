@@ -1622,3 +1622,23 @@ are those of the predator (higher = better predator, lower = better prey).
   and 2 pass.
 - Started 18:14; about 8 h.
 - Evidence: `artifacts/isaac/experiments/2026-10-21_drone_heads_test/`.
+- Result (S 18:17-22:19, C 22:27-02:11, both status 0; every evaluation
+  succeeded): the pre-registered verdict is "the heads do not specialize;
+  pincers do not rise; outcome: no outcome gain". S ends below C.
+
+  | point 5 | S (heads + per-drone ratios) | C (control) | start |
+  |---|---|---|---|
+  | lead / side spread | 0.020 / 0.012 | 0.023 / 0.005 | 0.011 / 0.008 |
+  | pincer share | 0.119 | 0.094 | 0.102 |
+  | time-outs | 0.091 | **0.053** | 0.104 |
+  | outcome return | 135.5 | **148.5** | 130.3 |
+
+  - The heads diverged in parameters (each 3.6% from the start, 3.8% apart)
+    but not in behavior. That is drift from gradient noise, not roles.
+  - S updated about three times less than C (KL 0.0018 vs 0.0050, clip
+    fraction 0.011 vs 0.036, entropy -0.37 vs -0.64). Each head learns from
+    a third of the data.
+  - Pincers stop paying once the predators train on the frozen prey (RR 1.0;
+    1.34 at the start). The control alone halves the time-outs: exploitation.
+  - Together with the imposed roles and the flanking diagnostic: coordination
+    is not the bottleneck of the full-information dance. Not adopted.

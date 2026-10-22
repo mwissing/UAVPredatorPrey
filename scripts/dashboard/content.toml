@@ -984,6 +984,27 @@ evidence = ["artifacts/isaac/experiments/2026-10-20_consolidation_selfplay/"]
 path = "isaac/experiments/2026-10-20_consolidation_selfplay/videos/final_camera_D/rl-video-step-0.mp4"
 label = "the consolidated pair (camera D)"
 
+[[chapter.stage]]
+id = "flanking-and-heads"
+title = "Does flanking pay? Separate decision heads per drone"
+dates = "2026-10-21 → 10-22"
+verdict = "failed"
+takeaway = "Flanking is worth little in the dance, and giving each drone its own decision head does not make them specialize. Coordination is not the bottleneck of the full-information game."
+metric = "pincer value RR 1.34 → 1.0; heads: spread 0.020"
+goal = "First check whether a pincer raises the chance of a catch at all; then give each predator drone its own decision head (with per-drone PPO ratios) and test against a control on the frozen anchor v5 prey."
+result = """
+- Flanking diagnostic on anchor v5: a pincer raises the 1-s success chance by about a third (RR 1.34 [1.13, 1.58], "weak"); after predators train on a frozen prey it adds nothing (RR ≈ 1.0).
+- Drone heads + per-drone ratios: the heads diverged in parameters (3.8 % apart) but not in behavior (per-index spread 0.020, as the control); pincers 0.119 vs 0.094; outcome return 135.5 vs the control's 148.5.
+- The heads arm updated about three times less (KL 0.0018 vs 0.0050): each head learns from a third of the data.
+"""
+why = """
+Against an agile prey that dodges around a pillar, direct pressure works about as well as a pincer, so the team
+reward does not favor roles: imposed role vectors (2026-10-20) and separate heads both end symmetric. Coordination
+should matter once pillars block vision (Stage 9), where covering both sides of an occluder carries information.
+"""
+experiment = "2026-10-21_drone_heads_test"
+evidence = ["artifacts/isaac/diagnostics/2026-10-21_flanking_value/", "artifacts/isaac/experiments/2026-10-21_drone_heads_test/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1230,6 +1251,18 @@ what = "Re-test a lever after the bottleneck that blocked it is removed."
 why = "Discount 0.995 did nothing on 2026-10-12, when the predators could not see the shield. With the relation branches it added 15.5 points over a matched control, mostly by making the predators safer."
 evidence = ["artifacts/isaac/experiments/2026-10-20_dance_coordination_test/", "artifacts/isaac/experiments/2026-10-12_predator_stage_gamma995/"]
 
+[[lesson]]
+verdict = "worked"
+what = "Measure whether a behavior pays before building a lever for it."
+why = "The flanking diagnostic (one hour, existing trajectories) showed pincers raise the catch chance only by a third and not at all against a trained-on prey; the separate-heads run then confirmed no specialization. The diagnostic alone had already capped the gain at about 0.03 time-outs."
+evidence = ["artifacts/isaac/diagnostics/2026-10-21_flanking_value/"]
+
+[[lesson]]
+verdict = "failed"
+what = "Separate decision heads per drone with per-drone PPO ratios."
+why = "The heads drifted apart in parameters but not in behavior, and each learned from a third of the data, so the arm updated three times less and ended 13 points below the control."
+evidence = ["artifacts/isaac/experiments/2026-10-21_drone_heads_test/"]
+
 # =========================================================================================== reproduction recipe
 
 recipe_intro = """
@@ -1428,9 +1461,9 @@ notes = "Run on the host from /home/marc/RL; each driver names its start checkpo
 # =========================================================================================== next steps
 
 [[next]]
-title = "Coordination in the pillar dance"
-why = "Discount 0.995 helps (2026-10-20) and should become the self-play default, but pincers stay at 13–16 % and imposed role vectors are ignored. Next levers act on credit instead of identity: per-drone (counterfactual) advantages, or separate actor weights per drone."
-cost = "code + tests, then predator-only arms against the frozen symmetric prey, about 4 h each (user decision)"
+title = "Stage 9: coordination where it should matter"
+why = "In the full-information dance, flanking is worth little and neither imposed roles nor separate heads make the drones specialize (2026-10-20/22). With line-of-sight masking, covering both sides of an occluder carries information, so coordination, memory and communication should pay. Start with a design proposal."
+cost = "a design proposal for review first; then env + observation changes"
 
 [[next]]
 title = "Stage 8b: from scratch with the fixed architecture"
