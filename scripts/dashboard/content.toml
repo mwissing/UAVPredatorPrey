@@ -1323,7 +1323,7 @@ commit = "today's HEAD"
 from = "step 2 (`random_flight_agent_48000.pt`)"
 settings = "Never run this way. The July run used LR 5e-5, AMP, floor −3 and 500–1000 u phases and produced a weak predator. The proposal: the archived recipe of step 5 (FP32, LR 1e-5, KL 0.05, floor −2, long phases, pool) from the flight checkpoint, then steps 6–9 unchanged."
 gate = "Own catch inside the 0.40–0.60 band and predator reference mean approaching the Windows anchor's 0.854. A full run is ~1–2 days of GPU, so it needs a pre-registered plan."
-notes = "This is the open gap for a from-scratch reproduction."
+notes = "This is the open gap for a from-scratch reproduction. Stage 8b (running since 2026-10-22) closes it for the pillar game with its own recipe: scripts/recipes/stage8b/."
 
 [[recipe]]
 short = "Windows anchor"
@@ -1466,16 +1466,12 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: from scratch with the fixed architecture"
-why = "Relation pooling with the prey-relative tokens for both roles (a pillar-only encoder is not enough; it can replace the one-hot pillar attention), body-frame observations, an identity-aware critic, per-drone PPO ratios over live drones (the dead-drone mask) and the zero-at-level upright term, trained from scratch in 3 seeds against anchor v4. All of it is implemented and default-off; replacing the old attention is not."
-cost = "days of GPU; protocol drafted (UAVPredatorPrey/docs/stage8b_from_scratch_protocol.md)"
+title = "Stage 8b: from scratch, running (seed 81)"
+why = "Train the anchor v5 configuration from random init with one script, to check that the recipe is reproducible and whether the pillar dance is the game's equilibrium or the lineage's. Stages: flight among the pillars, an LR pilot, the game with a catch-rate band guard, anchor v5's consolidation. Gate: v5's criteria plus a duel with v5. Three seeds; the recipe counts as reproducible if 2 pass. This also closes the from-scratch gap of the reproduction recipe (step 3)."
+cost = "seed 81 ~30 h (started 2026-10-22 17:27), then seeds 82-83 ~54 h; protocol UAVPredatorPrey/docs/stage8b_from_scratch_protocol.md, live in artifacts/isaac/experiments/2026-10-22_stage8b_from_scratch"
 
 [[next]]
 title = "Lagrangian crash constraint"
 why = "Replace hand-tuned crash prices with a constraint E[crash hazard] ≤ c and a dual variable λ updated by gradient ascent (PPO-Lagrangian). In control terms: an integral controller on the constraint violation."
 cost = "algorithm change + A/B, ~1 day"
 
-[[next]]
-title = "Close the from-scratch gap (recipe step 3)"
-why = "Run the chase stage from the two-stage flight checkpoint with the archived recipe on a clean commit. Only then is the whole pipeline reproducible, which is what a portfolio claim needs."
-cost = "~1–2 days of GPU, pre-registered"

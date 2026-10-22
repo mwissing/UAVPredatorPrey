@@ -1642,3 +1642,40 @@ are those of the predator (higher = better predator, lower = better prey).
     1.34 at the start). The control alone halves the time-outs: exploitation.
   - Together with the imposed roles and the flanking diagnostic: coordination
     is not the bottleneck of the full-information dance. Not adopted.
+
+## 2026-10-22: Stage 8b from scratch, seed 81 (pre-registered)
+
+- **User:** "pls start with stage 8b. i want to have a exact plan how you could retrain from scratch". On the plan
+  (c700e9e): "yes i agree" to recommendations D1-D4.
+  - D1: anchor v5's configuration unchanged.
+  - D2: an LR pilot on seed 81.
+  - D3: own history and ghosts as the only training opponents.
+  - D4: seed 81, a review, then seeds 82 and 83.
+- **Plan:** [stage8b_from_scratch_protocol.md](stage8b_from_scratch_protocol.md). Facts found while writing it:
+  - Parked pillars poison the input normalizer: (50, 50) m enters the running statistics, and real pillars would later
+    be clipped at −5. So pillars are active from the first update.
+  - `hysteresis_curriculum.py` cannot pass the relation flags (no Hydra passthrough).
+  - With relation branches, joint training takes 30-32 min per 1000 updates.
+  - The July flight's LR was 1e-4, read from its checkpoints' optimizer state.
+- **Recipe:**
+  1. Flight among all 10 pillars from random init: chase rewards off, catches off, LR 1e-4. Gate: drones lost ≤ 0.10,
+     prey lost ≤ 0.05, length ≥ 490; at most 6000 updates.
+  2. An LR pilot: 1e-4 / 3e-5 / 1e-5, two paired 1200-update blocks each.
+  3. The game: 24,000 updates in 1200-update blocks.
+     - Joint blocks with ghosts by default.
+     - A band guard trains only the predator below catch 0.25 and only the prey above 0.75, against own past
+       checkpoints.
+     - An interim stop at 12,000 updates.
+  4. Anchor v5's consolidation (18,000 updates, LR 1e-5).
+  5. The final gate: perception, balance, a duel with anchor v5 (D = R(ours vs v5's prey) − R(v5 vs our prey) ≥ −10),
+     stability, the waiting-game mechanism, safety.
+- **Code ceeaefd:**
+  - `scripts/recipes/stage8b/`: `block.sh`, `run_seed.py` (resumable; runs a frozen copy), `recipe.py` (the decisions);
+  - 11 tests; 255 pass.
+- **Full-size smoke** (seed 80, 30-update blocks, `smoke/`): every check passed.
+  - Two same-seed flight blocks gave 13,210 of 13,210 training scalars bit-identical.
+  - Two amendments came out of it:
+    - losses against ghosts count crashes (a crashing prey had looked like a perfect evader);
+    - evaluation passes the training LR multiplier (the preset's ×30 broke loading the optimizer state).
+- **Run:** seed 81 started 17:27; about 30 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-22_stage8b_from_scratch/`.
