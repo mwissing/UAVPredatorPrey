@@ -1461,9 +1461,9 @@ notes = "Run on the host from /home/marc/RL; each driver names its start checkpo
 # =========================================================================================== next steps
 
 [[next]]
-title = "Stage 9: coordination where it should matter"
-why = "In the full-information dance, flanking is worth little and neither imposed roles nor separate heads make the drones specialize (2026-10-20/22). With line-of-sight masking, covering both sides of an occluder carries information, so coordination, memory and communication should pay. Start with a design proposal."
-cost = "a design proposal for review first; then env + observation changes"
+title = "Stage 9: line-of-sight masking, where coordination should matter"
+why = "Observations are full-state today, so pillars cannot hide anyone. In the full-information dance, flanking is worth little and neither imposed roles nor separate heads make the drones specialize (2026-10-20/22). With line-of-sight masking, covering both sides of an occluder carries information, so coordination, memory and communication should pay. Start with a design proposal."
+cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
 title = "Stage 8b: from scratch with the fixed architecture"
@@ -1479,8 +1479,3 @@ cost = "algorithm change + A/B, ~1 day"
 title = "Close the from-scratch gap (recipe step 3)"
 why = "Run the chase stage from the two-stage flight checkpoint with the archived recipe on a clean commit. Only then is the whole pipeline reproducible, which is what a portfolio claim needs."
 cost = "~1–2 days of GPU, pre-registered"
-
-[[next]]
-title = "Stage 9: line-of-sight masking"
-why = "Observations are full-state today, so pillars cannot hide anyone. Occlusion would make hiding, luring and ambush informationally meaningful."
-cost = "env + observation change; invalidates obstacle checkpoints"
