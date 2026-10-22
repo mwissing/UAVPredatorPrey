@@ -176,7 +176,7 @@ No environment or model change is needed: every setting above uses an existing k
   - Identical block seeds, so the arms are paired.
 - **Measured at 2400 updates** (1024 episodes):
   - predator interception: success against the frozen F prey, which hovers and does not evade;
-  - prey survival against 3.5 m/s ghosts (1 − catch);
+  - prey survival against 3.5 m/s ghosts: 1 − caught − crashed (amendment 1);
   - the KL early-stop epoch fraction (TensorBoard);
   - non-finite losses;
   - drones lost in the own matchup.
@@ -213,7 +213,8 @@ No environment or model change is needed: every setting above uses an existing k
 - **Points:** a light point after every block; full points after blocks 10 and 20.
 - **Interim rule at block 10** (12,000 updates), a pre-registered stop. It passes if:
   - the predator intercepts the F prey in ≥ 0.5 of episodes;
-  - the prey's catch hazard against ghosts is ≤ 0.7× its value at the start of stage G.
+  - the prey's loss hazard against ghosts (caught or crashed) is ≤ 0.7× its value at the start of stage G
+    (amendment 1).
 
   Otherwise, stop and diagnose before changing anything, in the order of AGENTS.md: observations, action scaling,
   rewards, terminations, log-probabilities, values, advantages.
@@ -406,3 +407,19 @@ would bias the duel.
 unattended days.
 
 **D5. CTBR.** Not bundled, unchanged: one new difficulty per stage.
+
+## Amendments
+
+Both were found in the smoke run on 2026-10-22, before any real training.
+
+1. **Losses against ghosts count crashes.** Ghosts never crash, so against them the prey ends an episode in one of
+   three ways: caught, crashed (pillar or arena) or timed out.
+   - The draft scored only catches, so a prey that crashed in every episode looked like a perfect evader. The smoke
+     run's untrained pilot prey did exactly that.
+   - The pilot's ghost survival is therefore 1 − caught − crashed. The interim rule uses the prey's loss hazard
+     against ghosts, counting both.
+2. **Loading uses the training multiplier.** Evaluations, the probe and videos also pass
+   `agent.agent.obstacle_lr_multiplier=1.0`.
+   - Otherwise the preset's ×30 rebuilds an optimizer with two parameter groups, and loading the recipe's
+     single-group optimizer state fails.
+   - Composed checkpoints carry no optimizer state, so the flag changes nothing there.
