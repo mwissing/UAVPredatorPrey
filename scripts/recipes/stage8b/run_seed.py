@@ -420,12 +420,13 @@ class Docker:
             raise Stop(f"tool failed (no {output_host}): {' '.join(args)}")
 
     def train(self, tag: str, mode: str, checkpoint: str | None, updates: int, seed: int, lr: float, kl: float,
-              pool_path: str | None) -> dict:
+              pool_path: str | None, extra: tuple[str, ...] = (), expect_env: dict | None = None) -> dict:
+        """One block; `extra` adds env overrides for an ablation, `expect_env` the values its config check expects."""
         args = ["bash", to_container(os.path.join(self.recipe_dir, "block.sh")), to_container(self.out), tag, mode,
                 checkpoint or "none", str(updates), str(seed), repr(lr), repr(kl)]
         if pool_path:
             args.append(to_container(pool_path))
-        self._exec(args)
+        self._exec(args, env=(f"BLOCK_EXTRA={' '.join(extra)}",) if extra else ())
         status_path = os.path.join(self.out, "blocks", f"{tag}.status.txt")
         status = open(status_path).read() if os.path.exists(status_path) else ""
         if "status=0" not in status:
@@ -438,6 +439,7 @@ class Docker:
         if not os.path.exists(checkpoint_host):
             raise Stop(f"block {tag}: {checkpoint_host} missing")
         agent_expected, env_expected = expected_config(mode, lr, kl)
+        env_expected.update(expect_env or {})
         problems = config_mismatches(yaml_scalars(os.path.join(run, "params", "agent.yaml"), False), agent_expected)
         problems += config_mismatches(yaml_scalars(os.path.join(run, "params", "env.yaml"), True), env_expected)
         if yaml_scalars(os.path.join(run, "params", "agent.yaml"), False).get("mixed_precision", "false") != "false":

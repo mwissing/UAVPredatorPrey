@@ -4,7 +4,7 @@
 #   bash block.sh <out_dir> <tag> <mode> <checkpoint|none> <updates> <seed> <lr> <kl> [pool.json]
 # mode: flight | joint | predator | prey. Writes <out_dir>/blocks/<tag>.status.txt and .console.log; the run directory
 # is logs/skrl/uav_3v1_direct/<timestamp>_..._s8b_<tag>. Hydra overrides come before --freeze-agents, which would
-# otherwise swallow them.
+# otherwise swallow them. BLOCK_EXTRA (environment, space-separated) adds Hydra overrides for ablations of the recipe.
 set -uo pipefail
 OUT="${1:?usage: block.sh <out_dir> <tag> <mode> <checkpoint|none> <updates> <seed> <lr> <kl> [pool.json]}"
 TAG="${2:?usage}"
@@ -38,6 +38,7 @@ case "$MODE" in
 esac
 START=()
 [[ "$CKPT" != none ]] && START=(--checkpoint "$CKPT")
+read -r -a ABLATION <<< "${BLOCK_EXTRA:-}"
 mkdir -p "$OUT/blocks"
 cd /workspace/UAVPredatorPrey
 export TERM=xterm-256color PYTHONUNBUFFERED=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -46,7 +47,8 @@ env -u DISPLAY -u XAUTHORITY /workspace/isaaclab/isaaclab.sh -p scripts/skrl/tra
   --task 3v1-survival-soft-oob-teammate-vel-random-spawn-low-progress-obstacles10-v0 \
   --agent skrl_mappo_attention_critic_prey_attention_large_gru_obstacles10_cfg_entry_point \
   --algorithm MAPPO --num_envs 4096 --seed "$SEED" "${START[@]}" --max_iterations "$UPDATES" \
-  --learning-rate "$LR" --kl-threshold "$KL" "${COMMON[@]}" "${EXTRA[@]}" > "$OUT/blocks/$TAG.console.log" 2>&1
+  --learning-rate "$LR" --kl-threshold "$KL" "${COMMON[@]}" "${ABLATION[@]}" "${EXTRA[@]}" \
+  > "$OUT/blocks/$TAG.console.log" 2>&1
 status=$?
 printf 'finished=%s\nstatus=%s\n' "$(date -Iseconds)" "$status" >> "$OUT/blocks/$TAG.status.txt"
 exit "$status"
