@@ -1705,3 +1705,23 @@ are those of the predator (higher = better predator, lower = better prey).
     - line of sight 0.69 (v5 0.64);
     - soft entity attention.
   - Evidence: `RESULTS.md`, `seed81/`.
+
+## 2026-10-23: Upright mechanism test, are the from-scratch predators paid to wait? (pre-registered)
+
+- **User:** "yes do the mechanism test as recommended".
+- **Hypothesis:** seed 81's standoff is paid by the predators' upright term.
+  - +0.09 per step, worth 18.3 at discount 0.995, which is the critic's standoff value.
+  - Catches are rare against the stronger prey, so waiting beats pressing at the risk of −400 per drone.
+- **Design:**
+  - from seed 81's final pair, two paired joint arms, 4 × 1200 updates each (LR 1e-4, ghosts in a third of the envs,
+    the recipe's flags);
+  - **U:** `env.predator_upright_zero_at_level=true`. In a smoke run its upright term averaged −0.006 per step against
+    +0.096 in the control;
+  - **C:** the control.
+  - Code 345dc85: `block.sh` takes ablation overrides.
+- **Decision at point 4:**
+  1. U's own catch ≥ C's + 0.10;
+  2. U's long-episode nearest predator ≤ 2.5 m and below C's;
+  3. guard: U's drones lost ≤ 0.37.
+- **Start:** 20:42; about 6 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-23_upright_mechanism_test/`.

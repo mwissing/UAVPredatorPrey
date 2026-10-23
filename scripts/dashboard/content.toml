@@ -1505,7 +1505,7 @@ cost = "a design proposal for review first; then env + observation changes (inva
 [[next]]
 title = "Stage 8b: seed 81 failed, review before seeds 82-83"
 why = "From random init the prey wins the arms race and the predators settle into a standoff paid by the upright reward (own catch 0.033, duel with anchor v5 −32). Candidate amendments: the zero-at-level upright term (B7), the band guard through the consolidation, a hovering target in the predators' pools, and an absolute loss bar in the LR pilot. A cheap mechanism test first: predator-only from seed 81's pair with and without the upright stream."
-cost = "mechanism test ~4 h; then the amended recipe needs 3 new seeds (~27 h each)"
+cost = "mechanism test running since 2026-10-23 20:42 (~6 h, artifacts/isaac/experiments/2026-10-23_upright_mechanism_test); then the amended recipe needs 3 new seeds (~27 h each)"
 
 [[next]]
 title = "Lagrangian crash constraint"
