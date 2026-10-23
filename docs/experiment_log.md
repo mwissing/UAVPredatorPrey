@@ -1679,3 +1679,29 @@ are those of the predator (higher = better predator, lower = better prey).
     - evaluation passes the training LR multiplier (the preset's ×30 broke loading the optimizer state).
 - **Run:** seed 81 started 17:27; about 30 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-22_stage8b_from_scratch/`.
+- **Result** (2026-10-22 17:27 → 10-23 20:01, every status 0, every evaluation succeeded): the pre-registered
+  verdict is "fail: 2 balance, 3 duel with anchor v5, 5 no waiting game".
+
+  | point c5 | seed 81 | anchor v5 |
+  |---|---|---|
+  | own catch | 0.033 (c4 0.012) | 0.663 |
+  | time-outs | 0.94 | 0.10 |
+  | long episodes: nearest predator / line blocked | 3.1 m / 0.26 | 1.8 m / 0.10 |
+  | duel with v5: R(ours vs v5's prey) / R(v5 vs our prey) | 15.6 / 51.8 (v5's own: 130) | — |
+
+  - Flight passed after 4500 updates. The pilot chose 1e-4. The 1e-5 arm scored higher, but its predators lost 0.83
+    drones per episode, which the arm-relative loss guard cannot flag (a gap in the rule).
+  - In the game, the band guard ran 14 of 18 blocks predator-only. The predators learned each frozen prey (catch up to
+    0.82); every joint or prey block let the prey escape again.
+  - The consolidation (no guard) ended at catch 0.01-0.03.
+  - Mechanism: a standoff paid by the upright term (the review's item 6, B7).
+    - The team earns +0.072 per step in standoffs, mostly the upright term, worth 18.3 at discount 0.995. The critic's
+      standoff value is 17.7.
+    - Catches are out of reach against a prey that is more agile, has 5× stronger distance shaping and has a ghost
+      curriculum.
+    - The pursuit skill decayed: interception of a hovering prey fell from 0.99 to 0.07.
+  - The networks trained from scratch represent the game well:
+    - closing speed in the GRU output 0.66 (v5 0.39);
+    - line of sight 0.69 (v5 0.64);
+    - soft entity attention.
+  - Evidence: `RESULTS.md`, `seed81/`.

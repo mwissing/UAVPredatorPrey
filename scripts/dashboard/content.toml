@@ -1005,6 +1005,37 @@ should matter once pillars block vision (Stage 9), where covering both sides of 
 experiment = "2026-10-21_drone_heads_test"
 evidence = ["artifacts/isaac/diagnostics/2026-10-21_flanking_value/", "artifacts/isaac/experiments/2026-10-21_drone_heads_test/"]
 
+[[chapter.stage]]
+id = "from-scratch-seed81"
+title = "Stage 8b: anchor v5's configuration from random init (seed 81)"
+dates = "2026-10-22 → 10-23"
+verdict = "failed"
+takeaway = "One script trained a pair from random init among the ten pillars: a strong prey, but predators that settle into a standoff paid by the upright reward. The gate failed on balance, the duel with anchor v5 and the waiting-game mechanism."
+metric = "own catch 0.033 · duel with v5 −32 · time-outs 0.94"
+goal = "Train the anchor v5 configuration from scratch with one resumable script: flight among the pillars, an LR pilot, the game with a catch-rate band guard, anchor v5's consolidation; gate = v5's criteria plus a duel with v5 (seed 81 of 3)."
+result = """
+- Flight passed after 4500 updates (drones lost 0.001). The pilot chose LR 1e-4; the 1e-5 arm scored higher but lost 0.83 drones per episode, which the guard could not flag (a gap in the rule).
+- Game: the band guard ran 14 of 18 blocks predator-only. The predators learned each frozen prey (catch up to 0.82), and the prey escaped again in every joint or prey block.
+- End (C point 5): own catch 0.033, time-outs 0.94, predators 3.1 m away at 1.4–2.8 m/s; the prey orbits its pillar 48 % of the time.
+- The prey is strong: anchor v5's predators earn 52 against it, against 130 against v5's own prey. Our predators earn 16 against v5's prey.
+- The from-scratch networks encode the closing speed far better than the graft lineage (GRU probe 0.66 vs 0.39), and their attention is soft instead of one-hot.
+"""
+why = """
+The predators' value is the upright stream: about 18 return at discount 0.995, the critic's standoff value (17.7). A
+catch is worth more, but it is out of reach against a prey that is more agile (thrust-to-weight 2.2 vs 1.9), has 5×
+stronger distance shaping and gets a ghost curriculum. So waiting at a safe distance became the predators' best
+response, and their pursuit decayed: interception of a hovering prey fell from 0.99 to 0.07. That is item 6 (B7) of
+the Stage 8 review; the lineage never met it because it started from the Windows anchor's strong predator.
+"""
+experiment = "2026-10-22_stage8b_from_scratch"
+evidence = ["artifacts/isaac/experiments/2026-10-22_stage8b_from_scratch/", "UAVPredatorPrey/docs/stage8b_from_scratch_protocol.md"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-22_stage8b_from_scratch/seed81/videos/f_end/rl-video-step-0.mp4"
+label = "after the flight stage: hovering among the pillars"
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-22_stage8b_from_scratch/seed81/videos/c5/rl-video-step-0.mp4"
+label = "the end: the paid standoff (camera D)"
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1058,6 +1089,12 @@ title = "The pillar dance"
 note = "Both roles see the pillar relations: the prey dodges engaged predators around pillars at close range, with time-outs back at 0.126 but the predators only 1.8 m away."
 
 # =========================================================================================== lessons
+
+[[lesson]]
+verdict = "failed"
+what = "A positive per-step bonus in a game the agent is losing."
+why = "From scratch the prey got ahead, and the predators' value became the upright stream (≈ 18 at discount 0.995): hovering 3 m away paid more than pressing a prey they rarely caught, and their pursuit decayed (interception of a hovering prey 0.99 → 0.07). A living bonus that is harmless next to a reachable goal becomes the policy once the goal is out of reach."
+evidence = ["artifacts/isaac/experiments/2026-10-22_stage8b_from_scratch/RESULTS.md"]
 
 [[lesson]]
 verdict = "worked"
@@ -1466,9 +1503,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: from scratch, running (seed 81)"
-why = "Train the anchor v5 configuration from random init with one script, to check that the recipe is reproducible and whether the pillar dance is the game's equilibrium or the lineage's. Stages: flight among the pillars, an LR pilot, the game with a catch-rate band guard, anchor v5's consolidation. Gate: v5's criteria plus a duel with v5. Three seeds; the recipe counts as reproducible if 2 pass. This also closes the from-scratch gap of the reproduction recipe (step 3)."
-cost = "seed 81 ~30 h (started 2026-10-22 17:27), then seeds 82-83 ~54 h; protocol UAVPredatorPrey/docs/stage8b_from_scratch_protocol.md, live in artifacts/isaac/experiments/2026-10-22_stage8b_from_scratch"
+title = "Stage 8b: seed 81 failed, review before seeds 82-83"
+why = "From random init the prey wins the arms race and the predators settle into a standoff paid by the upright reward (own catch 0.033, duel with anchor v5 −32). Candidate amendments: the zero-at-level upright term (B7), the band guard through the consolidation, a hovering target in the predators' pools, and an absolute loss bar in the LR pilot. A cheap mechanism test first: predator-only from seed 81's pair with and without the upright stream."
+cost = "mechanism test ~4 h; then the amended recipe needs 3 new seeds (~27 h each)"
 
 [[next]]
 title = "Lagrangian crash constraint"
