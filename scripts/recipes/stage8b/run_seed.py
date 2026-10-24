@@ -61,7 +61,7 @@ FLIGHT_ENV = ("env.predator_forced_crash_bonus=0.0", "env.predator_distance_prog
               "env.predator_catch_bonus=0.0", "env.prey_evasion_reward_scale=0.0", "env.prey_caught_penalty=0.0",
               "env.prey_distance_progress_reward_scale=0.0", "env.catch_distance=0.0")
 GHOST_ENV = ("env.ghost_predators=True", "env.ghost_max_speed=3.5")
-RECIPE_FILES = ("run_seed.py", "recipe.py", "block.sh", "tb_scalars.py")
+RECIPE_FILES = ("run_seed.py", "run_league.py", "recipe.py", "block.sh", "tb_scalars.py")
 
 
 class Stop(Exception):
@@ -200,7 +200,7 @@ class Pipeline:
 
     # -- the two kinds of steps
     def train(self, name: str, mode: str, checkpoint: str | None, updates: int, number: int, lr: float, kl: float,
-              pool_entries: dict | None = None) -> str:
+              pool_entries: dict | None = None, pool_prob: float | None = None) -> str:
         def run():
             pool_path = None
             if pool_entries is not None:
@@ -212,7 +212,7 @@ class Pipeline:
                      + (f", pool of {len(next(iter(pool_entries.values())))}" if pool_entries else ""))
             started = time.time()
             info = self.backend.train(f"{self.seed}_{name}", mode, checkpoint, updates, block_seed(self.seed, number),
-                                      lr, kl, pool_path)
+                                      lr, kl, pool_path, **({"pool_prob": pool_prob} if pool_prob is not None else {}))
             info.update(mode=mode, updates=updates, lr=lr, minutes=round((time.time() - started) / 60.0, 1))
             self.log(f"block {name} done in {info['minutes']} min")
             return info
@@ -420,13 +420,18 @@ class Docker:
             raise Stop(f"tool failed (no {output_host}): {' '.join(args)}")
 
     def train(self, tag: str, mode: str, checkpoint: str | None, updates: int, seed: int, lr: float, kl: float,
-              pool_path: str | None, extra: tuple[str, ...] = (), expect_env: dict | None = None) -> dict:
-        """One block; `extra` adds env overrides for an ablation, `expect_env` the values its config check expects."""
+              pool_path: str | None, extra: tuple[str, ...] = (), expect_env: dict | None = None,
+              pool_prob: float | None = None) -> dict:
+        """One block; `extra` adds env overrides for an ablation, `expect_env` the values its config check expects;
+        `pool_prob` the share of envs facing pool opponents (block.sh default 0.5)."""
         args = ["bash", to_container(os.path.join(self.recipe_dir, "block.sh")), to_container(self.out), tag, mode,
                 checkpoint or "none", str(updates), str(seed), repr(lr), repr(kl)]
         if pool_path:
             args.append(to_container(pool_path))
-        self._exec(args, env=(f"BLOCK_EXTRA={' '.join(extra)}",) if extra else ())
+        env = (f"BLOCK_EXTRA={' '.join(extra)}",) if extra else ()
+        if pool_prob is not None:
+            env += (f"BLOCK_POOL_PROB={pool_prob}",)
+        self._exec(args, env=env)
         status_path = os.path.join(self.out, "blocks", f"{tag}.status.txt")
         status = open(status_path).read() if os.path.exists(status_path) else ""
         if "status=0" not in status:
@@ -448,8 +453,29 @@ class Docker:
             raise Stop(f"block {tag}: config mismatch: {'; '.join(problems)}")
         return {"run": run, "checkpoint": to_container(checkpoint_host)}
 
+    def pool_info(self, tag: str) -> tuple[float, int] | None:
+        """(pool share, number of pool policies) as train.py reports them in the block's console log."""
+        path = os.path.join(self.out, "blocks", f"{tag}.console.log")
+        if not os.path.exists(path):
+            return None
+        with open(path, errors="replace") as f:
+            match = re.search(r"Per-env opponent pool active for frozen '\w+': .*pool_prob=([\d.]+), policies=(\d+)",
+                              f.read())
+        return (float(match.group(1)), int(match.group(2))) if match else None
+
     def npz(self, name: str) -> str:
         return to_container(os.path.join(self.out, "evals", f"{name}.npz"))
+
+    def container(self, path: str) -> str:
+        return to_container(path)
+
+    def compose(self, name: str, base: str, predator: str, prey: str) -> str:
+        """A checkpoint with each role's block (policy, preprocessors and optimizer state) from the given sources."""
+        os.makedirs(os.path.join(self.out, "starts"), exist_ok=True)
+        output = os.path.join(self.out, "starts", f"{name}.pt")
+        self._tool(output, "scripts/compose_checkpoint.py", "--base", base, "--predator", predator, "--prey", prey,
+                   "--output", to_container(output), "--keep-optimizers")
+        return to_container(output)
 
     def evaluate(self, name: str, predator: str, prey: str, episodes: int, overrides: tuple[str, ...] = (),
                  trajectory: bool = False, zero: str | None = None) -> dict:
@@ -558,11 +584,11 @@ def gpu_monitor(path: str, stop: threading.Event) -> None:
 
 # ------------------------------------------------------------------------------------------------- entry point
 
-def freeze_and_exec(args: argparse.Namespace) -> None:
-    """Run from the frozen copy in <out>/recipe/; make it on the first start."""
+def freeze_and_exec(args: argparse.Namespace, script: str = "run_seed.py") -> None:
+    """Run `script` from the frozen copy in <out>/recipe/; make the copy on the first start."""
     here = os.path.dirname(os.path.abspath(__file__))
     recipe_dir = os.path.join(args.out, "recipe")
-    if not os.path.exists(os.path.join(recipe_dir, "run_seed.py")):
+    if not os.path.exists(os.path.join(recipe_dir, script)):
         dirty = subprocess.run(["git", "-C", REPO_HOST, "status", "--porcelain", "--", "source", "scripts/skrl",
                                 "scripts/recipes"], capture_output=True, text=True).stdout.strip()
         if dirty and not args.allow_dirty:
@@ -573,7 +599,7 @@ def freeze_and_exec(args: argparse.Namespace) -> None:
         commit = subprocess.run(["git", "-C", REPO_HOST, "rev-parse", "HEAD"], capture_output=True, text=True).stdout
         with open(os.path.join(args.out, "code_commit.txt"), "w") as f:
             f.write(commit.strip() + (" (dirty)" if dirty else "") + "\n")
-    os.execv(sys.executable, [sys.executable, os.path.join(recipe_dir, "run_seed.py"), *sys.argv[1:], "--frozen"])
+    os.execv(sys.executable, [sys.executable, os.path.join(recipe_dir, script), *sys.argv[1:], "--frozen"])
 
 
 def main() -> None:

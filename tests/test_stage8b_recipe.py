@@ -64,6 +64,9 @@ class FakeBackend:
     def npz(self, name):
         return f"/npz/{name}.npz"
 
+    def container(self, path):
+        return path
+
     def analyses(self, labels):
         return {"anatomy": {label: {"long_nearest_predator": 2.0} for label in labels},
                 "blocked": {label: 0.1 for label in labels}}
@@ -198,3 +201,113 @@ def test_pre_registered_stops(tmp_path) -> None:
     with pytest.raises(run_seed.Stop, match="interim rule"):
         _pipeline(tmp_path / "b", slow_prey, pilot=False, lr=3e-5).run()
     assert max(int(t["tag"].split("_g")[1]) for t in slow_prey.trains if "_g" in t["tag"]) == 10
+
+
+# ------------------------------------------------------------------------------------------------- league phases
+import run_league  # noqa: E402
+
+
+def _seed_dir(tmp_path) -> Path:
+    """A finished seed shaped like seed 81: game modes as run, so 25 predator and 12 prey versions."""
+    modes = {n: "predator" for n in range(3, 21)}
+    modes.update({8: "joint", 14: "prey", 18: "joint", 20: "joint"})
+    labels = ["g0"] + [f"g{n}" for n in range(1, 21)] + [f"c{k}" for k in range(1, 6)]
+    steps = {f"train g{n}": {"mode": m, "checkpoint": f"/ckpt/81_g{n}.pt"} for n, m in modes.items()}
+    steps.update({"train c5_joint": {"mode": "joint", "checkpoint": "/ckpt/81_c5_joint.pt"},
+                  "train c5_prey": {"mode": "prey", "checkpoint": "/ckpt/81_c5.pt"}})
+    state = {"seed": 81, "lr": 1e-4, "flight": {"checkpoint": "/ckpt/81_f3.pt"},
+             "points": {l: {"checkpoint": f"/ckpt/81_{l}.pt"} for l in labels}, "steps": steps}
+    directory = tmp_path / "seed81"
+    directory.mkdir()
+    (directory / "state.json").write_text(json.dumps(state))
+    return directory
+
+
+class FakeLeagueBackend(FakeBackend):
+    """Predators beat the sampled prey from their second block in cycle 1 and from the first block afterwards; the
+    prey always passes after one block, so the league converges after cycle 3."""
+
+    def train(self, tag, mode, checkpoint, updates, seed, lr, kl, pool_path, pool_prob=None):
+        info = super().train(tag, mode, checkpoint, updates, seed, lr, kl, pool_path)
+        self.trains[-1]["pool_prob"] = pool_prob
+        return info
+
+    def compose(self, name, base, predator, prey):
+        self.composed = getattr(self, "composed", []) + [(name, predator, prey)]
+        return f"/ckpt/{name}.pt"
+
+    def evaluate(self, name, predator, prey, episodes, overrides=(), trajectory=False, zero=None):
+        if name.startswith("gate_L1pred1"):
+            return _metrics(catch=0.3)
+        if name.startswith("gate_") and "pred" in name.split("_")[1]:
+            return _metrics(catch=0.6)
+        if name.startswith("gate_"):
+            return _metrics(catch=0.4)
+        if name.startswith(("M_", "F_")):
+            return _metrics(catch=0.5)
+        return super().evaluate(name, predator, prey, episodes, overrides, trajectory, zero)
+
+
+def _league(tmp_path, backend, max_updates=48000):
+    return run_league.League(backend, str(tmp_path / "league"), str(tmp_path / "seed81"), recipe.Budget(),
+                             recipe.LeagueBudget(max_updates=max_updates))
+
+
+def test_versions_skip_frozen_copies() -> None:
+    archives = recipe.role_versions([("g7", "a", {"predator"}), ("g8", "b", {"predator", "prey"}), ("g9", "c", {"predator"}),
+                                     ("g14", "d", {"prey"})])
+    assert [l for l, _ in archives["predator"]] == ["g7", "g8", "g9"] and [l for l, _ in archives["prey"]] == ["g8", "g14"]
+
+
+def test_league_gates_and_equilibrium() -> None:
+    assert recipe.league_gate("predator", [0.4, 0.6]) and not recipe.league_gate("predator", [0.3, 0.6])
+    assert recipe.league_gate("prey", [0.5, 0.5]) and not recipe.league_gate("prey", [0.6, 0.5])
+    one = {"passed": True, "blocks": 1}
+    assert recipe.league_converged([one] * 4) and not recipe.league_converged([one, one, {"passed": True, "blocks": 2}, one])
+    sample = recipe.sample_opponents([(f"v{i}", f"c{i}") for i in range(12)], "v11", 8, 5)
+    assert len(sample) == 8 and "v11" not in [l for l, _ in sample]
+    assert sample == recipe.sample_opponents([(f"v{i}", f"c{i}") for i in range(12)], "v11", 8, 5)
+
+
+def test_league_runs_against_the_whole_history(tmp_path) -> None:
+    _seed_dir(tmp_path)
+    backend = FakeLeagueBackend()
+    result = _league(tmp_path, backend).run()
+    state = json.loads((tmp_path / "league" / "state.json").read_text())
+    rows = run_league.source_rows(json.loads((tmp_path / "seed81" / "state.json").read_text()))
+    source = recipe.role_versions(rows)
+    assert len(source["predator"]) == 25 and len(source["prey"]) == 12
+    # Point 0: the 5 x 7 matrix plus c5's row over the remaining prey versions.
+    assert len([k for k in state["steps"] if k.startswith("matrix ")]) == 35 + 5
+    t = [x for x in backend.trains]
+    assert [x["tag"] for x in t] == ["81_L1pred1", "81_L1pred2", "81_L1prey1", "81_L2pred1", "81_L2prey1",
+                                     "81_L3pred1", "81_L3prey1"]
+    assert all(x["pool_prob"] == 0.75 for x in t) and [x["seed"] for x in t] == list(range(81501, 81508))
+    first_pool = [e["name"] for e in t[0]["pool"]["prey"]]
+    assert len(first_pool) == 8 and "c5" not in first_pool and set(first_pool) <= {l for l, _ in source["prey"]}
+    prey_pool = [e["name"] for e in t[2]["pool"]["predator"]]
+    assert len(prey_pool) == 8 and "L1pred" not in prey_pool          # the latest predator faces the other 25 %
+    # Every phase starts with the training role's own optimizer state: its block from its last training checkpoint.
+    assert backend.composed[0] == ("start_L1pred", "/ckpt/81_c5_joint.pt", "/ckpt/81_c5.pt")
+    assert t[0]["checkpoint"] == "/ckpt/start_L1pred.pt" and t[1]["checkpoint"] == "/ckpt/81_L1pred1.pt"
+    assert backend.composed[1] == ("start_L1prey", "/ckpt/81_L1pred2.pt", "/ckpt/81_c5.pt")
+    assert t[2]["checkpoint"] == "/ckpt/start_L1prey.pt"
+    assert backend.composed[2] == ("start_L2pred", "/ckpt/81_L1pred2.pt", "/ckpt/81_L1prey1.pt")
+    assert state["league"]["archives"]["prey"][-3:] == ["L1prey", "L2prey", "L3prey"]
+    assert result["stop"] == "equilibrium" and result["verdict"].startswith("history training balances")
+
+
+def test_league_resumes_and_respects_the_budget(tmp_path) -> None:
+    _seed_dir(tmp_path)
+    first = FakeLeagueBackend(crash_after=3)
+    with pytest.raises(RuntimeError):
+        _league(tmp_path, first).run()
+    second = FakeLeagueBackend()
+    _league(tmp_path, second).run()
+    assert not {x["tag"] for x in first.trains} & {x["tag"] for x in second.trains}
+    assert len(first.trains) + len(second.trains) == 7
+    capped = FakeLeagueBackend()
+    (tmp_path / "capped").mkdir()
+    _seed_dir(tmp_path / "capped")
+    result = _league(tmp_path / "capped", capped, max_updates=2400).run()
+    assert len(capped.trains) == 2 and result["stop"] == "budget"

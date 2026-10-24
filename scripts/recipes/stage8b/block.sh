@@ -4,7 +4,8 @@
 #   bash block.sh <out_dir> <tag> <mode> <checkpoint|none> <updates> <seed> <lr> <kl> [pool.json]
 # mode: flight | joint | predator | prey. Writes <out_dir>/blocks/<tag>.status.txt and .console.log; the run directory
 # is logs/skrl/uav_3v1_direct/<timestamp>_..._s8b_<tag>. Hydra overrides come before --freeze-agents, which would
-# otherwise swallow them. BLOCK_EXTRA (environment, space-separated) adds Hydra overrides for ablations of the recipe.
+# otherwise swallow them. BLOCK_EXTRA (environment, space-separated) adds Hydra overrides for ablations of the recipe;
+# BLOCK_POOL_PROB (default 0.5) is the share of envs that face pool opponents in the single-role modes.
 set -uo pipefail
 OUT="${1:?usage: block.sh <out_dir> <tag> <mode> <checkpoint|none> <updates> <seed> <lr> <kl> [pool.json]}"
 TAG="${2:?usage}"
@@ -33,7 +34,7 @@ case "$MODE" in
     [[ -n "$POOL" ]] || { echo "mode $MODE needs a pool file" >&2; exit 2; }
     frozen=$([[ $MODE == predator ]] && echo prey || echo predator)
     EXTRA=(env.predator_forced_crash_bonus=200.0 --freeze-agents "$frozen" --per-env-opponent-pool "$POOL"
-           --per-env-pool-prob 0.5 --per-env-pool-seed "$SEED") ;;
+           --per-env-pool-prob "${BLOCK_POOL_PROB:-0.5}" --per-env-pool-seed "$SEED") ;;
   *) echo "unknown mode $MODE" >&2; exit 2 ;;
 esac
 START=()

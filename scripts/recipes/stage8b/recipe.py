@@ -204,3 +204,75 @@ def verdict(checks: dict[str, bool], duel_mean: float) -> str:
     if failed:
         return "fail: " + ", ".join(failed)
     return "pass, stronger than anchor v5" if duel_mean > 10.0 else "pass"
+
+
+# ------------------------------------------------------------------------------------------------- league phases
+# Fictitious-play style continuation (2026-10-24, after seed 81): instead of latest-vs-latest joint training, the roles
+# alternate, and the training role faces a uniform sample of the opponent's whole history ("the average strategy")
+# plus its latest version. A phase lasts until the role beats that average, so neither role is slowed.
+
+ROLES = ("predator", "prey")
+LEAGUE_BAR = 0.5
+
+
+@dataclass(frozen=True)
+class LeagueBudget:
+    block: int = 1200
+    max_blocks_per_phase: int = 6
+    max_updates: int = 48000
+    pool_size: int = 8
+    pool_prob: float = 0.75            # the rest of the envs face the latest opponent
+    gate_episodes: int = 512
+    smoke: bool = False
+
+    @staticmethod
+    def smoke_budget() -> "LeagueBudget":
+        return LeagueBudget(block=30, max_blocks_per_phase=2, max_updates=150, pool_size=2, gate_episodes=64, smoke=True)
+
+
+def other(role: str) -> str:
+    return "prey" if role == "predator" else "predator"
+
+
+def role_versions(rows: list[tuple[str, str, set[str]]]) -> dict[str, list[tuple[str, str]]]:
+    """Distinct versions of each role from a run's points, in order: (label, checkpoint, roles trained in the block
+    that produced the point). A role that was frozen keeps its version, so its later checkpoints are copies and must
+    not count as new opponents (the flaw of seed 81's last-4-points pools)."""
+    return {role: [(label, ckpt) for label, ckpt, trained in rows if role in trained] for role in ROLES}
+
+
+def sample_opponents(archive: list[tuple[str, str]], latest: str, k: int, seed: int) -> list[tuple[str, str]]:
+    """Uniform sample without replacement of k past versions other than the latest one (which the rest of the envs
+    face anyway), kept in archive order."""
+    import random
+    candidates = [entry for entry in archive if entry[0] != latest]
+    chosen = set(random.Random(seed).sample(range(len(candidates)), min(k, len(candidates))))
+    return [entry for i, entry in enumerate(candidates) if i in chosen]
+
+
+def league_gate(role: str, rates: list[float]) -> bool:
+    """A phase ends once the training role beats the average opponent: the predators catch at least half of the
+    sampled past prey; the prey is caught by at most half of the sampled past predators."""
+    mean = sum(rates) / len(rates)
+    return mean >= LEAGUE_BAR if role == "predator" else mean <= LEAGUE_BAR
+
+
+def league_converged(phases: list[dict]) -> bool:
+    """Equilibrium: in each of the last two cycles, both phases passed their gate after a single block."""
+    last = phases[-4:]
+    return len(last) == 4 and all(p["passed"] and p["blocks"] == 1 for p in last)
+
+
+def league_decision(average_prey_catch: float, cycle_points: list[dict], final: dict) -> dict[str, bool]:
+    """The pre-registered decision of the league continuation (2026-10-24 PLAN.md)."""
+    last2 = cycle_points[-2:]
+    duel = sum(p["duel v5"] for p in last2) / len(last2) if last2 else math.nan
+    return {
+        "1 the predators beat the average prey: final catch against every archived prey, mean >= 0.4":
+            average_prey_catch >= 0.4,
+        "2 balance: own catch within 0.3-0.7 at the last two cycle ends":
+            len(last2) == 2 and all(0.3 <= p["own catch"] <= 0.7 for p in last2),
+        "3 duel with anchor v5 >= -10 (mean of the last two cycle ends)": duel >= -10.0,
+        "4 guards at the final point: drones lost <= 0.37 and prey lost <= 0.33":
+            final["drones lost"] <= 0.37 and final["prey lost"] <= 0.33,
+    }
