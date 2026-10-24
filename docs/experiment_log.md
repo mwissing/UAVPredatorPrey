@@ -1808,3 +1808,27 @@ are those of the predator (higher = better predator, lower = better prey).
     - or league v2 directly, with a best-response-gap stop, the latest opponent in every gate and loss-weighted
       pools.
   - Evidence: `RESULTS.md`, `league/`.
+
+## 2026-10-24: Exploiter test, can focused predators break the final prey's pillar orbit? (pre-registered)
+
+- **User:** "yes start the test".
+- **Question:** the league's final prey orbits a pillar, and no predator catches it (own catch 0.069). In each league
+  phase the predators met the latest prey in only a quarter of their envs, for 1200 updates. Is the orbit breakable at
+  all with focused training?
+- **Design:**
+  - from the league's final pair: the predators with the Adam state of their last training block, against the frozen
+    final prey in every env (pool share 0, so train.py skips the pool);
+  - blocks of 1200 updates with the league's predator settings (LR 1e-4, KL 0.05, discount 0.995, no ghosts);
+  - after each block, a gate: catch against the final prey, 512 episodes;
+  - stop at a gate ≥ 0.5 with drones lost ≤ 0.37, or after 6 blocks;
+  - end: point E (full set, 1024 episodes), the catch against all 15 archived prey versions, the strategy analyses.
+- **Decision at E** (the exploiter against the final prey):
+  1. catch ≥ 0.4 and drones lost ≤ 0.37: "the orbit is breakable by focused training". Next proposal: league v2 with
+     exploiters, loss-weighted pools, the latest opponent in every gate and a stop on the best-response gap;
+  2. catch < 0.15: "focused training does not break the orbit". Next proposal: an exploration lever (hard start states)
+     or a rule decision;
+  3. otherwise "partial"; the gate curve decides the reading.
+- **Code:** the recipe backend at da3e56a (frozen copy), driver `run_exploiter.py` in the experiment directory. A dry
+  run against a fake backend checked the stop rule, the guard and resuming.
+- **Start:** 19:03; at most 4.5 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-24_exploiter_test_seed81/`.

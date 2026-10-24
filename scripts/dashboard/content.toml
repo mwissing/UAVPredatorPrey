@@ -1560,9 +1560,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: can focused predators break the pillar orbit? (exploiter test, proposed)"
+title = "Stage 8b: can focused predators break the pillar orbit? (exploiter test, running)"
 why = "The league ended the predators' forgetting, but the newest prey orbits a pillar and no predator we have catches it (0.07). In each phase the predators met that prey in only a quarter of their envs. An exploiter (the final predators trained only against the frozen final prey, at most 6 blocks) shows whether the orbit is breakable at all. If yes, league v2 adds exploiters and loss-weighted pools (as in AlphaStar), plus a stop rule on the best-response gap. If not, the next lever is exploration (hard start states) or a rule decision."
-cost = "about 4.5 h; awaiting the user's decision (alternative: league v2 directly, 12-20 h)"
+cost = "running since 2026-10-24 19:03, at most 4.5 h (artifacts/isaac/experiments/2026-10-24_exploiter_test_seed81)"
 
 [[next]]
 title = "Lagrangian crash constraint"
