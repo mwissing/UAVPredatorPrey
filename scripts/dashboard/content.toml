@@ -1509,9 +1509,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: keep the from-scratch arms race balanced"
-why = "Seed 81 ended prey-dominated (own catch 0.033), and removing the predators' upright bonus did not restore pressing (catch 0.002 in both arms, 2026-10-24): the paid wait is a symptom; the prey simply adapts faster (predator-only blocks reached catch 0.82 against a frozen prey, one prey block wiped it out). Candidate levers: two time scales (a slower-learning prey; skrl takes the learning rate per role) or a prey-agility curriculum ending at thrust-to-weight 2.2. Then 3 new seeds."
-cost = "a lever test (~6 h) after a small code change; then ~27 h per seed"
+title = "Stage 8b: league training against the opponents' whole history (running)"
+why = "Seed 81 trained almost only latest-vs-latest: joint blocks have no pool, and its last-4-points pools held copies of frozen roles (12 distinct prey in 25 points), so the predators cycled. The league continuation trains each role against a uniform sample of the other's whole history (the average strategy, as in fictitious play) until it beats it, with the same learning rate for both. If it balances the game, the recipe's game and consolidation stages become league phases and 3 new seeds run from scratch."
+cost = "running since 2026-10-24 09:48, 12-22 h (artifacts/isaac/experiments/2026-10-24_league_continuation_seed81)"
 
 [[next]]
 title = "Lagrangian crash constraint"

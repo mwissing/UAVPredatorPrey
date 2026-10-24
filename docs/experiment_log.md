@@ -1746,3 +1746,31 @@ are those of the predator (higher = better predator, lower = better prey).
     - a slower-learning prey (two time scales; skrl takes the learning rate per role);
     - or a prey-agility curriculum toward thrust-to-weight 2.2;
     - or Stage 9 on anchor v5.
+
+## 2026-10-24: League continuation of seed 81, training against the opponents' whole history (pre-registered)
+
+- **User:** "but we are still training against a pool or? ... cause then they learn in a zeno behaviour. i wouldn't
+  make the prey learning slower. i would just let the training go longer until the predator learned all prey
+  strategies or the 'average' prey strategy"; then "yes".
+- **Finding (true):** in seed 81 both roles learned almost only against the latest opponent.
+  - Joint blocks have no pool: 56% of the predators' updates, 83% of the prey's.
+  - The single-role pools ("the last 4 points") held copies of frozen roles. Hashed weights show 25 distinct predators
+    but only 12 distinct prey; at g13 the pool was four copies of the current prey.
+  - Past prey were about 13% of the predators' experience, never more than 3 distinct ones.
+- **Design (fictitious play):** from seed 81's final pair, alternating phases of 1200-update blocks.
+  - The training role faces 8 opponents sampled uniformly from the other role's distinct past versions in 75% of the
+    envs, and the latest version in the rest.
+  - The phase lasts until the role beats that average: predators catch ≥ 0.5, prey caught ≤ 0.5; at most 6 blocks.
+  - Same LR (1e-4) for both roles.
+  - Each phase starts with the training role's own optimizer state. train.py does not save a frozen role's optimizer,
+    and a fresh Adam made the smoke run's prey crash in half of its episodes after 30 updates.
+  - Stop: at equilibrium (two cycles with one-block phases) or at 48,000 updates. Point 0 adds a cross-play matrix of
+    seed-81 versions.
+- **Decision:**
+  1. the final predators catch ≥ 0.4 of every archived prey version, on average;
+  2. own catch within 0.3-0.7 at the last two cycle ends;
+  3. duel with anchor v5 ≥ −10;
+  4. guards.
+- **Code:** 39c3067 (`run_league.py`, league functions, `BLOCK_POOL_PROB`). 259 tests pass; two smoke runs.
+- **Start:** 09:48; 12-22 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-24_league_continuation_seed81/`.
