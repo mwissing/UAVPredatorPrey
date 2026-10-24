@@ -1774,3 +1774,37 @@ are those of the predator (higher = better predator, lower = better prey).
 - **Code:** 39c3067 (`run_league.py`, league functions, `BLOCK_POOL_PROB`). 259 tests pass; two smoke runs.
 - **Start:** 09:48; 12-22 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-24_league_continuation_seed81/`.
+- **Result** (09:48-16:07, every status 0): the pre-registered verdict is "fail: criteria 2" (balance). The league
+  stopped at its "equilibrium" rule after 3 cycles, at 10,800 of 48,000 updates.
+
+  | | L0 (s81 c5) | final (L3) | bar |
+  |---|---|---|---|
+  | predators against every archived prey, mean catch | 0.082 (12 prey) | 0.449 (15); 0.532 on the same 12 | ≥ 0.4 pass |
+  | own catch | 0.033 | 0.024 (L2), 0.069 (L3) | 0.3-0.7 fail |
+  | duel with anchor v5 | −36.3 | +16.2 (mean L2, L3) | ≥ −10 pass |
+  | drones lost / prey lost | 0.040 / 0.032 | 0.187 / 0.100 | guards pass |
+  | interception of a hovering prey | 0.072 | 0.996 | |
+
+  - **The history stopped most of the forgetting.** Point 0's matrix showed the cycling: each seed-81 predator catches
+    the prey it trained on, and little else. The final predators beat the old prey 6.5 times as often as c5 did, and
+    interception came back and stayed. An opponent not drawn into a phase's pool can still be lost (c5 prey: 0.74
+    against L2, 0.39 against L3).
+  - **The prey has one answer to every predator: orbiting a pillar** (0.64 of long-episode frames within 1 m of a
+    pillar's surface).
+    - A panel of 8 predators catches the final prey at 0.047, and anchor v5's predators score R 18.5 against it.
+    - The final predators catch the three league prey at 0.20, 0.08 and 0.07.
+    - Engagement, not flanking geometry, is missing. Two predators are within 4 m of the prey's pillar in 0.44 of the
+      orbit frames (v5: 0.88). When they are, they flank as often as v5's (0.14 against 0.12).
+    - When they commit, they crash: closing at 2.7 m/s from 2.0 m, the pillar in the line in 42% of the losses.
+  - **The stop rule was not an equilibrium test.**
+    - The prey's bar (caught ≤ 0.5) passed every phase with 0.02-0.04.
+    - The predators' gate left out the latest prey.
+    - The best responses were still about 0.40 apart: predators against the prey history 0.449, prey against the
+      predator panel 0.047.
+  - Without ghost envs, the prey's survival against ghosts fell from 0.82 to 0.12. Its safety now rests on pillars.
+  - Next (user decision):
+    - an exploiter test (the final predators against the frozen final prey only, ≤ 6 blocks, about 4.5 h): is the
+      orbit breakable at all?
+    - or league v2 directly, with a best-response-gap stop, the latest opponent in every gate and loss-weighted
+      pools.
+  - Evidence: `RESULTS.md`, `league/`.

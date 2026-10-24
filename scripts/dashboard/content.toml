@@ -158,6 +158,18 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "league-final"
+title = "League continuation, final pair: the pillar orbit (own matchup)"
+note = "Seed 81's pair after three league cycles against the opponents' whole history. Look at the long episodes: the prey circles close to a pillar while the predators hold 3-4 m off; when they commit, they often crash. Catch 0.069, time-outs 0.829, 0.19 drones lost per episode. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-24_league_continuation_seed81/league/evals/final_own.npz"
+
+[[replay]]
+id = "seed81-c5"
+title = "Stage 8b seed 81 from scratch, final pair (own matchup)"
+note = "The from-scratch pair before the league: the paid standoff. The predators wait about 3 m away at 1.4-2.8 m/s and the prey circles its pillar (48 % of long-episode frames). Catch 0.033, time-outs 0.935. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-22_stage8b_from_scratch/seed81/evals/c5_own.npz"
+
+[[replay]]
 id = "consolidation-final"
 title = "Consolidated pair: symmetric branches, discount 0.995, rehearsal (own matchup)"
 note = "After five cycles of joint self-play and prey rehearsal. Both roles fly by perception; long episodes show the pillar dance at close range (nearest predator 1.8 m) with the prey dodging at over 5 m/s. Catch 0.663, prey crashes 0.231, time-outs 0.104. Both crashed-drone masks on."
@@ -1036,6 +1048,33 @@ label = "after the flight stage: hovering among the pillars"
 path = "isaac/experiments/2026-10-22_stage8b_from_scratch/seed81/videos/c5/rl-video-step-0.mp4"
 label = "the end: the paid standoff (camera D)"
 
+[[chapter.stage]]
+id = "league-seed81"
+title = "Stage 8b: league training against the opponents' whole history (seed 81)"
+dates = "2026-10-24"
+verdict = "partial"
+takeaway = "Training each role against the other's distinct past versions ended most of the predators' forgetting and turned the duel with anchor v5 positive. It did not balance the game: the newest prey orbits a pillar, and no predator we have catches it."
+metric = "predators vs every past prey 0.08 → 0.45 · own catch 0.069 · duel with v5 −36 → +17"
+goal = "Fictitious play from seed 81's final pair: alternating phases in which a role trains against 8 opponents sampled from the other's whole deduplicated history (75 % of the envs) and the latest version (25 %), until it beats that average. Same learning rate for both roles; nothing slowed."
+result = """
+- Point 0 confirmed the cycling: each seed-81 predator version catches the prey it trained against and little else; the final predators caught the 12 past prey at 0.08.
+- The first predator phase needed 4 blocks (gate 0.32 → 0.54); every later phase passed in one block, and the league stopped at its "equilibrium" rule after 10,800 of 48,000 updates.
+- Final predators: 0.53 against the 12 seed-81 prey (6.5×), interception of a hovering prey 0.07 → 0.996, R against anchor v5's prey 15.6 → 35.4. But only 0.20 / 0.08 / 0.07 against the three league prey.
+- Final prey: caught 0.047 by a panel of 8 predators; anchor v5's predators score 18.5 against it (52 against seed 81's prey). Pre-registered verdict: fail on balance (own catch 0.069).
+"""
+why = """
+The prey found one answer to every predator: orbiting a pillar (64 % of long-episode frames within 1 m of its
+surface). The predators do flank when two are near (14 % pincers, v5 12 %), but they rarely engage: two are within 4 m
+of the pillar in 44 % of the orbit frames (v5 88 %), and when they commit they crash (closing at 2.7 m/s from 2 m).
+The stop rule was no equilibrium test: the prey's bar (caught ≤ 0.5) passed with 0.02–0.04, and the predators' gate
+left out the latest prey. The two best responses were still about 0.40 apart (0.449 against 0.047).
+"""
+experiment = "2026-10-24_league_continuation_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-24_league_continuation_seed81/", "UAVPredatorPrey/scripts/recipes/stage8b/run_league.py"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-24_league_continuation_seed81/league/videos/final/rl-video-step-0.mp4"
+label = "the final pair: the pillar orbit (camera D; the 3D replay shows it better)"
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1089,6 +1128,18 @@ title = "The pillar dance"
 note = "Both roles see the pillar relations: the prey dodges engaged predators around pillars at close range, with time-outs back at 0.126 but the predators only 1.8 m away."
 
 # =========================================================================================== lessons
+
+[[lesson]]
+verdict = "failed"
+what = "A fixed pass bar as an equilibrium test."
+why = "The league stopped when both roles passed a 0.5 bar within one block. The prey passed with 0.02–0.04 caught, and the predators' gate left out the latest prey, so the run stopped at 22 % of its budget while the two best responses were still 0.40 apart (0.449 against 0.047). Test equilibrium on the gap between the best responses, and put the latest opponent into every gate."
+evidence = ["artifacts/isaac/experiments/2026-10-24_league_continuation_seed81/RESULTS.md"]
+
+[[lesson]]
+verdict = "worked"
+what = "Train each role against the other's whole, deduplicated history (fictitious play)."
+why = "Latest-vs-latest training made seed 81's predators forget: each version caught the prey it trained on, and the final one caught the 12 past prey at 0.08. Three league cycles lifted that to 0.53 and kept the pursuit of easy prey (interception 0.07 → 0.996). Deduplicate by weight hash: a frozen role's checkpoints are copies, and seed 81's pools were full of them."
+evidence = ["artifacts/isaac/experiments/2026-10-24_league_continuation_seed81/RESULTS.md"]
 
 [[lesson]]
 verdict = "failed"
@@ -1366,7 +1417,7 @@ commit = "today's HEAD"
 from = "step 2 (`random_flight_agent_48000.pt`)"
 settings = "Never run this way. The July run used LR 5e-5, AMP, floor −3 and 500–1000 u phases and produced a weak predator. The proposal: the archived recipe of step 5 (FP32, LR 1e-5, KL 0.05, floor −2, long phases, pool) from the flight checkpoint, then steps 6–9 unchanged."
 gate = "Own catch inside the 0.40–0.60 band and predator reference mean approaching the Windows anchor's 0.854. A full run is ~1–2 days of GPU, so it needs a pre-registered plan."
-notes = "This is the open gap for a from-scratch reproduction. Stage 8b (running since 2026-10-22) closes it for the pillar game with its own recipe: scripts/recipes/stage8b/."
+notes = "This is the open gap for a from-scratch reproduction. Stage 8b works on it for the pillar game with its own recipe (scripts/recipes/stage8b/): seed 81 trained a pair from random init but failed the balance gate, and its league continuation (2026-10-24) fixed the forgetting but not the balance. Still open."
 
 [[recipe]]
 short = "Windows anchor"
@@ -1509,9 +1560,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: league training against the opponents' whole history (running)"
-why = "Seed 81 trained almost only latest-vs-latest: joint blocks have no pool, and its last-4-points pools held copies of frozen roles (12 distinct prey in 25 points), so the predators cycled. The league continuation trains each role against a uniform sample of the other's whole history (the average strategy, as in fictitious play) until it beats it, with the same learning rate for both. If it balances the game, the recipe's game and consolidation stages become league phases and 3 new seeds run from scratch."
-cost = "running since 2026-10-24 09:48, 12-22 h (artifacts/isaac/experiments/2026-10-24_league_continuation_seed81)"
+title = "Stage 8b: can focused predators break the pillar orbit? (exploiter test, proposed)"
+why = "The league ended the predators' forgetting, but the newest prey orbits a pillar and no predator we have catches it (0.07). In each phase the predators met that prey in only a quarter of their envs. An exploiter (the final predators trained only against the frozen final prey, at most 6 blocks) shows whether the orbit is breakable at all. If yes, league v2 adds exploiters and loss-weighted pools (as in AlphaStar), plus a stop rule on the best-response gap. If not, the next lever is exploration (hard start states) or a rule decision."
+cost = "about 4.5 h; awaiting the user's decision (alternative: league v2 directly, 12-20 h)"
 
 [[next]]
 title = "Lagrangian crash constraint"
