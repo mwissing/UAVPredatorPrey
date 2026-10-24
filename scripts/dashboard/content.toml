@@ -158,6 +158,12 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "exploiter-E"
+title = "Exploiter against the league's final prey: the orbit broken (own matchup)"
+note = "The league's final predators after 1200 updates only against the frozen final prey. They now close in on the prey circling its pillar and catch it mostly from one side: catch 0.603, time-outs 0.292, 0.17 drones lost per episode. Compare with the league's final pair. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-24_exploiter_test_seed81/exploiter/evals/E_own.npz"
+
+[[replay]]
 id = "league-final"
 title = "League continuation, final pair: the pillar orbit (own matchup)"
 note = "Seed 81's pair after three league cycles against the opponents' whole history. Look at the long episodes: the prey circles close to a pillar while the predators hold 3-4 m off; when they commit, they often crash. Catch 0.069, time-outs 0.829, 0.19 drones lost per episode. Both crashed-drone masks on."
@@ -1075,6 +1081,29 @@ evidence = ["artifacts/isaac/experiments/2026-10-24_league_continuation_seed81/"
 path = "isaac/experiments/2026-10-24_league_continuation_seed81/league/videos/final/rl-video-step-0.mp4"
 label = "the final pair: the pillar orbit (camera D; the 3D replay shows it better)"
 
+[[chapter.stage]]
+id = "exploiter-seed81"
+title = "Stage 8b: an exploiter against the league's final prey"
+dates = "2026-10-24"
+verdict = "worked"
+takeaway = "One block of training only against the final prey broke its pillar orbit: catch 0.07 → 0.60. The predators won by pressing close from one side, not by pincers. But they forgot the consolidation-era prey (0.61 → 0.10): each counter is quick to learn, and holding them all at once is the open problem."
+metric = "catch against the final prey 0.07 → 0.60 in 1200 updates · all past prey 0.45 → 0.30"
+goal = "Is the final prey's pillar orbit breakable at all? The league's final predators train only against the frozen final prey, in every env (in the league: a quarter), for at most 6 blocks; decision at catch ≥ 0.4 with drones lost ≤ 0.37."
+result = """
+- The first gate passed: after 1200 updates (32 min) the catch rose from 0.069 to 0.603, with 0.17 drones lost. Pre-registered verdict: "the orbit is breakable by focused training".
+- Two predators near the orbit pillar 0.44 → 0.70 of the frames, distance to the prey 3.9 → 2.9 m, closing speed 0.49 → 1.12 m/s; a one-sided approach converts 16× as often (0.144 within 1 s). Pincers stay rare and convert worse.
+- Retention: orbit prey 0.12 → 0.41, but the consolidation prey 0.61 → 0.10; all 15 past versions 0.449 → 0.296.
+"""
+why = """
+The orbit was not unbeatable; the league diluted it. The uniform history mixture gave the newest prey a quarter of the
+envs, and the predators never found the counter: close, fast pressure that accepts some pillar crashes. With every env
+against it, one block was enough. The forgetting shows non-transitivity: the league's predator beats the
+consolidation prey, the exploiter the orbit prey, and neither both. AlphaStar weights a player's league opponents by
+how often it loses to them for exactly this reason.
+"""
+experiment = "2026-10-24_exploiter_test_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-24_exploiter_test_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1128,6 +1157,12 @@ title = "The pillar dance"
 note = "Both roles see the pillar relations: the prey dodges engaged predators around pillars at close range, with time-outs back at 0.126 but the predators only 1.8 m away."
 
 # =========================================================================================== lessons
+
+[[lesson]]
+verdict = "worked"
+what = "Train an exploiter before calling an opponent unbeatable."
+why = "The league's final prey held every predator we had to 0.07. Predators trained only against it broke its pillar orbit in 1200 updates (0.60): the league had given it a quarter of the envs. An exploiter is a cheap best-response test of what a mixture hides; the price is that it forgets the others (all past prey 0.45 → 0.30)."
+evidence = ["artifacts/isaac/experiments/2026-10-24_exploiter_test_seed81/RESULTS.md"]
 
 [[lesson]]
 verdict = "failed"
@@ -1560,10 +1595,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: can focused predators break the pillar orbit? (exploiter test, running)"
-why = "The league ended the predators' forgetting, but the newest prey orbits a pillar and no predator we have catches it (0.07). In each phase the predators met that prey in only a quarter of their envs. An exploiter (the final predators trained only against the frozen final prey, at most 6 blocks) shows whether the orbit is breakable at all. If yes, league v2 adds exploiters and loss-weighted pools (as in AlphaStar), plus a stop rule on the best-response gap. If not, the next lever is exploration (hard start states) or a rule decision."
-cost = "running since 2026-10-24 19:03, at most 4.5 h (artifacts/isaac/experiments/2026-10-24_exploiter_test_seed81)"
-
+title = "Stage 8b: can one predator hold every counter? (two-counter test, proposed)"
+why = "The exploiter broke the final prey's orbit in one block but forgot the consolidation-era prey (0.61 → 0.10): each predator beats one prey family, neither both. From the exploiter, train against the final prey (25 %) and the 8 past prey it catches least, weighted (1 − catch)² as in AlphaStar's prioritized fictitious self-play and re-weighted after every block. If both families reach 0.4, league v2 can rely on single main agents with prioritized pools and exploiters; if not, the predator side needs a population (a mixed strategy)."
+cost = "at most about 3.2 h; awaiting the user's decision"
 [[next]]
 title = "Lagrangian crash constraint"
 why = "Replace hand-tuned crash prices with a constraint E[crash hazard] ≤ c and a dual variable λ updated by gradient ascent (PPO-Lagrangian). In control terms: an integral controller on the constraint violation."

@@ -1832,3 +1832,21 @@ are those of the predator (higher = better predator, lower = better prey).
   run against a fake backend checked the stop rule, the guard and resuming.
 - **Start:** 19:03; at most 4.5 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-24_exploiter_test_seed81/`.
+- **Result** (19:03-19:45; the first gate passed, so one block of 1200 updates): the pre-registered verdict is "the
+  orbit is breakable by focused training".
+  - Catch against the final prey 0.069 → 0.603 (bar ≥ 0.4), drones lost 0.174 (guard ≤ 0.37). The prey was bit-exact
+    the league's (anchor v5's predators score R 18.49 against it, as before).
+  - **Mechanism: engagement from one side, not pincers.**
+    - Two predators within 4 m of the orbit pillar 0.44 → 0.70.
+    - Distance to the prey 3.9 → 2.9 m, closing speed 0.49 → 1.12 m/s.
+    - One-sided catch chance within 1 s 0.009 → 0.144. Pincers convert worse (0.040) and stay rare (0.14 → 0.17).
+    - Long-episode losses rise from 0.20 to 0.26 per episode; drones lost per episode stay at 0.17.
+    - This corrects the league's reading that a second side is needed.
+  - **Retention: the exploiter forgot the consolidation-era prey.**
+    - Orbit prey (L1-L3) 0.12 → 0.41; consolidation prey (c1-c5) 0.61 → 0.10; all 15 versions 0.449 → 0.296.
+    - Each predator beats one family, neither both (non-transitivity).
+  - The league failed by dilution, not by capability. The main pair's exploitability is at least 0.53 (0.603 − 0.069).
+  - Next (user decision): a two-counter test (≤ 3.2 h). From the exploiter: 25% final prey, 75% the 8 prey versions
+    it catches least, weighted (1 − catch)² and re-weighted after each block; gate on all 15. Can one predator hold
+    the orbit and the consolidation counters at once (both families ≥ 0.4)?
+  - Evidence: `RESULTS.md`, `exploiter/`.
