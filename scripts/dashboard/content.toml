@@ -1595,9 +1595,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: can one predator hold every counter? (two-counter test, proposed)"
+title = "Stage 8b: can one predator hold every counter? (two-counter test, running)"
 why = "The exploiter broke the final prey's orbit in one block but forgot the consolidation-era prey (0.61 → 0.10): each predator beats one prey family, neither both. From the exploiter, train against the final prey (25 %) and the 8 past prey it catches least, weighted (1 − catch)² as in AlphaStar's prioritized fictitious self-play and re-weighted after every block. If both families reach 0.4, league v2 can rely on single main agents with prioritized pools and exploiters; if not, the predator side needs a population (a mixed strategy)."
-cost = "at most about 3.2 h; awaiting the user's decision"
+cost = "running since 2026-10-25 00:29, at most about 3.2 h (artifacts/isaac/experiments/2026-10-25_two_counter_test_seed81)"
 [[next]]
 title = "Lagrangian crash constraint"
 why = "Replace hand-tuned crash prices with a constraint E[crash hazard] ≤ c and a dual variable λ updated by gradient ascent (PPO-Lagrangian). In control terms: an integral controller on the constraint violation."

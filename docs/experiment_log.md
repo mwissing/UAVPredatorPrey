@@ -1850,3 +1850,37 @@ are those of the predator (higher = better predator, lower = better prey).
     it catches least, weighted (1 − catch)² and re-weighted after each block; gate on all 15. Can one predator hold
     the orbit and the consolidation counters at once (both families ≥ 0.4)?
   - Evidence: `RESULTS.md`, `exploiter/`.
+
+## 2026-10-25: Two-counter test, can one predator hold the orbit and the consolidation counters at once? (pre-registered)
+
+- **User:** "yes", to the exploiter test's proposal.
+- **Question:**
+  - The exploiter broke the final prey's pillar orbit (0.07 → 0.60) and forgot the consolidation-era prey
+    (0.61 → 0.10).
+  - The league's final predators hold the opposite pair, so each predator beats one prey family.
+  - Can one predator hold both counters if it trains against the prey it loses to?
+- **Design:**
+  - **Start:** the exploiter, with its Adam state.
+  - **Opponents:** the frozen final prey in 25% of the envs. In the other 75%, the 8 of the other 14 archived prey
+    versions it catches least, weighted (1 − catch)², as in AlphaStar's prioritized fictitious self-play.
+    - The weights are recomputed after each block from the gate; the first block's come from the exploiter's
+      retention measurement.
+    - The first pool is g8, c5, g2, c1, c4, c3, c2, L1prey. About 46% of the envs face consolidation prey, 33% orbit
+      prey and 21% g2 or g8.
+  - **Training:** blocks of 1200 updates with the league's predator settings, at most 4.
+  - **Gate after each block:** catch and drones lost against all 15 prey versions, 512 episodes each.
+  - **Stop:** both families' mean catch ≥ 0.4 (orbit L1-L3, consolidation c1-c5), with drones lost ≤ 0.37 in each.
+  - **End:** point T (the full set, 1024 episodes) and the strategy analyses against the exploiter, the league's final
+    and anchor v5.
+- **Decision:**
+  - Both families ≥ 0.4, with drones lost ≤ 0.37 in both and at T: "one predator holds both counters". Next proposal:
+    league v2 on single main agents with prioritized pools and exploiters.
+  - Otherwise "the counters did not combine". Next proposal: league v2 with a predator population.
+  - The last block's change gives the reading: trade-off, still rising (a budget question) or stalled.
+- **Guard detail:** the guard is per family because g8 costs the exploiter 2.4 drones per episode. A mean over all 15
+  prey versions would be 0.39 at the start because of g8 alone.
+- **Code:** the recipe backend, unchanged since da3e56a (frozen copy), driver `run_two_counter.py` in the experiment
+  directory. A dry run against a fake backend checked the pools, the stop rule, the block checks, resuming and the
+  decision.
+- **Start:** 2026-10-25 00:29; at most about 3.2 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-25_two_counter_test_seed81/`.
