@@ -1092,6 +1092,12 @@ note = "Both roles see the pillar relations: the prey dodges engaged predators a
 
 [[lesson]]
 verdict = "failed"
+what = "Removing the living bonus to make the losing side press."
+why = "Zero-at-level upright term against the dominant from-scratch prey: the predators moved more (closing speed 0.77 vs 0.05 m/s) but caught nothing (0.002 in both arms). A bonus can decide how a losing agent waits, not whether it can win: while catches are out of reach, pressing earns nothing and risks crashes."
+evidence = ["artifacts/isaac/experiments/2026-10-23_upright_mechanism_test/RESULTS.md"]
+
+[[lesson]]
+verdict = "failed"
 what = "A positive per-step bonus in a game the agent is losing."
 why = "From scratch the prey got ahead, and the predators' value became the upright stream (≈ 18 at discount 0.995): hovering 3 m away paid more than pressing a prey they rarely caught, and their pursuit decayed (interception of a hovering prey 0.99 → 0.07). A living bonus that is harmless next to a reachable goal becomes the policy once the goal is out of reach."
 evidence = ["artifacts/isaac/experiments/2026-10-22_stage8b_from_scratch/RESULTS.md"]
@@ -1503,9 +1509,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: seed 81 failed, review before seeds 82-83"
-why = "From random init the prey wins the arms race and the predators settle into a standoff paid by the upright reward (own catch 0.033, duel with anchor v5 −32). Candidate amendments: the zero-at-level upright term (B7), the band guard through the consolidation, a hovering target in the predators' pools, and an absolute loss bar in the LR pilot. A cheap mechanism test first: predator-only from seed 81's pair with and without the upright stream."
-cost = "mechanism test running since 2026-10-23 20:42 (~6 h, artifacts/isaac/experiments/2026-10-23_upright_mechanism_test); then the amended recipe needs 3 new seeds (~27 h each)"
+title = "Stage 8b: keep the from-scratch arms race balanced"
+why = "Seed 81 ended prey-dominated (own catch 0.033), and removing the predators' upright bonus did not restore pressing (catch 0.002 in both arms, 2026-10-24): the paid wait is a symptom; the prey simply adapts faster (predator-only blocks reached catch 0.82 against a frozen prey, one prey block wiped it out). Candidate levers: two time scales (a slower-learning prey; skrl takes the learning rate per role) or a prey-agility curriculum ending at thrust-to-weight 2.2. Then 3 new seeds."
+cost = "a lever test (~6 h) after a small code change; then ~27 h per seed"
 
 [[next]]
 title = "Lagrangian crash constraint"

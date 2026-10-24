@@ -1725,3 +1725,24 @@ are those of the predator (higher = better predator, lower = better prey).
   3. guard: U's drones lost ≤ 0.37.
 - **Start:** 20:42; about 6 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-23_upright_mechanism_test/`.
+- **Result** (U 20:42-23:31, C 23:31-02:04, every status 0): the pre-registered verdict is "the upright stream is not
+  what holds the predators back".
+
+  | point 4 | U (upright zero at level) | C (control) | start (s81 c5) |
+  |---|---|---|---|
+  | own catch | 0.002 | 0.002 | 0.033 |
+  | long episodes: nearest predator | 2.93 m | 2.64 m | 3.11 m |
+  | long episodes: closing speed | 0.77 m/s | 0.05 m/s | 1.13 m/s |
+  | prey at its pillar: angular speed | 3.2 rad/s (dance) | 0.13 rad/s (hiding) | 1.9 rad/s |
+  | drones lost | 0.059 | 0.018 | 0.040 |
+
+  - The stream shapes the style, not the outcome. Without it the predators keep moving and the prey dances; with it
+    the prey hides and the predators wait. Neither arm catches, even under stochastic training actions.
+  - So the paid wait in seed 81 was a symptom. While the predators cannot catch this prey, pressing earns about 0 and
+    risks −133 per drone, with or without the bonus.
+  - The bottleneck is the arms race: in seed 81, predator-only blocks raised the catch rate against a frozen prey to
+    0.82 within 6000 updates, and one block of prey training wiped that out.
+  - Next (user decision):
+    - a slower-learning prey (two time scales; skrl takes the learning rate per role);
+    - or a prey-agility curriculum toward thrust-to-weight 2.2;
+    - or Stage 9 on anchor v5.
