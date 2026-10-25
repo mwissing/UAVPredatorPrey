@@ -158,6 +158,12 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "two-counter-T"
+title = "Two-counter predators against the league's final prey (own matchup)"
+note = "The exploiter after 2,400 more updates against the final prey and the past prey it caught least (prioritized fictitious self-play). The same one-sided pressure on the orbiting prey, a little closer and with fewer crashes near the pillar: catch 0.704, time-outs 0.187, 0.14 drones lost per episode. Compare with the exploiter. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-25_two_counter_test_seed81/two_counter/evals/T_own.npz"
+
+[[replay]]
 id = "exploiter-E"
 title = "Exploiter against the league's final prey: the orbit broken (own matchup)"
 note = "The league's final predators after 1200 updates only against the frozen final prey. They now close in on the prey circling its pillar and catch it mostly from one side: catch 0.603, time-outs 0.292, 0.17 drones lost per episode. Compare with the league's final pair. Both crashed-drone masks on."
@@ -1104,6 +1110,29 @@ how often it loses to them for exactly this reason.
 experiment = "2026-10-24_exploiter_test_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-24_exploiter_test_seed81/"]
 
+[[chapter.stage]]
+id = "two-counter-seed81"
+title = "Stage 8b: one predator against every past prey (two-counter test)"
+dates = "2026-10-25"
+verdict = "worked"
+takeaway = "Trained against the prey it lost to, one predator relearned the consolidation counter without losing the orbit counter: both prey families above 0.4 (consolidation only just, 0.414), with half the league final's drone losses. The exploiter's forgetting was an overwrite, not a conflict between counters."
+metric = "orbit prey 0.41 → 0.58 · consolidation prey 0.10 → 0.41 · drones lost 0.39 → 0.11 per episode"
+goal = "Can one predator hold both counters? From the exploiter: the final prey in 25 % of the envs; in the other 75 %, the 8 past prey versions it catches least, weighted (1 − catch)² (AlphaStar's prioritized fictitious self-play) and re-weighted after every block. At most 4 blocks; pass when both families reach a mean catch ≥ 0.4 with drones lost ≤ 0.37."
+result = """
+- The second gate passed (2,400 updates, 1.5 h): orbit family 0.578, consolidation family 0.414, drones lost 0.14 and 0.15. Pre-registered verdict: "one predator holds both counters". Both families rose in both blocks.
+- In catch, T stays below the per-prey best of the two specialists (0.472 against 0.518): the league's predator still catches c2–c4 at 0.73–0.81. In outcome return T is ahead (83.8 against 74.1), because it loses far fewer drones.
+- Own matchup: catch 0.704 (exploiter 0.603), one-sided catch chance within 1 s 0.180; duel with anchor v5 +35.2 (exploiter +13.0).
+"""
+why = """
+One predator policy can carry several counters at once; training against a single opponent had overwritten them.
+Weighting the pool toward the prey it lost to brought the consolidation prey back while the orbit counter kept
+improving. The weighting had a blind spot. g2 crashes on its own and g8 lures predators into pillars, so their
+catch stays low whatever the predators do, and in the second block the two took 29 % of the envs. Training against
+g8 did teach caution: drones lost fell against every prey family.
+"""
+experiment = "2026-10-25_two_counter_test_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-25_two_counter_test_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1157,6 +1186,12 @@ title = "The pillar dance"
 note = "Both roles see the pillar relations: the prey dodges engaged predators around pillars at close range, with time-outs back at 0.126 but the predators only 1.8 m away."
 
 # =========================================================================================== lessons
+
+[[lesson]]
+verdict = "worked"
+what = "Weight the opponent pool toward the opponents a role loses to, and check why they are hard."
+why = "From the exploiter, 2,400 updates against the final prey and the 8 past prey it caught least, weighted (1 − catch)², brought the consolidation prey back (0.10 → 0.41) while the orbit counter kept improving (0.41 → 0.58). Catch-based hardness also favoured two versions whose catch never moved: g2, which crashes on its own in 77 % of its episodes, and g8, which lures predators into pillars. Together they took 29 % of the second block's envs. Drop self-crashing versions, and down-weight opponents without progress."
+evidence = ["artifacts/isaac/experiments/2026-10-25_two_counter_test_seed81/RESULTS.md"]
 
 [[lesson]]
 verdict = "worked"
@@ -1595,9 +1630,10 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: can one predator hold every counter? (two-counter test, running)"
-why = "The exploiter broke the final prey's orbit in one block but forgot the consolidation-era prey (0.61 → 0.10): each predator beats one prey family, neither both. From the exploiter, train against the final prey (25 %) and the 8 past prey it catches least, weighted (1 − catch)² as in AlphaStar's prioritized fictitious self-play and re-weighted after every block. If both families reach 0.4, league v2 can rely on single main agents with prioritized pools and exploiters; if not, the predator side needs a population (a mixed strategy)."
-cost = "running since 2026-10-25 00:29, at most about 3.2 h (artifacts/isaac/experiments/2026-10-25_two_counter_test_seed81)"
+title = "Stage 8b: league v2 on single main agents (proposed)"
+why = "The two-counter test passed: one predator holds the orbit and the consolidation counters (0.58 / 0.41) against fixed prey, so league v2 can use single main agents. Now the prey has to answer. Both roles alternate against the other's whole history with prioritized pools: self-crashing versions such as g2 are dropped, and versions without progress fall back to the uniform weight. Exploiters for both roles join the league, the latest opponent is in every gate, and the stop rule tests the gap between the two best responses instead of a fixed bar. Start: the two-counter predators and the league's final prey."
+cost = "a PLAN for review first; then overnight scale (about 3 h per cycle, 3 or more cycles)"
+
 [[next]]
 title = "Lagrangian crash constraint"
 why = "Replace hand-tuned crash prices with a constraint E[crash hazard] ≤ c and a dual variable λ updated by gradient ascent (PPO-Lagrangian). In control terms: an integral controller on the constraint violation."

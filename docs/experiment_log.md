@@ -1884,3 +1884,37 @@ are those of the predator (higher = better predator, lower = better prey).
   decision.
 - **Start:** 2026-10-25 00:29; at most about 3.2 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-25_two_counter_test_seed81/`.
+- **Result** (00:29-02:01; the second gate passed, so 2 of the 4 blocks were used): the pre-registered verdict is "one
+  predator holds both counters".
+  - Mean catch at the second gate: orbit family 0.578, consolidation family 0.414 (bar ≥ 0.4). Drones lost 0.14 and
+    0.15 per episode, and 0.142 at T (guard ≤ 0.37). The prey stayed the league's final prey (fingerprint verified;
+    anchor v5's predators score R 18.49 against it, as before).
+  - **Both families rose in both blocks:** orbit 0.41 → 0.53 → 0.58, consolidation 0.10 → 0.34 → 0.41, all 15 versions
+    0.30 → 0.42 → 0.47. There was no trade-off, so the exploiter's forgetting came from training against a single
+    opponent, not from conflicting counters.
+  - **The consolidation pass is thin:** 1.4 standard errors above the bar (SE 0.010 over 5 × 512 episodes), and two
+    thirds of the league final's level (0.61).
+  - **Against the two specialists:**
+    - In catch, T is below their per-prey best (0.472 against 0.518): the league's final predators still catch c2-c4
+      at 0.73-0.81 (T 0.41-0.50).
+    - In outcome return, T is above it (R 83.8 against 74.1 over all 15), because it loses half the league final's
+      drones (0.11 against 0.24 per episode).
+  - **Own matchup (point T, 1024 episodes):**
+    - Catch 0.704 (E 0.603), time-outs 0.187, R against anchor v5's prey 53.6, duel with v5 +35.2 (E +13.0).
+    - It is the exploiter's one-sided pressure, refined: one-sided catch chance within 1 s 0.180 (E 0.144).
+    - Pincers convert better (relative risk within 2 s 0.56 → 0.82) but remain rare (0.16). No roles.
+  - **What PFSP got wrong:**
+    - Weighted by catch, hardness gave g2 and g8 29% of the second block's envs, and their catch never moved
+      (0.07, 0.03).
+    - g2 ends 77% of its episodes by crashing on its own, with no predator forcing it.
+    - g8 lures predators into pillars (the exploiter lost 2.4 drones per episode against it). T declines: 0.11 drones
+      lost, the best outcome return of the three predators (R −6.5).
+    - Drones lost fell against every family (all 15: 0.39 → 0.11).
+  - Next (user decision): league v2 on single main agents:
+    - PFSP pools for both roles;
+    - exploiters as league members;
+    - the latest opponent in every gate;
+    - a stop on the gap between the best responses;
+    - pool rules from this run: drop self-crashing versions, and a version whose catch has not moved for two blocks
+      falls back to the uniform weight.
+  - Evidence: `RESULTS.md`, `two_counter/`.
