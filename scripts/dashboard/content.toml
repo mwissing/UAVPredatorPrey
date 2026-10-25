@@ -1675,9 +1675,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: PSRO pilot, best responses against a mixture of the population"
-why = "League v2 showed that single main agents cycle: a one-block exploiter beat each of them (gap ≥ 0.78), while a mixture of the main versions is far harder to exploit within the archive (predators ≥ 0.31 against every past prey, best single version 0.04). The pilot fills the league v2 population's cross-play matrix (about 40 missing matchups), solves each role's meta-Nash mixture, and trains one exploiter per role against the other role's mixture. If the mixture's gap is far below the single agents' 0.78-0.97, PSRO iterations follow overnight."
-cost = "a PLAN for review first; then about 15 min of evaluations and 1 h of training"
+title = "Stage 8b: is the league's opponent pool already the best mix? (running)"
+why = "PSRO trains against a mix over the population that is computed by solving the game on the table of every version against every version. League v2's pool is also a mix, chosen by how hard each opponent is for the learner. A good mix stays hard to beat even for a learner trained one block only against it. Every pool of league v2 was beaten that way: the round-4 predators catch their pool at 0.79, and the round-4 prey is caught by its pool at only 0.08. Two challengers now train one block each from the same starts against the computed best mixes; if those resist clearly better, the PSRO pilot follows."
+cost = "running since 2026-10-25 19:25, about 1.4 h (artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81)"
 
 [[next]]
 title = "Lagrangian crash constraint"

@@ -1996,3 +1996,42 @@ are those of the predator (higher = better predator, lower = better prey).
     2. Train one exploiter per role against the other's mixture (about 1 h). Compare the mixture's gap with the
        single agents' 0.78-0.97.
   - Evidence: `RESULTS.md`, `analysis/`, `league_v2/`.
+
+## 2026-10-25: Is league v2's opponent pool already the best mix? (pre-registered)
+
+- **User:** "i thought with the pool we already keep the best mix (how i understand psro). pls test that".
+- **Question:**
+  - PSRO plays a mix over its population that is computed by solving the game on the table of every version against
+    every version, and new versions train against that mix.
+  - League v2's pool is also a mix: the latest opponent at 25% and the 8 versions the learner currently loses to most
+    at 75%.
+  - Is the pool as hard to beat as the computed best mix?
+  - A good mix stays hard to beat even for a learner trained one block only against it.
+- **Known before the run** (league v2's evaluations): every pool was beaten after one block of training against it.
+  - The predators' catch against the four prey pools rose to 0.58, 0.30, 0.55 and 0.79.
+  - The four predator pools caught the prey that trained against them at 0.06, 0.05, 0.05 and 0.08.
+  - Round 4: P4 catches its pool at 0.791 and the pool catches Y4 at 0.084, so the pool gap is 0.708.
+- **Design:**
+  - **The best mixes**, computed before the run from league v2's evaluations (regret matching+ over each role's 5
+    main versions, against every archived opponent with complete data):
+    - predators: P1 0.36, P4 0.33, P3 0.18, T 0.08, P2 0.05 (every archived prey but g2 caught at ≥ 0.301);
+    - prey: L3prey 0.49, Y1 0.31, Y4 0.20 (caught at ≤ 0.386 by every archived predator).
+  - **Two challengers with the starts and budget of P4 and Y4:**
+    - BP: P3 + one block against the prey mix;
+    - BY: Y3 + one block against the predator mix;
+    - block seeds 81901 and 81902.
+  - **Evaluations:** each challenger against every member of both mixes, the best mix's and the round-4 pool's
+    (512 episodes, mean actions).
+- **Decision:** best-mix gap = BP against the prey mix − the predator mix against BY.
+  - ≤ 0.508 (the pool gap − 0.2): "the pool is not the best mix". Next: the PSRO pilot.
+  - Below 0.908: "no clear difference".
+  - Otherwise: "the pool resists better".
+  - Reported without a bar: the transfer between the mixes. P4 catches the best prey mix at 0.381 (P3: 0.386). The
+    best predator mix catches Y4 at 0.401 (Y3: 0.301).
+- **Code:** the recipe backend, unchanged since da3e56a (frozen copy), and the driver `run_mix_test.py`. A dry run
+  against a fake backend checked:
+  - the composed starts and the pool shares (0.51 with 2 policies, 0.64 with 4);
+  - the block checks and the evaluation names;
+  - resuming and the decision.
+- **Start:** 2026-10-25 19:25; about 1.4 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81/`.
