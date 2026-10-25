@@ -1152,6 +1152,7 @@ result = """
 - Cross-play of the main versions: each beats one or two of the other role's versions. P3 catches Y1 and Y3 (0.74, 0.90) but Y2 and Y4 at ≤ 0.16; P4 the reverse (0.97 against ≤ 0.07).
 - Every phase gained against its pool and lost against the rest within one block. In the last predator phase: +0.43 inside, −0.45 outside (Y3 0.90 → 0.02).
 - In-sample meta-game: a mixture of the 5 main predators catches every archived prey (but the self-crashing g2) at ≥ 0.31, the best single one at 0.04. A prey mixture is caught at ≤ 0.38 by all 34 predator versions, the best single prey at up to 0.69.
+- Added later: counting a prey's own crashes as losses, the gap was 0.50 → 0.76 → 0.80 → 0.98. The cycle-1 prey exploiter escaped mostly by crashing (42 % of its episodes).
 """
 why = """
 Hard prioritization fills the pool with the opponents a role currently loses to. Versions it beats leave the top 8,
@@ -1165,6 +1166,30 @@ evidence = ["artifacts/isaac/experiments/2026-10-25_league_v2_seed81/"]
 [[chapter.stage.video]]
 path = "isaac/experiments/2026-10-25_league_v2_seed81/league_v2/videos/final/rl-video-step-0.mp4"
 label = "the final pair: fast one-sided catches (camera D; the 3D replay shows it better)"
+
+[[chapter.stage]]
+id = "pool-vs-best-mix-seed81"
+title = "Stage 8b: is the league's opponent pool already the best mix?"
+dates = "2026-10-25"
+verdict = "partial"
+takeaway = "On the predator side, a mix computed by solving the game on the cross-play table resisted one block of training clearly better than the league's pool (catch 0.64 against 0.79). The prey half failed: the prey challenger crashed instead of escaping, and a catch-only measure counted that as escape."
+metric = "predators after one block: best prey mix 0.39 → 0.64 · league pool 0.16 → 0.79 · prey challenger's own crashes 0.04 → 0.37"
+goal = "The user's question: is the league's opponent pool (the newest opponent 25 %, the 8 it loses to most 75 %) already PSRO's best mix? A good mix stays hard to beat even for a learner trained only against it. From the same starts as the league's round-4 versions, one block each against the computed best mixes; pre-registered bar: best-mix gap ≤ pool gap − 0.2."
+result = """
+- Pre-registered verdict "the pool is not the best mix" (gap 0.423 ≤ 0.508), but only the predator half is valid.
+- Predators: one block against the best prey mix lifted the catch 0.39 → 0.64 (outcome return 49 → 94); against the pool, the league's round-4 predators went 0.16 → 0.79 (9 → 145). Training against one mix did not help against the other.
+- Prey: the challenger did not learn (pillar crashes in training 0.41 → 0.43, its return −17 → −57). Its lower caught rate in the evaluation is crashing on its own (0.04 → 0.37); counting crashes, it was lost more often than its start (0.35 → 0.65).
+"""
+why = """
+The league's pool is a training plan for the current learner (the opponents it loses to now), not a solution of the
+game: opponents it already beats drop out, and one block of training beats the rest. PSRO's mix is solved on the full
+table of every version against every version and is played as the answer. Neither is unbeatable: one block still
+gained 0.26 against the best mix, mostly by countering its largest member, which is why PSRO keeps adding counters and
+re-solving. The failed prey half exposed a blind spot that also inflated league v2's round-1 gap: a catch-only
+measure rewards a prey that crashes on its own.
+"""
+experiment = "2026-10-25_pool_vs_best_mix_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81/"]
 
 # =========================================================================================== featured videos
 
@@ -1219,6 +1244,12 @@ title = "The pillar dance"
 note = "Both roles see the pillar relations: the prey dodges engaged predators around pillars at close range, with time-outs back at 0.126 but the predators only 1.8 m away."
 
 # =========================================================================================== lessons
+
+[[lesson]]
+verdict = "failed"
+what = "A catch-only measure for challengers and exploitability gaps."
+why = "A prey that crashes on its own is not caught, so a catch-only measure counts it as an escape. The prey challenger against the best predator mix crashed in 37 % of its episodes (its start: 4 %) and looked improved; counting crashes, it was lost more often than before (0.35 → 0.65). League v2's round-1 gap was overstated the same way (0.85; 0.50 counting crashes). Count crashes as prey losses, and give every challenger the main agents' prey-lost check."
+evidence = ["artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81/RESULTS.md"]
 
 [[lesson]]
 verdict = "failed"
@@ -1675,9 +1706,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: is the league's opponent pool already the best mix? (running)"
-why = "PSRO trains against a mix over the population that is computed by solving the game on the table of every version against every version. League v2's pool is also a mix, chosen by how hard each opponent is for the learner. A good mix stays hard to beat even for a learner trained one block only against it. Every pool of league v2 was beaten that way: the round-4 predators catch their pool at 0.79, and the round-4 prey is caught by its pool at only 0.08. Two challengers now train one block each from the same starts against the computed best mixes; if those resist clearly better, the PSRO pilot follows."
-cost = "running since 2026-10-25 19:23, about 1.4 h (artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81)"
+title = "Stage 8b: redo the prey half of the mix test, then the PSRO pilot"
+why = "The predator half showed that a mix computed from the cross-play table resists one block of training better than the league's pool. The prey challenger failed (it crashed instead of escaping), so the prey half is open. Redo it with a new seed and a rule that counts crashes as losses; then the PSRO pilot: fill the table of all league v2 versions against each other, solve the mixes, train new versions against them, and repeat, with the crash-inclusive measure throughout."
+cost = "about 35 min for the prey half; a PLAN for review first"
 
 [[next]]
 title = "Lagrangian crash constraint"

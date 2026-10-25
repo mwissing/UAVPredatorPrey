@@ -2035,3 +2035,25 @@ are those of the predator (higher = better predator, lower = better prey).
   - resuming and the decision.
 - **Start:** 2026-10-25 19:23; about 1.4 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81/`.
+- **Result** (19:23-20:31): by the pre-registered rule "the pool is not the best mix" (best-mix gap 0.423, bar
+  ≤ 0.508). But only the predator half is valid.
+  - **Predators (valid):**
+    - One block against the best prey mix lifted the catch from 0.386 to 0.642 (outcome return 49 → 94).
+    - Against the pool, the league's round-4 predators went from 0.157 to 0.791 (9 → 145).
+    - The block mostly learned one counter, against the mix's largest member: start prey 0.26 → 0.70; round-4 prey
+      only 0.14 → 0.23.
+    - No transfer: P4 against the best mix 0.381 (P3 0.386); the challenger against the pool 0.189 (P3 0.157).
+  - **Prey (invalid):**
+    - The challenger did not learn: pillar crashes in training 0.41 → 0.43, return −17 → −57. The league's Y4, from
+      the same start, cut its crashes 0.30 → 0.08.
+    - Its lower caught rate in the evaluation (0.301 → 0.218) is crashing on its own (0.039 → 0.368). Counting
+      crashes as losses, it was lost more often than its start (0.347 → 0.649).
+  - **The same blind spot in league v2:**
+    - Counting prey crashes as losses, league v2's gap was 0.50 → 0.76 → 0.80 → 0.98, against 0.85 → 0.69 → 0.92
+      → 0.97 by catch.
+    - The cycle-1 prey exploiter escaped mostly by crashing (unforced 0.42).
+    - The verdict "not converged" stands (addendum in league v2's `RESULTS.md`).
+  - **Next (user decision):**
+    1. Redo the prey half with a new seed and a rule that counts crashes as losses (about 35 min).
+    2. Then the PSRO pilot.
+  - Evidence: `RESULTS.md`, `summary.txt`, `mix_test/`.
