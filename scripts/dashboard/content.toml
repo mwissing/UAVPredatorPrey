@@ -1630,9 +1630,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: league v2 on single main agents (proposed)"
-why = "The two-counter test passed: one predator holds the orbit and the consolidation counters (0.58 / 0.41) against fixed prey, so league v2 can use single main agents. Now the prey has to answer. Both roles alternate against the other's whole history with prioritized pools: self-crashing versions such as g2 are dropped, and versions without progress fall back to the uniform weight. Exploiters for both roles join the league, the latest opponent is in every gate, and the stop rule tests the gap between the two best responses instead of a fixed bar. Start: the two-counter predators and the league's final prey."
-cost = "a PLAN for review first; then overnight scale (about 3 h per cycle, 3 or more cycles)"
+title = "Stage 8b: league v2 on single main agents (running)"
+why = "The two-counter test showed that one predator can hold every prey family's counter, but against a frozen prey. In league v2 both roles answer. Each cycle trains the prey, then the predators, one block each, against the latest opponent (25 %) and a prioritized pool over the other role's whole history (75 %). Self-crashing versions are dropped and versions without progress capped. Then one-block exploiters of both roles test the main pair and join the league. The run stops when the gap between the two best responses (a one-block NashConv) is ≤ 0.2, or after 4 cycles."
+cost = "running since 2026-10-25 08:49, at most about 10.5 h (artifacts/isaac/experiments/2026-10-25_league_v2_seed81)"
 
 [[next]]
 title = "Lagrangian crash constraint"

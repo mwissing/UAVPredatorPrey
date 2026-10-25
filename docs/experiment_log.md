@@ -1918,3 +1918,43 @@ are those of the predator (higher = better predator, lower = better prey).
     - pool rules from this run: drop self-crashing versions, and a version whose catch has not moved for two blocks
       falls back to the uniform weight.
   - Evidence: `RESULTS.md`, `two_counter/`.
+
+## 2026-10-25: League v2, do two main agents with prioritized pools and exploiters approach an equilibrium? (pre-registered)
+
+- **User:** "do the scale run", to the two-counter test's proposal.
+- **Question:**
+  - The two-counter test showed that one predator can hold the counters to every prey family when it trains against
+    the prey it loses to. But the prey stayed frozen.
+  - Both main agents now train in turn against the other role's whole history, with prioritized pools, and exploiters
+    of both roles join the league.
+  - Does the main pair approach an equilibrium, i.e. a small gap between the two best responses?
+- **Design:**
+  - **Start:** T (the two-counter predators) and the league's final prey, each with its Adam state.
+  - **Archives:** 30 predator versions (the league's 28, E and T) and 15 prey versions. Every new main version and
+    every exploiter joins them.
+  - **Cycle, at most 4:**
+    1. a prey block, then a predator block, 1200 updates each. Each faces the latest opponent in 25% of the envs; in
+       75%, a pool of the 8 versions with the largest weights, (1 − catch)² for the predators and catch² for the prey;
+    2. gates against every archived opponent version (512 episodes);
+    3. one-block exploiters from each main agent, against only the frozen other one;
+    4. a cycle point.
+  - **Pool rules from the two-counter test:**
+    - self-crashing prey versions are dropped (g2);
+    - a version without progress over the role's last two phases is capped at weight 0.25 (g8 from the start).
+  - **Gap:** BR_pred − BR_prey, the predator exploiter's catch against the main prey minus the main predator's catch
+    against the prey exploiter. It is a NashConv with one-block best responses.
+- **Stop:** the first cycle with a gap ≤ 0.2, or after 4 cycles.
+- **Decision:**
+  - **Pass:** gap ≤ 0.2, with the guards at the final point (drones lost ≤ 0.37, prey lost ≤ 0.33, duel with v5
+    ≥ −10). Verdict: "the league approaches an equilibrium". Next: the anchor gate for the final pair.
+  - **Otherwise:** "not converged within 4 cycles", with a reading:
+    - shrinking (the gap fell by at least 0.1): next, more cycles;
+    - not shrinking: next, a population of main agents;
+    - and which side is more exploitable.
+- **Code:** the recipe backend, unchanged since da3e56a (frozen copy), driver `run_league_v2.py` in the experiment
+  directory. A dry run against a fake backend checked:
+  - the pools and their two rules, and the composed start checkpoints;
+  - the block checks and the gap stop;
+  - resuming after an interruption, and the decision.
+- **Start:** 2026-10-25 08:49; at most about 10.5 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-25_league_v2_seed81/`.
