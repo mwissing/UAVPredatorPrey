@@ -1958,3 +1958,41 @@ are those of the predator (higher = better predator, lower = better prey).
   - resuming after an interruption, and the decision.
 - **Start:** 2026-10-25 08:49; at most about 10.5 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-25_league_v2_seed81/`.
+- **Result** (08:49-18:35, all 4 cycles; the gap stop never fired): the pre-registered verdict is "not converged within
+  4 cycles". The reading is "not shrinking" (gap 0.846 → 0.691 → 0.918 → 0.971); at the last cycle the main predator
+  is the more exploitable side. All guards pass at the final point: drones lost 0.027, prey lost 0.035, duel with v5
+  −5.9.
+  - **Exploiters:** a one-block exploiter always found a counter. In every cycle at least one moved the catch by
+    ≥ 0.69.
+    - Cycle 2's prey exploiter got worse than its start (0.195 against Y2's 0.102), so with the best known
+      responses the gap was ≥ 0.78 in every cycle.
+  - **The main agents cycle:** each version beats one or two of the other role's versions, rock-paper-scissors at the
+    level of policies.
+    - T catches L3prey at 0.69 and the Y versions at ≤ 0.16.
+    - P3 catches Y1 and Y3 (0.74, 0.90) and Y2 and Y4 at ≤ 0.16; P4 the reverse (0.97 / 0.97 against ≤ 0.07).
+  - **The pools explain the forgetting:**
+    - Each phase gained against its pool and lost against the rest, within one block. The predators' last phase
+      gained +0.43 in catch inside its pool and lost 0.45 outside it (Y3 0.90 → 0.02, c4 0.64 → 0.01).
+    - Hard top-8 prioritization drops what the learner beats, which then comes back after it is forgotten:
+      the predators against the consolidation prey went 0.41 → 0.62 → 0.29 → 0.56 → 0.02.
+  - **g8 is catchable:** with 13% of the envs after its no-progress cap lapsed, P4 caught it at 0.85 (every earlier
+    main predator ≤ 0.04).
+  - **Mixtures (in-sample meta-game over measured matchups):**
+    - A mixture of the 5 main predators catches every archived prey version but g2 at ≥ 0.305; the best single one
+      reaches only 0.043.
+    - A mixture of the 5 main prey is caught by every one of the 34 predator versions at ≤ 0.383; the best single
+      one, at up to 0.693.
+    - Fictitious play converges in the average, not in the last iterate. The gap measured last iterates.
+  - **Final pair:**
+    - Own catch 0.966 in 2.4 s, the predators' best case since they trained last.
+    - A hovering prey is caught only 0.763 of the time (T 0.984).
+    - The duel with v5 fell from +92 (C2) to −6, because v5's predators beat the newer prey (R 68.4 against Y4).
+    - PPO was healthy (KL ≤ 0.0095, explained variance 0.48-0.78).
+  - **Caveat:** in cycle 2, training (sampled actions) and gates (mean action) disagreed. XY2 improved in training
+    and got worse at the gate.
+  - **Next (user decision, pre-registered "a population of main agents"):** a PSRO pilot.
+    1. Fill the league v2 population's cross-play matrix (about 40 matchups, about 15 min) and solve the meta-Nash
+       mixture.
+    2. Train one exploiter per role against the other's mixture (about 1 h). Compare the mixture's gap with the
+       single agents' 0.78-0.97.
+  - Evidence: `RESULTS.md`, `analysis/`, `league_v2/`.

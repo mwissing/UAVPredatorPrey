@@ -158,6 +158,12 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "league-v2-final"
+title = "League v2, final pair: the last predator against the last prey (own matchup)"
+note = "After 4 cycles of prioritized pools and exploiters. The predators trained last, against this prey, and catch it in 2.4 s on average: one-sided approaches convert at 0.55 within 1 s, pincers at 0.34. Catch 0.966, no time-outs, 0.03 drones lost per episode. The same predators catch the cycle-3 prey at 0.02. Both crashed-drone masks on."
+path = "isaac/experiments/2026-10-25_league_v2_seed81/league_v2/evals/final_own.npz"
+
+[[replay]]
 id = "two-counter-T"
 title = "Two-counter predators against the league's final prey (own matchup)"
 note = "The exploiter after 2,400 more updates against the final prey and the past prey it caught least (prioritized fictitious self-play). The same one-sided pressure on the orbiting prey, a little closer and with fewer crashes near the pillar: catch 0.704, time-outs 0.187, 0.14 drones lost per episode. Compare with the exploiter. Both crashed-drone masks on."
@@ -1133,6 +1139,33 @@ g8 did teach caution: drones lost fell against every prey family.
 experiment = "2026-10-25_two_counter_test_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-25_two_counter_test_seed81/"]
 
+[[chapter.stage]]
+id = "league-v2-seed81"
+title = "Stage 8b: league v2, two main agents with prioritized pools and exploiters"
+dates = "2026-10-25"
+verdict = "failed"
+takeaway = "Four cycles did not bring the main pair closer to an equilibrium: a one-block exploiter always found a counter (gap 0.85 → 0.97). The main versions cycle like rock-paper-scissors, and the hard top-8 pools made each phase forget whatever they dropped. A mixture of the main versions is far harder to exploit than any single one."
+metric = "gap between one-block best responses 0.85 → 0.69 → 0.92 → 0.97 (bar ≤ 0.2) · predator mixture vs best single version 0.31 vs 0.04"
+goal = "Do two single main agents converge when both train against the other role's whole history? Each cycle trains the prey, then the predators, one block each, against the latest opponent (25 %) and the 8 archived versions they lose to most (75 %, weighted (1 − win)²). Then gates against every archived version, and one-block exploiters of both roles that join the league. Stop at a gap ≤ 0.2 or after 4 cycles."
+result = """
+- Pre-registered verdict: not converged within 4 cycles, reading "not shrinking". With the best known responses the gap was ≥ 0.78 in every cycle. The guards passed at the final point: drones lost 0.03, prey lost 0.04, duel with v5 −6.
+- Cross-play of the main versions: each beats one or two of the other role's versions. P3 catches Y1 and Y3 (0.74, 0.90) but Y2 and Y4 at ≤ 0.16; P4 the reverse (0.97 against ≤ 0.07).
+- Every phase gained against its pool and lost against the rest within one block. In the last predator phase: +0.43 inside, −0.45 outside (Y3 0.90 → 0.02).
+- In-sample meta-game: a mixture of the 5 main predators catches every archived prey (but the self-crashing g2) at ≥ 0.31, the best single one at 0.04. A prey mixture is caught at ≤ 0.38 by all 34 predator versions, the best single prey at up to 0.69.
+"""
+why = """
+Hard prioritization fills the pool with the opponents a role currently loses to. Versions it beats leave the top 8,
+are forgotten within the block and return at the next gate. The pool chases the learner's own forgetting, like a
+bang-bang controller with a one-phase delay. Underneath is game theory: fictitious play converges only in the average
+of the strategies, never in the last iterate, and the gap measured last iterates. What can converge is the population
+with a mixture over it; PSRO trains each new best response against that mixture.
+"""
+experiment = "2026-10-25_league_v2_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-25_league_v2_seed81/"]
+[[chapter.stage.video]]
+path = "isaac/experiments/2026-10-25_league_v2_seed81/league_v2/videos/final/rl-video-step-0.mp4"
+label = "the final pair: fast one-sided catches (camera D; the 3D replay shows it better)"
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1186,6 +1219,18 @@ title = "The pillar dance"
 note = "Both roles see the pillar relations: the prey dodges engaged predators around pillars at close range, with time-outs back at 0.126 but the predators only 1.8 m away."
 
 # =========================================================================================== lessons
+
+[[lesson]]
+verdict = "failed"
+what = "Hard top-8 prioritized pools for a single main agent per role."
+why = "In league v2 every phase gained against its 8 pool opponents and lost against everything else within one block (last predator phase: +0.43 inside, −0.45 outside). Versions the learner beats get a small weight, leave the pool, are forgotten and come back: the pool chases the forgetting. AlphaStar samples from all past players and adds a share for forgotten ones."
+evidence = ["artifacts/isaac/experiments/2026-10-25_league_v2_seed81/RESULTS.md"]
+
+[[lesson]]
+verdict = "open"
+what = "In a cyclic game, judge the population's mixture, not the latest agent."
+why = "Fictitious play converges only in the average strategy. League v2's main versions cycle like rock-paper-scissors, and a one-block exploiter beat each of them (gap ≥ 0.78). Within the archive, a mixture of the 5 main predators guarantees catch ≥ 0.31 against every past prey (best single: 0.04). Open until an exploiter trained against the mixture confirms it."
+evidence = ["artifacts/isaac/experiments/2026-10-25_league_v2_seed81/RESULTS.md"]
 
 [[lesson]]
 verdict = "worked"
@@ -1630,9 +1675,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: league v2 on single main agents (running)"
-why = "The two-counter test showed that one predator can hold every prey family's counter, but against a frozen prey. In league v2 both roles answer. Each cycle trains the prey, then the predators, one block each, against the latest opponent (25 %) and a prioritized pool over the other role's whole history (75 %). Self-crashing versions are dropped and versions without progress capped. Then one-block exploiters of both roles test the main pair and join the league. The run stops when the gap between the two best responses (a one-block NashConv) is ≤ 0.2, or after 4 cycles."
-cost = "running since 2026-10-25 08:49, at most about 10.5 h (artifacts/isaac/experiments/2026-10-25_league_v2_seed81)"
+title = "Stage 8b: PSRO pilot, best responses against a mixture of the population"
+why = "League v2 showed that single main agents cycle: a one-block exploiter beat each of them (gap ≥ 0.78), while a mixture of the main versions is far harder to exploit within the archive (predators ≥ 0.31 against every past prey, best single version 0.04). The pilot fills the league v2 population's cross-play matrix (about 40 missing matchups), solves each role's meta-Nash mixture, and trains one exploiter per role against the other role's mixture. If the mixture's gap is far below the single agents' 0.78-0.97, PSRO iterations follow overnight."
+cost = "a PLAN for review first; then about 15 min of evaluations and 1 h of training"
 
 [[next]]
 title = "Lagrangian crash constraint"
