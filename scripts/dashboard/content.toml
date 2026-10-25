@@ -1677,7 +1677,7 @@ cost = "a design proposal for review first; then env + observation changes (inva
 [[next]]
 title = "Stage 8b: is the league's opponent pool already the best mix? (running)"
 why = "PSRO trains against a mix over the population that is computed by solving the game on the table of every version against every version. League v2's pool is also a mix, chosen by how hard each opponent is for the learner. A good mix stays hard to beat even for a learner trained one block only against it. Every pool of league v2 was beaten that way: the round-4 predators catch their pool at 0.79, and the round-4 prey is caught by its pool at only 0.08. Two challengers now train one block each from the same starts against the computed best mixes; if those resist clearly better, the PSRO pilot follows."
-cost = "running since 2026-10-25 19:25, about 1.4 h (artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81)"
+cost = "running since 2026-10-25 19:23, about 1.4 h (artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81)"
 
 [[next]]
 title = "Lagrangian crash constraint"

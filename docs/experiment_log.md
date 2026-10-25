@@ -2033,5 +2033,5 @@ are those of the predator (higher = better predator, lower = better prey).
   - the composed starts and the pool shares (0.51 with 2 policies, 0.64 with 4);
   - the block checks and the evaluation names;
   - resuming and the decision.
-- **Start:** 2026-10-25 19:25; about 1.4 h.
+- **Start:** 2026-10-25 19:23; about 1.4 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81/`.
