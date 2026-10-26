@@ -2057,3 +2057,36 @@ are those of the predator (higher = better predator, lower = better prey).
     1. Redo the prey half with a new seed and a rule that counts crashes as losses (about 35 min).
     2. Then the PSRO pilot.
   - Evidence: `RESULTS.md`, `summary.txt`, `mix_test/`.
+
+## 2026-10-26: The pool-vs-best-mix test's prey half, run again (pre-registered)
+
+- **User:** "yes do 1 and 2" (1: this redo, 2: the PSRO pilot, which follows in its own entry).
+- **Why:** the mix test's prey challenger BY failed to learn.
+  - It crashed into pillars in about 42% of its training games from start to end, and on its own in 37% of the
+    evaluation episodes.
+  - The catch-only measure counted those crashes as escapes.
+- **The measure from now on: prey lost = caught + crashed** (pillar or arena).
+  - Unforced crashes = prey lost − predator success.
+  - Counting crashes, the round-4 pool gap is 0.838 (P4 against its pool) − 0.117 (the pool against Y4) = 0.721.
+  - BP, the mix test's predator challenger, loses the best prey mix's prey at 0.728.
+- **Design:**
+  - BY2 = Y3 (with its Adam state) + one prey block against the unchanged best predator mix (P1 0.36 frozen; pool P4
+    0.33, P3 0.18, T 0.08, P2 0.05; share 0.64).
+  - Block seed 81903.
+  - BY2 is evaluated against the 11 predator versions of both mixes (512 episodes, mean actions).
+- **Decision:**
+  - **Validity first:** BY2's unforced crashes against the best mix must be ≤ 0.10 (Y3 0.039, BY 0.368).
+    Otherwise "the prey challenger failed again", and the PSRO pilot replaces the proposed Y4 arm.
+  - **Then the best-mix gap counting crashes** = 0.728 − BY2's lost against the best mix:
+    - ≤ 0.521: "the pool is not the best mix";
+    - below 0.921: "no clear difference".
+  - **Reported without a bar:**
+    - the prey half alone (BY2 against the best mix next to Y4's 0.117, margin 0.1);
+    - training health next to BY and Y4;
+    - the catch-only gap.
+- **Code:**
+  - The recipe backend is unchanged (frozen copy); the driver is `run_prey_redo.py`.
+  - A dry run against a fake backend checked the start (P1 + P1 + Y3), seed 81903, the pool (0.64, 4 policies),
+    the 11 evaluation names, resuming, and the three verdicts.
+- **Start:** 2026-10-26 16:05; about 35 min.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-26_prey_half_redo_seed81/`.
