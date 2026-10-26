@@ -2090,3 +2090,49 @@ are those of the predator (higher = better predator, lower = better prey).
     the 11 evaluation names, resuming, and the three verdicts.
 - **Start:** 2026-10-26 15:59; about 35 min.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-26_prey_half_redo_seed81/`.
+
+## 2026-10-26: PSRO pilot, does training against the computed best mix close the gap? (pre-registered)
+
+- **User:** "yes do 1 and 2" (2: the PSRO pilot, after the prey half's redo).
+- **Question:**
+  - League v2 trained its newest versions against a pool and played the newest version. One block of training beat
+    those versions far: the gap counting crashes was 0.50 → 0.76 → 0.80 → 0.98.
+  - PSRO plays the mix that is solved from the table of every version against every version, and trains new versions
+    against that mix.
+  - Does the gap of PSRO's mix fall over iterations?
+- **Payoff:** prey lost = caught + crashed (pillar or arena), 512 episodes per cell (seed 42, mean actions). Earlier
+  evaluations of a pair are reused (pairs measured twice agree exactly).
+- **Starting population:**
+  - predators T, P1-P4, XP1-XP4, BP;
+  - prey L3prey, Y1-Y4, XY1-XY4, BY, BY2 (if step 1 produced it).
+  - The older archive is left out (about 4 h of evaluations).
+- **One iteration (at most 4):**
+  - Solve the table with regret matching+. The mixes are rounded to hundredths, with at most 9 members.
+  - Train one block per role from the newest version with weight ≥ 0.05 in its own mix (Adam state kept) against
+    the other role's mix. The largest member is the frozen opponent, the rest the pool.
+  - Block seeds 81911/81912, 81921/81922, …
+  - Add the new versions (PP_k, PY_k) and fill the table.
+- **The gap of iteration k** = max(PP_k against q_k, best old predator against q_k) − min(p_k against PY_k, p_k
+  against its hardest old prey).
+- **Validity of an iteration:** PY_k's unforced crashes ≤ 0.10, and PP_k's drones lost ≤ 0.37 per episode against
+  the mix.
+- **Stop:** a valid gap ≤ 0.2, or 4 iterations.
+- **Decision:**
+  - "PSRO converges for one-block learners" (a valid gap ≤ 0.2);
+  - "PSRO narrows the gap" (last valid ≤ first valid − 0.2);
+  - "no narrowing in the pilot" (otherwise, with ≥ 2 valid iterations);
+  - "undecided".
+- **Reported:**
+  - the gap series next to league v2's;
+  - the gains per side;
+  - whether the new versions enter the next mix;
+  - training health;
+  - iteration 0 (the mix tests' challengers);
+  - the final mixes.
+- **Code:**
+  - The recipe backend is unchanged (frozen copy); the driver is `run_psro_pilot.py`.
+  - A dry run against a fake backend checked the population and table reuse, the solver (it reproduces league v2's
+    5 × 5 mix), the starts (a new version with no weight is skipped), the composes and pool shares, the block checks,
+    the stop rule, an invalid iteration, resuming, a single-member mix (share 0, no pool) and the verdicts.
+- **Start:** automatically after step 1 ends (about 16:25); about 5 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-26_psro_pilot_seed81/`.
