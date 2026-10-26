@@ -2090,6 +2090,19 @@ are those of the predator (higher = better predator, lower = better prey).
     the 11 evaluation names, resuming, and the three verdicts.
 - **Start:** 2026-10-26 15:59; about 35 min.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-26_prey_half_redo_seed81/`.
+- **Result** (15:59-16:31): **"the prey challenger failed again"**. The prey half of the question stays open.
+  - BY2 crashed on its own in 0.30 of its games against the best predator mix (bar ≤ 0.10; Y3 0.04). Counting
+    crashes, it was lost in 0.77 (Y3 0.35); against P4, which almost never beats Y3 (0.07), it was lost in 0.63.
+  - Training: pillar crashes 0.32 → 0.42 against every member of the mix, and the prey's return fell −4 → −81. The
+    entropy still fell (−0.56 → −1.18), so the noise-free policy itself crashes more.
+  - Every league v2 prey block cut its caught rate and lengthened its games in training. In evaluation, one of them
+    also crashed on its own: XY1, against P1 alone, at 0.42. P1 is among the opponents of all three failures; Y2,
+    with P1 at 25%, did not fail.
+  - Not a reward trick (caught −200, crash −300 for the prey).
+  - Not the start checkpoint: compose copies the prey's whole block from Y3, as in the league's Y4 block.
+  - The cause is open. The PSRO pilot (running since 16:31) has the same risk; its validity check marks such an
+    iteration. If its prey learners break too, the next diagnostic is one prey block from Y4 against the same mix.
+  - Evidence: `RESULTS.md`, `summary.txt`, `redo/`.
 
 ## 2026-10-26: PSRO pilot, does training against the computed best mix close the gap? (pre-registered)
 
@@ -2136,16 +2149,21 @@ are those of the predator (higher = better predator, lower = better prey).
     the stop rule, an invalid iteration, resuming, a single-member mix (share 0, no pool) and the verdicts.
 - **Start:** automatically after step 1 ends (about 16:25); about 5 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-26_psro_pilot_seed81/`.
-- **Result** (15:59-16:31): **"the prey challenger failed again"**. The prey half of the question stays open.
-  - BY2 crashed on its own in 0.30 of its games against the best predator mix (bar ≤ 0.10; Y3 0.04). Counting
-    crashes, it was lost in 0.77 (Y3 0.35); against P4, which almost never beats Y3 (0.07), it was lost in 0.63.
-  - Training: pillar crashes 0.32 → 0.42 against every member of the mix, and the prey's return fell −4 → −81. The
-    entropy still fell (−0.56 → −1.18), so the noise-free policy itself crashes more.
-  - Every league v2 prey block cut its caught rate and lengthened its games in training. In evaluation, one of them
-    also crashed on its own: XY1, against P1 alone, at 0.42. P1 is among the opponents of all three failures; Y2,
-    with P1 at 25%, did not fail.
-  - Not a reward trick (caught −200, crash −300 for the prey).
-  - Not the start checkpoint: compose copies the prey's whole block from Y3, as in the league's Y4 block.
-  - The cause is open. The PSRO pilot (running since 16:31) has the same risk; its validity check marks such an
-    iteration. If its prey learners break too, the next diagnostic is one prey block from Y4 against the same mix.
-  - Evidence: `RESULTS.md`, `summary.txt`, `redo/`.
+- **Result** (16:31-21:08, all 4 iterations): **"no narrowing in the pilot"**. Valid gaps 0.390 (iteration 1) and
+  0.425 (iteration 4); iterations 2 (0.129) and 3 (0.450) were not valid.
+  - Gains per round, predator / prey: +0.19 / +0.20, +0.00 / +0.12, +0.34 / +0.11, +0.21 / +0.21. Round 3's sound
+    predator learner alone beat the mix by 0.34, so that round was not converged either.
+  - Game value of the population 0.47 → 0.48 → 0.40 → 0.44 → 0.42 (final). New versions entered every next mix
+    (except the broken PP2). Final mixes: predators PP4 35, P4 35, PP1 30; prey PY4 39, Y2 37, Y1 24.
+  - Two escape families: only P4 and XP2 (partly XP4) catch the Y2 family, and they catch little else. P4 and Y2 are
+    in every mix. All four pilot predators gave Y2 up in training (catch 0.31 → 0.06, 0.23 → 0.04, 0.26 → 0.06,
+    0.33 → 0.17) while learning the newest prey.
+  - Learners: PP2 broke (1.20 drones lost per game, drone crashes against Y2 0.14 → 0.87; trained against PY1 54 /
+    Y2 46). PY2 and PY3 crashed on their own (0.19, 0.15) at a similar rate against every predator but improved the
+    prey's result and their own return; PY4 brought it back to 0.04 with the gains kept. The crash check rejects
+    this risky style as well as real breakage.
+  - League v2's newest versions were beaten by more (0.76-0.98 in rounds 2-4), but a mix is expected to be harder to
+    beat than a single version. PSRO's mixes did not get harder to beat.
+  - Next (proposals): can one predator learn both families (PP4, three blocks against Y2 50 / PY4 50, about 2 h);
+    more PSRO iterations (about 7 h for six); the final mix against the older archive (about 30 min).
+  - Evidence: `RESULTS.md`, `summary.txt`, `psro/`.

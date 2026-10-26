@@ -1214,6 +1214,28 @@ pilot, whose prey learners also train against computed predator mixes; its valid
 experiment = "2026-10-26_prey_half_redo_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-26_prey_half_redo_seed81/"]
 
+[[chapter.stage]]
+id = "psro-pilot-seed81"
+title = "Stage 8b: PSRO pilot"
+dates = "2026-10-26"
+verdict = "failed"
+takeaway = "Four PSRO iterations did not make the computed mix harder to beat: one block of training still beat it by about 0.4 (valid gaps 0.39 → 0.43). The prey split into two escape families, no predator catches both, and every new predator gave up the Y2 family to catch the newest prey."
+metric = "valid gaps 0.39 → 0.43 (bar ≤ 0.2) · game value 0.47 → 0.42 · gains per side +0.19 / +0.20 in round 1, +0.21 / +0.21 in round 4"
+goal = "PSRO on league v2's versions: solve the table of every version against every version (prey crashes count as losses) for the best mixes, train one new predator and one new prey against the other side's mix, add them, solve again; up to 4 iterations. Pre-registered: converges if a valid gap is ≤ 0.2."
+result = """
+- Pre-registered verdict "no narrowing in the pilot": valid gaps 0.390 (iteration 1) and 0.425 (iteration 4). Iterations 2 (0.13) and 3 (0.45) were not valid; in round 3 the sound predator learner alone beat the mix by 0.34.
+- Only P4 and XP2 catch the Y2 family, and they catch little else. P4 and Y2 are in every mix; all four new predators gave Y2 up in training (for example 0.31 → 0.06) while learning to catch the newest prey.
+- Learners: one broke (PP2: 1.2 drones lost per game, trained against an even split of the two families). Two prey learners crashed on their own (0.19, 0.15) but still improved, and the next block fixed it (0.04).
+- Final mixes: predators PP4 35 %, P4 35 %, PP1 30 %; prey PY4 39 %, Y2 37 %, Y1 24 %. Each holds every version in the population to about 0.42.
+"""
+why = """
+League pools, the computed best mix and PSRO all run into the same specialization: a predator from the family-A
+lineage does not learn the Y2 family in one block, even with Y2 in a third to half of its games. So the bottleneck is
+the learners, not the way opponents are chosen. Four iterations are few for PSRO, and every block had one seed.
+"""
+experiment = "2026-10-26_psro_pilot_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-26_psro_pilot_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1729,9 +1751,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: PSRO pilot (running)"
-why = "Pre-registered 2026-10-26. The table of every league v2 version (and the mix tests' challengers) against every other, prey crashes counted as losses, solved for the best mixes; each iteration trains one new predator and one new prey against the other side's mix, adds them and solves again, up to 4 iterations. Does the gap (how far one block of training beats the mix) fall, unlike league v2's 0.50 → 0.98? Risk: the prey half's redo showed prey learners can break against a computed predator mix; such an iteration does not count. Iteration 1 (17:52): valid, gap 0.39 (predator learner +0.19, prey learner +0.20; league v2's round 1: 0.50). Iteration 2's mixes are a two-by-two cycle: PP1 catches PY1 and P4 catches Y2, but neither predator catches the other's prey. Iteration 2 (18:58): NOT valid, both learners broke. The predator learner lost 1.2 drones per game (bar 0.37; its drones crashed in 87% of training games against Y2), and the prey learner crashed on its own in 19% (bar 0.10). Its gap of 0.13 does not count. Iteration 3 (20:03): NOT valid, gap 0.45. The predator learner was sound and alone beat the prey mix by 0.34 (catches the all-round prey PY2 in every game). The prey learner crashed on its own in 15% (bar 0.10), as did PY2 (19%), against every predator alike, yet both improved the prey's result: a risky flying style rather than a broken learner like BY."
-cost = "running since 16:31; iteration 4 of 4 since 20:03; done about 21:15"
+title = "Stage 8b: can one predator catch both escape families?"
+why = "The PSRO pilot's verdict was no narrowing (2026-10-26): every new predator caught the newest prey and gave up the Y2 family, so P4 and Y2 stay in every mix and the mix stays easy to beat. Proposal: train PP4 for three blocks against Y2 and PY4 at 50 % each, and evaluate against both after every block. The two-counter test showed one predator can hold two counters when trained against the prey it loses to; PP2 broke against a similar even split after one block. Alternatives: more PSRO iterations (about 7 h for six), or the final mix against the older archive (about 30 min)."
+cost = "about 2 h (three blocks plus evaluations); not pre-registered yet, needs the user's go"
 
 [[next]]
 title = "Lagrangian crash constraint"
