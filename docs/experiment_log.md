@@ -2136,3 +2136,16 @@ are those of the predator (higher = better predator, lower = better prey).
     the stop rule, an invalid iteration, resuming, a single-member mix (share 0, no pool) and the verdicts.
 - **Start:** automatically after step 1 ends (about 16:25); about 5 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-26_psro_pilot_seed81/`.
+- **Result** (15:59-16:31): **"the prey challenger failed again"**. The prey half of the question stays open.
+  - BY2 crashed on its own in 0.30 of its games against the best predator mix (bar ≤ 0.10; Y3 0.04). Counting
+    crashes, it was lost in 0.77 (Y3 0.35); against P4, which almost never beats Y3 (0.07), it was lost in 0.63.
+  - Training: pillar crashes 0.32 → 0.42 against every member of the mix, and the prey's return fell −4 → −81. The
+    entropy still fell (−0.56 → −1.18), so the noise-free policy itself crashes more.
+  - Every league v2 prey block cut its caught rate and lengthened its games in training. In evaluation, one of them
+    also crashed on its own: XY1, against P1 alone, at 0.42. P1 is among the opponents of all three failures; Y2,
+    with P1 at 25%, did not fail.
+  - Not a reward trick (caught −200, crash −300 for the prey).
+  - Not the start checkpoint: compose copies the prey's whole block from Y3, as in the league's Y4 block.
+  - The cause is open. The PSRO pilot (running since 16:31) has the same risk; its validity check marks such an
+    iteration. If its prey learners break too, the next diagnostic is one prey block from Y4 against the same mix.
+  - Evidence: `RESULTS.md`, `summary.txt`, `redo/`.

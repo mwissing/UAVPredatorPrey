@@ -1191,6 +1191,29 @@ measure rewards a prey that crashes on its own.
 experiment = "2026-10-25_pool_vs_best_mix_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-25_pool_vs_best_mix_seed81/"]
 
+[[chapter.stage]]
+id = "prey-half-redo-seed81"
+title = "Stage 8b: the mix test's prey half again"
+dates = "2026-10-26"
+verdict = "failed"
+takeaway = "The prey challenger broke again: one block against the computed best predator mix taught it to crash into pillars (on its own in 30 % of its games, its start 4 %). Two seeds of two, so the prey half of the question stays open."
+metric = "crashed on its own against the best mix: start 0.04 → 0.30 (bar ≤ 0.10) · prey lost 0.35 → 0.77"
+goal = "Redo the prey half of the pool-vs-best-mix test with a new seed and a measure that counts every prey crash as a loss, valid only if the new prey crashes on its own in ≤ 10 % of its games against the mix."
+result = """
+- Pre-registered verdict "the prey challenger failed again": crashed on its own 0.30 (bar ≤ 0.10); counting crashes it was lost in 0.77 of its games (its start Y3: 0.35).
+- In training its pillar crashes rose 0.32 → 0.42 against every member of the mix and its own return fell (−4 → −81). The league's block from the same start, against its pool, cut them 0.30 → 0.08.
+- Not a reward trick: being caught costs the prey −200, crashing −300. The noise-free policy itself crashes more.
+- Crashing on its own also appeared once in league v2: the round-1 prey exploiter, trained against P1 alone (0.42). P1 is in all three failures' opponents, but another block with P1 did not fail.
+"""
+why = """
+Every league v2 prey block cut its caught rate and made the games longer in training; both blocks against this mix
+did neither. The start checkpoint is not the cause (the prey's policy, value network, optimizer and normalizers all
+come from Y3, as in the league's successful block). Why this mix breaks the learner is open. It matters for the PSRO
+pilot, whose prey learners also train against computed predator mixes; its validity check marks such an iteration.
+"""
+experiment = "2026-10-26_prey_half_redo_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-26_prey_half_redo_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1706,9 +1729,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: the mix test's prey half again, then the PSRO pilot (running)"
-why = "Both pre-registered (2026-10-26). 1) The prey half again: Y3 + one block against the best predator mix, new seed, every prey crash counted as a loss, valid only if the new prey crashes on its own in ≤ 10 % of its games. 2) The PSRO pilot: the table of every league v2 version (and the challengers) against every other, solved for the best mixes; each iteration trains one new predator and one new prey against the other side's mix, adds them and solves again, up to 4 iterations. Does the gap (how far one block of training beats the mix) fall, unlike league v2's 0.50 → 0.98?"
-cost = "running since 15:59: about 30 min for the prey half, then about 5 h for the pilot (stops early once the gap is ≤ 0.2)"
+title = "Stage 8b: PSRO pilot (running)"
+why = "Pre-registered 2026-10-26. The table of every league v2 version (and the mix tests' challengers) against every other, prey crashes counted as losses, solved for the best mixes; each iteration trains one new predator and one new prey against the other side's mix, adds them and solves again, up to 4 iterations. Does the gap (how far one block of training beats the mix) fall, unlike league v2's 0.50 → 0.98? Risk: the prey half's redo showed prey learners can break against a computed predator mix; such an iteration does not count."
+cost = "running since 16:31, about 5 h (stops early once a valid gap is ≤ 0.2)"
 
 [[next]]
 title = "Lagrangian crash constraint"
