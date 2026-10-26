@@ -2088,5 +2088,5 @@ are those of the predator (higher = better predator, lower = better prey).
   - The recipe backend is unchanged (frozen copy); the driver is `run_prey_redo.py`.
   - A dry run against a fake backend checked the start (P1 + P1 + Y3), seed 81903, the pool (0.64, 4 policies),
     the 11 evaluation names, resuming, and the three verdicts.
-- **Start:** 2026-10-26 16:05; about 35 min.
+- **Start:** 2026-10-26 15:59; about 35 min.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-26_prey_half_redo_seed81/`.
