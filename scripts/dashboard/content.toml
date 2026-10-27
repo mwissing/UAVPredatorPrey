@@ -1260,6 +1260,29 @@ readings are hypotheses.
 experiment = "2026-10-27_one_predator_two_families_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-27_one_predator_two_families_seed81/"]
 
+[[chapter.stage]]
+id = "psro-archive-check-seed81"
+title = "Stage 8b: PSRO's final mix against the older archive"
+dates = "2026-10-27"
+verdict = "failed"
+takeaway = "PSRO's predator mix holds only within its population. The old consolidation prey c1-c5 and the first league's orbit prey escape it far more often than any population prey: the mix beats c5 in 0.12 of games, against 0.42 for the population's hardest prey. The prey mix holds against all 29 archive predators."
+metric = "predator mix, worst case: population 0.422 → with the archive 0.115 (c5; bar ≥ 0.372) · prey mix, worst case: 0.427 → 0.427 (bar ≤ 0.477)"
+goal = "The PSRO pilot left the older archive out. Evaluate the final mixes (predators PP4 35 %, P4 35 %, PP1 30 %; prey PY4 39 %, Y2 37 %, Y1 24 %) against league v2's start archive: 14 prey and 29 predators. Pre-registered: the mix holds if no archive version beats it by more than 0.05."
+result = """
+- Pre-registered verdict "the archive beats the final mix", on the prey side only: c5 0.115, c1 0.186, c4 0.201, c2 0.234, c3 0.242, L1prey 0.245, L2prey 0.367.
+- No member of the predator mix handles the consolidation prey: P4 ≤ 0.08, PP1 ≤ 0.22, PP4 0.21-0.46. Earlier predators did: T 0.41, the 10-24 league's predators 0.61 (catch only).
+- The lure prey g8 does not beat the mix: P4 catches it.
+- The best archive predators (g13, g15-g17) are Y2 specialists and reach at most 0.399 against the prey mix (bar ≤ 0.477).
+"""
+why = """
+PSRO solves the game only over the versions it holds. The pilot's population lacked the consolidation and orbit prey,
+so its predators never had to keep those counters, and they lost them. This is the same forgetting as arm B against
+Y4 in the two-families test: predators keep only the counters they train against. Each of the seven prey is a
+ready-made best response that a PSRO population should contain.
+"""
+experiment = "2026-10-27_psro_archive_check_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-27_psro_archive_check_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1775,9 +1798,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b day chain: the archive check, PSRO iterations 5-8 (running)"
-why = "All three steps pre-registered (2026-10-27). 1) Done: one predator can catch both escape families (see the stage card). 2) Running: does the pilot's final mix hold against the older archive (g8, the consolidation versions, the first league)? 3) Next: four more PSRO iterations under the pilot's rules. Does the gap (0.39 and 0.43 so far) fall below 0.2? Iteration 5 trains PP5 from PP4 against PY4 39 / Y2 37 / Y1 24. That is close to arm A's first block, so it also shows whether learning Y2 repeats with a third prey in the mix."
-cost = "step 1 done at 10:49; the archive check from 10:49 (about 25 min), then about 66 min per PSRO iteration (end around 15:45; it stops early once a valid gap is ≤ 0.2)"
+title = "Stage 8b day chain: PSRO iterations 5-8 (running)"
+why = "All three steps pre-registered (2026-10-27). 1) Done: one predator can catch both escape families. 2) Done: the archive beats PSRO's final predator mix (the consolidation and orbit prey). See the two stage cards. 3) Running since 11:06: four more PSRO iterations under the pilot's rules, on the pilot's population without the archive. Does the gap (0.39 and 0.43 so far) fall below 0.2? Iteration 5 trains PP5 from PP4 against PY4 39 / Y2 37 / Y1 24. That is close to arm A's first block, so it also shows whether learning Y2 repeats with a third prey in the mix."
+cost = "running since 11:06: about 66 min per PSRO iteration (end around 15:30; it stops early once a valid gap is ≤ 0.2)"
 
 [[next]]
 title = "Lagrangian crash constraint"

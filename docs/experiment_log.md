@@ -2236,6 +2236,24 @@ are those of the predator (higher = better predator, lower = better prey).
   equal league v2's records), resuming and the decision.
 - **Start:** after step 1 (about 11:45); about 25 min.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-27_psro_archive_check_seed81/`.
+- **Result** (10:49-11:06, all 57 evaluations): **"the archive beats the final mix"**, on the prey side only.
+  - **The predator mix against the archive prey:** c5 0.115, c1 0.186, c4 0.201, c2 0.234, c3 0.242, L1prey 0.245,
+    L2prey 0.367 (bar ≥ 0.372; population lo 0.422).
+    - No member handles c1-c5: P4 ≤ 0.08, PP1 ≤ 0.22, PP4 0.21-0.46.
+    - T (0.41) and the 10-24 league's predators (0.61) did catch them (catch only).
+    - The lure prey g8 does not beat the mix (P4: 0.91).
+  - **The prey mix holds:** the best archive predator, g17, reaches 0.399 (hi 0.427). The best archive predators are
+    Y2 specialists (Y2 0.70-0.85, PY4 ≤ 0.11).
+  - **Meaning:**
+    - The pilot's value of 0.42 belongs to the restricted game. Against the full prey history, the predator mix's worst
+      case is 0.12.
+    - The predator side forgets counters outside its opponents, as arm B did with Y4.
+    - The PSRO continuation inherits this blind spot: its population excludes the archive, as planned.
+  - **Next (proposals):**
+    - extend the table with the seven prey (the population's predators and A1-A3 against them; evaluations only) and
+      solve again;
+    - PSRO from the extended population.
+  - **Evidence:** `RESULTS.md`, `summary.txt`, `archive/`.
 
 ## 2026-10-27: PSRO continuation, does the gap shrink in iterations 5-8? (pre-registered)
 
