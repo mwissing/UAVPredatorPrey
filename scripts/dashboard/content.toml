@@ -1270,15 +1270,16 @@ metric = "predator mix, worst case: population 0.422 → with the archive 0.115 
 goal = "The PSRO pilot left the older archive out. Evaluate the final mixes (predators PP4 35 %, P4 35 %, PP1 30 %; prey PY4 39 %, Y2 37 %, Y1 24 %) against league v2's start archive: 14 prey and 29 predators. Pre-registered: the mix holds if no archive version beats it by more than 0.05."
 result = """
 - Pre-registered verdict "the archive beats the final mix", on the prey side only: c5 0.115, c1 0.186, c4 0.201, c2 0.234, c3 0.242, L1prey 0.245, L2prey 0.367.
-- No member of the predator mix handles the consolidation prey: P4 ≤ 0.08, PP1 ≤ 0.22, PP4 0.21-0.46. Earlier predators did: T 0.41, the 10-24 league's predators 0.61 (catch only).
+- No member of the predator mix handles the consolidation prey: P4 ≤ 0.08, PP1 ≤ 0.22, PP4 0.21-0.46. The population's P1 and P3 still do (0.42-0.71 and 0.38-0.71, league v2's gates), as did T (0.41) and the 10-24 league's predators (0.61, catch only).
 - The lure prey g8 does not beat the mix: P4 catches it.
 - The best archive predators (g13, g15-g17) are Y2 specialists and reach at most 0.399 against the prey mix (bar ≤ 0.477).
 """
 why = """
-PSRO solves the game only over the versions it holds. The pilot's population lacked the consolidation and orbit prey,
-so its predators never had to keep those counters, and they lost them. This is the same forgetting as arm B against
-Y4 in the two-families test: predators keep only the counters they train against. Each of the seven prey is a
-ready-made best response that a PSRO population should contain.
+PSRO solves the game only over the versions it holds. The pilot's population had predators with the counter (P1 and
+P3), but no prey that needed it, so the solved mix left them out. The newer predators lost the counter (mean over the
+seven: P1 0.60, P4 0.06), the same forgetting as arm B against Y4 in the two-families test. Each of the seven prey is
+a ready-made best response that a PSRO population should contain. Step 4 of the day chain re-solves the table with
+them.
 """
 experiment = "2026-10-27_psro_archive_check_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-27_psro_archive_check_seed81/"]
@@ -1798,9 +1799,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b day chain: PSRO iterations 5-8 (running)"
-why = "All three steps pre-registered (2026-10-27). 1) Done: one predator can catch both escape families. 2) Done: the archive beats PSRO's final predator mix (the consolidation and orbit prey). See the two stage cards. 3) Running since 11:06: four more PSRO iterations under the pilot's rules, on the pilot's population without the archive. Does the gap (0.39 and 0.43 so far) fall below 0.2? Iteration 5 trains PP5 from PP4 against PY4 39 / Y2 37 / Y1 24. That is close to arm A's first block, so it also shows whether learning Y2 repeats with a third prey in the mix."
-cost = "running since 11:06: about 66 min per PSRO iteration (end around 15:30; it stops early once a valid gap is ≤ 0.2)"
+title = "Stage 8b day chain: PSRO iterations 5-8 (running), then the extended table"
+why = "All steps pre-registered (2026-10-27). 1) Done: one predator can catch both escape families. 2) Done: the archive beats PSRO's final predator mix (the consolidation and orbit prey). See the two stage cards. 3) Running since 11:06: four more PSRO iterations under the pilot's rules, on the pilot's population without the archive. Does the gap (0.39 and 0.43 so far) fall below 0.2? Iteration 5 trains PP5 from PP4 against PY4 39 / Y2 37 / Y1 24. That is close to arm A's first block, so it also shows whether learning Y2 repeats with a third prey in the mix. 4) Added at 11:20, evaluations only: every predator we have (with T, P1, P3, A1-A3, PP5+ and L3pred) against the seven archive prey, solved with and without them. Can the predator side re-mix to cover them?"
+cost = "step 3 running since 11:06, about 66 min per PSRO iteration (end around 15:30; it stops early once a valid gap is ≤ 0.2); step 4 about 55 min after that"
 
 [[next]]
 title = "Lagrangian crash constraint"
