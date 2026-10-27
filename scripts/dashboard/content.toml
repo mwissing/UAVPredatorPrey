@@ -1284,6 +1284,30 @@ them.
 experiment = "2026-10-27_psro_archive_check_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-27_psro_archive_check_seed81/"]
 
+[[chapter.stage]]
+id = "psro-continuation-seed81"
+title = "Stage 8b: PSRO iterations 5-8"
+dates = "2026-10-27"
+verdict = "failed"
+takeaway = "Eight PSRO iterations did not narrow the gap. It grew to about 0.75, because the new versions kept getting stronger and the predators kept forgetting. The prey improved every round: PY8 escapes all eight computed predator mixes. PP7 was the first predator to beat every prey in the table, and it flew safely. One block later PY8 escaped it, and PP8, trained against two prey, lost most of PP7's counters by flying into pillars."
+metric = "valid gaps 0.39 → 0.43 → 0.66 → 0.77 → 0.75 (bar ≤ 0.2) · game value 0.42 → 0.60 → 0.49 · PP7's worst case over 18 prey 0.56 (PP6 0.23) · PY8 against the eight predator mixes 0.12-0.19"
+goal = "Four more PSRO iterations (5-8) under the pilot's rules, on the pilot's population without the archive. Pre-registered: PSRO converges if a valid gap is ≤ 0.2, and narrows if the last valid gap is ≤ 0.39 − 0.2."
+result = """
+- Pre-registered verdict "no narrowing in eight iterations": valid gaps 0.661 (5), 0.773 (6) and 0.749 (8). Iteration 7 was not valid: its prey learner crashed on its own in 0.111 of games (limit 0.10).
+- Prey: each prey from PY6 on beats every computed predator mix up to its own round by at least 0.2. PY8 is lost in 0.12-0.19 of games against all eight.
+- Predators: PP7 beat all 18 prey (at least 0.56 against each, at most 0.32 drones lost per game), including Y4, Y1 and L3prey, which escape A3. Then PY8 escaped it (0.14), and PP8, trained against L3prey and PY7 only, lost 10 of PP7's 18 counters.
+- Both forgetting events looked the same (PP6, PP8): a faster, steeper pursuit that flies into pillars against the prey left out, with up to 0.93 and 1.39 drones lost per game. The validity check looks only at the training mix, so it missed this.
+- Final mixes: predators PP8 45 %, PP5 27 %, PP7 21 %, XP2 7 %; prey PY8 48 %, XY2 29 %, PY4 22 %. Value 0.49 (pilot 0.42).
+"""
+why = """
+Here PSRO's gap mixed three things: weak mixes, stronger learners and forgetting. A table of every new version against
+every older mix separates them. The prey side made steady progress, and the predator side reached a generalist, then
+lost it within one block. So the predators' bottleneck is forgetting, not capacity. PSRO trains each new version
+against two to four opponents, which is exactly the narrow training that makes them forget.
+"""
+experiment = "2026-10-27_psro_continuation_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-27_psro_continuation_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1799,9 +1823,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b day chain: PSRO iterations 5-8 (running), then the extended table"
-why = "All steps pre-registered (2026-10-27). 1) Done: one predator can catch both escape families. 2) Done: the archive beats PSRO's final predator mix (the consolidation and orbit prey). See the two stage cards. 3) Running since 11:06: four more PSRO iterations under the pilot's rules, on the pilot's population without the archive. Does the gap (0.39 and 0.43 so far) fall below 0.2? Iteration 5 trains PP5 from PP4 against PY4 39 / Y2 37 / Y1 24. That is close to arm A's first block, so it also shows whether learning Y2 repeats with a third prey in the mix. 4) Added at 11:20, evaluations only: every predator we have (with T, P1, P3, A1-A3, PP5+ and L3pred) against the seven archive prey, solved with and without them. Can the predator side re-mix to cover them?"
-cost = "step 3 running since 11:06, about 66 min per PSRO iteration (end around 15:30; it stops early once a valid gap is ≤ 0.2); step 4 about 55 min after that"
+title = "Stage 8b day chain: the extended table (running), then videos"
+why = "Steps 1-4 pre-registered (2026-10-27). 1) Done: one predator can catch both escape families. 2) Done: the archive beats PSRO's final predator mix (the consolidation and orbit prey). 3) Done: PSRO iterations 5-8, no narrowing. PP7 beat every prey in the table, then PY8 escaped it and PP8 forgot most of its counters. See the stage cards. 4) Running since 15:28, evaluations only: every predator we have (with T, P1, P3, A1-A3, PP5-PP8 and L3pred) against the seven archive prey, solved with and without them. Can the predator side re-mix to cover them, and does PP7 beat them too? 5) Added at 14:30, videos only: PP7 against PY8, PY4 and L3prey; PP6 against PY4 and PP8 against Y3 (the pillar crashes); PP8 against PY8."
+cost = "step 4 about 65 min from 15:28 (end around 16:35); step 5 about 12 min after that"
 
 [[next]]
 title = "Lagrangian crash constraint"

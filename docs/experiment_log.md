@@ -2278,6 +2278,38 @@ are those of the predator (higher = better predator, lower = better prey).
   interruption and resume, the stop and the verdict.
 - **Start:** after step 2 (about 12:10); about 66 min per iteration, at most about 4.6 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-27_psro_continuation_seed81/`.
+- **Result** (11:06-15:27, every status 0, all 132 evaluations): **"no narrowing in eight iterations"**.
+  - **Gaps:** valid 0.390 (1), 0.425 (4), 0.661 (5), 0.773 (6) and 0.749 (8). Iteration 7 was not valid: PY7 crashed
+    on its own in 0.111 of games against its mix (limit 0.10); its gap was 0.603.
+  - **The prey lineage got stronger every round.** PY8 is lost in 0.12-0.19 of games against each of the eight
+    computed predator mixes, which held the hardest prey of their time to 0.39-0.60. Each prey from PY6 on beats every
+    mix up to its round by at least 0.2.
+  - **The predator lineage reached a generalist and lost it.**
+    - PP7 beat all 18 prey in the table, at least 0.56 against each, with at most 0.32 drones lost per game.
+    - That includes the prey that escape A3: Y4 0.96, Y1 0.79, L3prey 0.56 (A3: 0.25, 0.34, 0.36).
+    - PY8 escaped it in one block (0.14).
+    - PP8, trained against L3prey 65 / PY7 35, lost 10 of PP7's 18 counters (drops of at least 0.3).
+  - **Forgetting showed up as pillar crashes both times.**
+    - PP6 (trained against 66% PY5) and PP8 (two prey) chase faster and steeper than their starts.
+    - They lose up to 0.93 and 1.39 drones per game against the prey left out (PP7: at most 0.32).
+    - The validity check looks only at the training mix (0.16, 0.15), so it missed this.
+  - **Game value:** 0.42 → 0.60 in round 8 (PP7 86% of the predator mix) → 0.49 final.
+    - Final predator mix: PP8 45, PP5 27, PP7 21, XP2 7.
+    - Final prey mix: PY8 48, XY2 29, PY4 22, XY3 1.
+    - Every new version entered the next mix.
+  - **Meaning:**
+    - Here PSRO's gap mixes three things: weak mixes, stronger learners and forgetting. The table of each new version
+      against every older mix separates them.
+    - The predators' bottleneck is forgetting, not capacity.
+    - PSRO trains each new version against the computed mix only, two to four opponents. That is the narrow kind of
+      training that causes the forgetting.
+  - **Next (proposals):**
+    - PP7 against the whole prey history, with the archive seven: 2-3 blocks, gated on the worst case and on drones
+      lost over all prey;
+    - PSRO with a history share in each new version's training;
+    - a safety check against the whole table for every new version.
+  - **Evidence:** `RESULTS.md`, `summary.txt`, `psro/`. Videos (step 5 of the day chain, not planned) go to
+    `videos_after_run/`.
 
 ## 2026-10-27: The table extended with the archive prey that beat PSRO's mix (pre-registered)
 
