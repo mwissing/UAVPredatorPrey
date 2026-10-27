@@ -2362,3 +2362,36 @@ are those of the predator (higher = better predator, lower = better prey).
       worst case over all prey;
     - or PSRO from the extended table with a history share.
   - **Evidence:** `RESULTS.md`, `summary.txt`, `extended/`.
+
+## 2026-10-27: A generalist predator, trained against the whole prey history (pre-registered)
+
+- **User:** "ok go on as recommended", the day report's recommendation.
+- **Question:** no mix of our 25 predators covers all 26 prey (best 0.374).
+  - The old predators beat the archive prey, and the new ones beat the newer prey.
+  - Narrow training made the predators forget (PSRO continuation).
+  - If a predator trains against all 26 prey at once, does it keep its counters and learn the missing ones?
+- **Design:**
+  - **Two arms** of three 1200-update blocks each (LR 1e-4, KL 0.05), with the Adam state kept:
+    - A from PP7 (GA1-GA3, seeds 81621-81623);
+    - B from P1 (GB1-GB3, seeds 81631-81633).
+  - **Every block faces all 26 prey:**
+    - half of the games are spread evenly (each prey gets at least 1/52);
+    - half go to each prey in proportion to 1 − prey lost at the last gate (gate 0 is the extended table);
+    - the largest share is the frozen "latest", and the other 25 are pool policies (`BLOCK_POOL_MAX`, commit
+      7c13fea).
+  - **A gate after each block** against the 26 prey (512 games, seed 42). Each arm's last gate also covers seven
+    held-out archive prey: g0, g1, g2, g8, g14, g18 and g20.
+- **Decision:**
+  - "one predator covers the whole prey history" if a gate has a worst case ≥ 0.40 over the 26 prey, with drones
+    lost ≤ 0.37 against each;
+  - otherwise "no gate reaches the bar".
+  - Flags per arm:
+    - "kept": no prey more than 0.2 below the start at the last gate;
+    - "grew": the worst case rose by at least 0.1.
+  - Also reported: the extended table re-solved with the six new predators.
+- **Code:** driver `run_generalist.py`, and `summarize.py`.
+  - A dry run against a fake backend checked the versions, shares, pools, seeds, gates, resuming, the smoke path and
+    the decision.
+  - A 24-update GPU smoke block checked the 25-policy pool: memory and speed.
+- **Start:** after the smoke test; about 4-5 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-27_generalist_predator_seed81/`.

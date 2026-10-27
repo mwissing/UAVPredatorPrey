@@ -1848,9 +1848,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: a generalist predator trained against the whole prey history (proposal)"
-why = "The 2026-10-27 day chain (four stage cards) found that the predators' bottleneck is forgetting, not capacity. PP7 beat all but one of the 19 PSRO population prey, but no archive consolidation prey clearly. The old counters P1 and P3 beat those prey but not the newer ones. And PSRO's one-block learners, trained against two to four opponents, lost counters within one block by crashing into pillars. Proposal: train from PP7 (and from P1 as a second arm, to test the start) against all 26 prey, evenly or weighted toward the ones it loses to. Gate on the worst case over all prey and on drones lost against each. Alternative: PSRO from the extended table with a share of the whole history in each learner's training."
-cost = "a plan for review first; then about 1.5-2 h per arm (2-3 blocks)"
+title = "Stage 8b: a generalist predator trained against the whole prey history (running)"
+why = "Pre-registered 2026-10-27, running since 16:58. The day chain found that the predators' bottleneck is forgetting, not capacity: no mix of our 25 predators covers all 26 prey (0.374). Two arms train three blocks each against all 26 prey at once: arm A from PP7, arm B from P1. Half of the games are spread evenly, half go to the prey the predator fails against, with 25 pool policies. Bar: a gate with worst case ≥ 0.40 over the 26 prey and drones lost ≤ 0.37 against each. Also reported: did each arm keep its counters (no prey more than 0.2 below the start), and did its worst case grow by 0.1?"
+cost = "about 40-45 min per block (26 opponents slow training) and about 8.5 min per gate: about 5 h, ending around 22:00-22:15"
 
 [[next]]
 title = "Lagrangian crash constraint"
