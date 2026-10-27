@@ -2215,6 +2215,9 @@ are those of the predator (higher = better predator, lower = better prey).
   - **Why A1 succeeded where the pilot's blocks failed is open.** The start, Y2's share, the other opponents and the
     seed all differ, and the closest pilot case (PP2) broke. The continuation's PP5 (from PP4, against PY4 39 / Y2 37 /
     Y1 24) is a partial test.
+    - Addendum 12:15: PP5 also learned Y2 in one block (0.17 → 0.62), after learning Y1 first (0.30 → 0.94). Two of two
+      blocks from PP4 learned Y2, and the pilot's four blocks from other starts did not. So the start is the more
+      likely factor; the third prey delayed Y2 but did not prevent it.
   - **Next (proposals):**
     - A3 against the re-solved prey mix (Y4, Y1, PY4), about 2 h;
     - PSRO with A1-A3 in the population;
