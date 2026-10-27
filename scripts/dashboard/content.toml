@@ -1255,7 +1255,9 @@ The pilot's conclusion that the PY lineage cannot learn Y2 in one block was too 
 improves where its return can rise most. Each pilot predator had a new prey to learn and gave Y2 up. PP4 already caught
 PY4, so its only room to improve was Y2. PY4 in turn was trained against a mix with P4 at 37 %, so arm B had to repair
 P4 against an exploit built for it. The start, the opponent share and the seed differ between these cases, so both
-readings are hypotheses.
+readings are hypotheses. The PSRO continuation's PP5 (from PP4, another seed, with Y1 as a third prey) also learned
+Y2 in one block. Two of two blocks from PP4 learned Y2, and the pilot's four from other starts did not, so the start
+is the more likely factor.
 """
 experiment = "2026-10-27_one_predator_two_families_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-27_one_predator_two_families_seed81/"]
