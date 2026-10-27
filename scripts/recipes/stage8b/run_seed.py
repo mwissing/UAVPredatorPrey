@@ -200,7 +200,7 @@ class Pipeline:
 
     # -- the two kinds of steps
     def train(self, name: str, mode: str, checkpoint: str | None, updates: int, number: int, lr: float, kl: float,
-              pool_entries: dict | None = None, pool_prob: float | None = None) -> str:
+              pool_entries: dict | None = None, pool_prob: float | None = None, pool_max: int | None = None) -> str:
         def run():
             pool_path = None
             if pool_entries is not None:
@@ -212,7 +212,8 @@ class Pipeline:
                      + (f", pool of {len(next(iter(pool_entries.values())))}" if pool_entries else ""))
             started = time.time()
             info = self.backend.train(f"{self.seed}_{name}", mode, checkpoint, updates, block_seed(self.seed, number),
-                                      lr, kl, pool_path, **({"pool_prob": pool_prob} if pool_prob is not None else {}))
+                                      lr, kl, pool_path, **({"pool_prob": pool_prob} if pool_prob is not None else {}),
+                                      **({"pool_max": pool_max} if pool_max is not None else {}))
             info.update(mode=mode, updates=updates, lr=lr, minutes=round((time.time() - started) / 60.0, 1))
             self.log(f"block {name} done in {info['minutes']} min")
             return info
@@ -421,9 +422,10 @@ class Docker:
 
     def train(self, tag: str, mode: str, checkpoint: str | None, updates: int, seed: int, lr: float, kl: float,
               pool_path: str | None, extra: tuple[str, ...] = (), expect_env: dict | None = None,
-              pool_prob: float | None = None) -> dict:
+              pool_prob: float | None = None, pool_max: int | None = None) -> dict:
         """One block; `extra` adds env overrides for an ablation, `expect_env` the values its config check expects;
-        `pool_prob` the share of envs facing pool opponents (block.sh default 0.5)."""
+        `pool_prob` the share of envs facing pool opponents (block.sh default 0.5), `pool_max` the most pool policies
+        train.py loads (block.sh default 8)."""
         args = ["bash", to_container(os.path.join(self.recipe_dir, "block.sh")), to_container(self.out), tag, mode,
                 checkpoint or "none", str(updates), str(seed), repr(lr), repr(kl)]
         if pool_path:
@@ -431,6 +433,8 @@ class Docker:
         env = (f"BLOCK_EXTRA={' '.join(extra)}",) if extra else ()
         if pool_prob is not None:
             env += (f"BLOCK_POOL_PROB={pool_prob}",)
+        if pool_max is not None:
+            env += (f"BLOCK_POOL_MAX={pool_max}",)
         self._exec(args, env=env)
         status_path = os.path.join(self.out, "blocks", f"{tag}.status.txt")
         status = open(status_path).read() if os.path.exists(status_path) else ""

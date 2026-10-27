@@ -253,6 +253,22 @@ def _league(tmp_path, backend, max_updates=48000):
                              recipe.LeagueBudget(max_updates=max_updates))
 
 
+def test_pipeline_passes_the_pool_limit_only_when_given(tmp_path) -> None:
+    """A whole-history pool needs more than train.py's default of 8 policies; backends without the option still work."""
+    calls = []
+
+    class Recorder(FakeBackend):
+        def train(self, tag, mode, checkpoint, updates, seed, lr, kl, pool_path, **options):
+            calls.append(options)
+            return super().train(tag, mode, checkpoint, updates, seed, lr, kl, pool_path)
+
+    pipeline = run_seed.Pipeline(Recorder(), str(tmp_path / "out"), 81, recipe.Budget())
+    pool = {"prey": [{"name": "a", "checkpoint": "/a.pt", "weight": 1.0}]}
+    pipeline.train("w1", "predator", "/start.pt", 10, 621, 1e-4, 0.05, pool, pool_prob=0.9, pool_max=25)
+    pipeline.train("w2", "predator", "/start.pt", 10, 622, 1e-4, 0.05, pool, pool_prob=0.9)
+    assert calls == [{"pool_prob": 0.9, "pool_max": 25}, {"pool_prob": 0.9}]
+
+
 def test_versions_skip_frozen_copies() -> None:
     archives = recipe.role_versions([("g7", "a", {"predator"}), ("g8", "b", {"predator", "prey"}), ("g9", "c", {"predator"}),
                                      ("g14", "d", {"prey"})])
