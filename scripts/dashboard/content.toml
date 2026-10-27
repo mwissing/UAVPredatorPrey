@@ -1751,9 +1751,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: can one predator catch both escape families?"
-why = "The PSRO pilot's verdict was no narrowing (2026-10-26): every new predator caught the newest prey and gave up the Y2 family, so P4 and Y2 stay in every mix and the mix stays easy to beat. Proposal: train PP4 for three blocks against Y2 and PY4 at 50 % each, and evaluate against both after every block. The two-counter test showed one predator can hold two counters when trained against the prey it loses to; PP2 broke against a similar even split after one block. Alternatives: more PSRO iterations (about 7 h for six), or the final mix against the older archive (about 30 min)."
-cost = "about 2 h (three blocks plus evaluations); not pre-registered yet, needs the user's go"
+title = "Stage 8b day chain: one predator for both escape families, the archive check, PSRO iterations 5-8 (running)"
+why = "All three pre-registered (2026-10-27). 1) Can one predator learn to catch both escape families? Two arms train three blocks each against Y2 and PY4 at 50 % each: arm A from PP4 (catches PY4, not Y2), arm B from P4 (the reverse). Bar: prey lost ≥ 0.5 against both at one gate, which no mix of the existing predators reaches (best 0.48). 2) Does the pilot's final mix hold against the older archive (g8, the consolidation versions, the first league)? 3) Four more PSRO iterations under the pilot's rules: does the gap (0.39, 0.43 so far) fall below 0.2?"
+cost = "running since 07:20: about 4 h for the two arms, 25 min for the archive check, then about 66 min per PSRO iteration (end around 17:00; it stops early once a valid gap is ≤ 0.2)"
 
 [[next]]
 title = "Lagrangian crash constraint"

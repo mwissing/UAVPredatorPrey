@@ -2167,3 +2167,65 @@ are those of the predator (higher = better predator, lower = better prey).
   - Next (proposals): can one predator learn both families (PP4, three blocks against Y2 50 / PY4 50, about 2 h);
     more PSRO iterations (about 7 h for six); the final mix against the older archive (about 30 min).
   - Evidence: `RESULTS.md`, `summary.txt`, `psro/`.
+
+## 2026-10-27: One predator, two escape families: can one predator learn to catch both? (pre-registered)
+
+- **User:** "you can continue as recommended. i am at work now for 9-10h. try to fill this time if possible". Step 1
+  of a day chain (`artifacts/isaac/experiments/day_chain_2026-10-27.sh`); steps 2 and 3 are the next two entries.
+- **Question:** in the PSRO pilot no predator caught both escape families, and every new predator gave the Y2 family
+  up within its one block. Is that a limit of the learner, or of one block of training?
+- **Two arms, three blocks each** (1,200 updates, LR 1e-4, KL 0.05, Adam state kept), against Y2 50% (the frozen
+  prey) and PY4 50% (the per-env pool):
+  - arm A from PP4 (prey lost: Y2 0.17, PY4 0.74); it has to learn Y2;
+  - arm B from P4 (Y2 0.98, PY4 0.06); it has to learn PY4.
+  - Order A1, B1, A2, B2, A3, B3; block seeds 81401-81403 and 81411-81413.
+- **Gate after each block:** the new predator against the pilot's 15 prey versions, 512 games each (seed 42, mean
+  actions). Videos of A3 and B3 against Y2 and PY4 at the end.
+- **Bar:** prey lost ≥ 0.50 against Y2 and against PY4 at one gate, drones lost ≤ 0.37 against the pair. The best mix
+  of the existing predators reaches 0.48 against this pair, the best single predator 0.18.
+- **Decision:**
+  - "one predator can catch both families" (an arm clears the bar);
+  - otherwise "the families did not combine in three blocks", with each arm read as broke, trade-off, still rising
+    or stalled.
+- **Reported:** family means, the value against PSRO's final prey mix and the gain over its best response (0.427),
+  training health per opponent, the pilot's table solved again with the six new predators.
+- **Code:** the recipe backend unchanged (frozen copy), driver `run_two_families.py`. A dry run against a fake backend
+  checked the starts, seeds, pool, gates, videos, resuming, the readings and decision.json.
+- **Start:** 07:20; about 4 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-27_one_predator_two_families_seed81/`.
+
+## 2026-10-27: PSRO pilot's final mix against the older archive (pre-registered)
+
+- **User:** as above; step 2 of the day chain, evaluations only.
+- **Question:** the pilot's final mixes (predators PP4 35, P4 35, PP1 30; prey PY4 39, Y2 37, Y1 24) hold the
+  population to lo 0.422 and hi 0.427. Does a version outside the population beat them?
+- **Archive** (league v2's start archive): prey g0, g1, g2, g8, g14, g18, g20, c1-c5, L1prey, L2prey; predators g0-g13,
+  g15-g20, c1-c5, L1pred-L3pred, E.
+- **Cells:** each mix member against each archive version, 512 games. P4 against the archive prey and Y1, Y2 against
+  the archive predators are reused from league v2's gates; 57 new evaluations.
+- **Decision:** "the final mix holds against the archive" if lo_ext ≥ 0.422 − 0.05 and hi_ext ≤ 0.427 + 0.05;
+  otherwise "the archive beats the final mix", with the versions.
+- **Code:** driver `run_archive_check.py`; a dry run checked the archive labels, the 57 + 72 cells (the reused ones
+  equal league v2's records), resuming and the decision.
+- **Start:** after step 1 (about 11:45); about 25 min.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-27_psro_archive_check_seed81/`.
+
+## 2026-10-27: PSRO continuation, does the gap shrink in iterations 5-8? (pre-registered)
+
+- **User:** as above; step 3 of the day chain. Option 2 of the pilot's proposals, with four iterations instead of six.
+- **Question:** the pilot's valid gaps were 0.39 and 0.43. Four iterations are few for PSRO; does the gap fall in four
+  more under the same rules?
+- **Design:** the pilot's rules and driver unchanged, with iterations up to 8. It starts from the pilot's state
+  (population, 210-cell table) and replays iterations 1-4 from their records; iteration 5's mixes are the pilot's
+  final mixes, its starts PP4 and PY4. Block seeds 81951/81952, …, 81981/81982. The archive and the two-families
+  predators stay out of the population.
+- **Stop:** a valid gap ≤ 0.2, or iteration 8.
+- **Decision** (on the valid gaps of iterations 1-8):
+  - "PSRO converges for one-block learners" (a valid gap ≤ 0.2);
+  - "PSRO narrows the gap" (last valid ≤ 0.39 − 0.2);
+  - "no narrowing in eight iterations".
+- **Code:** driver `run_psro_continuation.py`; a dry run checked the replay (no training of iterations 1-4, the
+  pilot's records unchanged, solve 5 = the pilot's final solve), the starts, pools and seeds of iteration 5, an
+  interruption and resume, the stop and the verdict.
+- **Start:** after step 2 (about 12:10); about 66 min per iteration, at most about 4.6 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-27_psro_continuation_seed81/`.
