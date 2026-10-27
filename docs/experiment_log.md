@@ -2193,6 +2193,33 @@ are those of the predator (higher = better predator, lower = better prey).
   checked the starts, seeds, pool, gates, videos, resuming, the readings and decision.json.
 - **Start:** 07:20; about 4 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-27_one_predator_two_families_seed81/`.
+- **Result** (07:15-10:49, every status 0): **"one predator can catch both families"**.
+  - **Arm A cleared the bar at gate 1 and held it.** Prey lost against Y2 / PY4: 0.904 / 0.943 (A1), 0.992 / 0.996
+    (A2), 1.000 / 0.973 (A3). Drones lost against the pair: 0.18, 0.07, 0.15.
+  - **Arm B "stalled":** PY4 0.064 → 0.156 → 0.180 → 0.117, with Y2 ≥ 0.996.
+  - **Transfer:** the Y2 counter carried over to XY2 and XY3 (A3: 1.00, 0.99) but not to Y4. A3 wins 0.25 against Y4
+    and loses 0.59 drones per game there: A1 kept away from Y4, A2 and A3 chase it and crash. A3 wins ≥ 0.82 against 12
+    of the 15 prey; Y4, Y1 (0.34) and L3prey (0.36) escape it.
+  - **Training:**
+    - A1 caught Y2 0.41 → 0.82 (the pilot's PP4 block: 0.33 → 0.17).
+    - Arm B's catch against PY4 stayed flat at about 0.11-0.16 after the first tenth of each block, with games of 446
+      of 500 steps. The first-tenth values are inflated because short games finish first.
+    - PY4 had been trained against a predator mix with P4 at 37%.
+    - Arm B forgot Y4, which was not one of its opponents: 1.00 → 0.48.
+  - **No learner broke:** six blocks on an exact 50/50 split, drones lost 0.07-0.18. This weakens the lead that
+    near-even splits break learners.
+  - **As a best response to PSRO's final prey mix,** A1 would gain +0.36 (A3: +0.40), more than any pilot learner
+    (0.00-0.34).
+  - **The pilot's table with the six new predators:** predators PP1 38, P4 32, A3 29, XP4 1; prey Y4 42, Y1 30, PY4 28;
+    lo 0.480, hi 0.482 (pilot: 0.422, 0.427). This is a new cycle: P4 beats Y4, PP1 beats Y1, A3 beats PY4.
+  - **Why A1 succeeded where the pilot's blocks failed is open.** The start, Y2's share, the other opponents and the
+    seed all differ, and the closest pilot case (PP2) broke. The continuation's PP5 (from PP4, against PY4 39 / Y2 37 /
+    Y1 24) is a partial test.
+  - **Next (proposals):**
+    - A3 against the re-solved prey mix (Y4, Y1, PY4), about 2 h;
+    - PSRO with A1-A3 in the population;
+    - a readout of whether A3 tells Y2 from PY4 early in a game.
+  - **Evidence:** `RESULTS.md`, `summary.txt`, `two_families/` (with the videos of A3 and B3).
 
 ## 2026-10-27: PSRO pilot's final mix against the older archive (pre-registered)
 

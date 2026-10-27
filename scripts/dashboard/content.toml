@@ -1236,6 +1236,30 @@ the learners, not the way opponents are chosen. Four iterations are few for PSRO
 experiment = "2026-10-26_psro_pilot_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-26_psro_pilot_seed81/"]
 
+[[chapter.stage]]
+id = "two-families-seed81"
+title = "Stage 8b: one predator for both escape families"
+dates = "2026-10-27"
+verdict = "worked"
+takeaway = "PP4 already caught the PY lineage. Once Y2 made up half of its games, it learned the Y2 counter in one block, and after three blocks it beats both (Y2 1.00, PY4 0.97) with 0.15 drones lost per game. The reverse failed: the Y2 specialist P4 never learned PY4. And Y4, which P4 catches like Y2, still escapes the new predator."
+metric = "arm A (from PP4), the weaker of Y2 / PY4: 0.17 → 0.90 → 0.99 → 0.97 · arm B (from P4): 0.06 → 0.16 → 0.18 → 0.12 · bar ≥ 0.5"
+goal = "In the PSRO pilot no predator caught both escape families. Two arms trained three blocks each against Y2 and PY4 at 50 % each: arm A from PP4 (catches PY4, not Y2), arm B from P4 (the reverse). Pre-registered: one predator can catch both families if an arm reaches prey lost ≥ 0.5 against both at one gate with ≤ 0.37 drones lost. No mix of the existing predators reaches 0.5."
+result = """
+- Pre-registered verdict "one predator can catch both families": A1 0.90 / 0.94 (Y2 / PY4) after one block, A2 0.99 / 1.00, A3 1.00 / 0.97; drones lost 0.18, 0.07, 0.15. Arm B stalled (PY4 0.06 → 0.12).
+- The Y2 counter carried over to XY2 and XY3, but not to Y4: A3 wins 0.25 against Y4 and loses 0.59 drones per game there. Y1 (0.34) and L3prey (0.36) also escape it.
+- With the six new predators the pilot's table solves to 0.48 (was 0.42), with a new cycle: P4 beats Y4, PP1 beats Y1, A3 beats PY4.
+- Six blocks on an exact 50/50 split, and none broke. Arm B forgot Y4 (1.00 → 0.48), which was not among its opponents.
+"""
+why = """
+The pilot's conclusion that the PY lineage cannot learn Y2 in one block was too strong. A plausible reading: a learner
+improves where its return can rise most. Each pilot predator had a new prey to learn and gave Y2 up. PP4 already caught
+PY4, so its only room to improve was Y2. PY4 in turn was trained against a mix with P4 at 37 %, so arm B had to repair
+P4 against an exploit built for it. The start, the opponent share and the seed differ between these cases, so both
+readings are hypotheses.
+"""
+experiment = "2026-10-27_one_predator_two_families_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-27_one_predator_two_families_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1751,9 +1775,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b day chain: one predator for both escape families, the archive check, PSRO iterations 5-8 (running)"
-why = "All three pre-registered (2026-10-27). 1) Can one predator learn to catch both escape families? Two arms train three blocks each against Y2 and PY4 at 50 % each: arm A from PP4 (catches PY4, not Y2), arm B from P4 (the reverse). Bar: prey lost ≥ 0.5 against both at one gate, which no mix of the existing predators reaches (best 0.48). Interim (07:50): arm A cleared it after one block, so the pre-registered verdict is \"one predator can catch both families\": A1 beats Y2 in 0.90 of games (PP4: 0.17) and PY4 in 0.94 (0.74), losing 0.18 drones per game. It beats Y2, not the whole family: Y4 still escapes it in 96 % of games. The remaining blocks show whether it holds and whether arm B gets there too. 2) Does the pilot's final mix hold against the older archive (g8, the consolidation versions, the first league)? 3) Four more PSRO iterations under the pilot's rules: does the gap (0.39, 0.43 so far) fall below 0.2?"
-cost = "running since 07:20: about 4 h for the two arms, 25 min for the archive check, then about 66 min per PSRO iteration (end around 17:00; it stops early once a valid gap is ≤ 0.2)"
+title = "Stage 8b day chain: the archive check, PSRO iterations 5-8 (running)"
+why = "All three steps pre-registered (2026-10-27). 1) Done: one predator can catch both escape families (see the stage card). 2) Running: does the pilot's final mix hold against the older archive (g8, the consolidation versions, the first league)? 3) Next: four more PSRO iterations under the pilot's rules. Does the gap (0.39 and 0.43 so far) fall below 0.2? Iteration 5 trains PP5 from PP4 against PY4 39 / Y2 37 / Y1 24. That is close to arm A's first block, so it also shows whether learning Y2 repeats with a third prey in the mix."
+cost = "step 1 done at 10:49; the archive check from 10:49 (about 25 min), then about 66 min per PSRO iteration (end around 15:45; it stops early once a valid gap is ≤ 0.2)"
 
 [[next]]
 title = "Lagrangian crash constraint"
