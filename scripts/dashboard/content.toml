@@ -1333,6 +1333,30 @@ predator trained against part of the history loses the rest, or never gets it.
 experiment = "2026-10-27_extended_table_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-27_extended_table_seed81/"]
 
+[[chapter.stage]]
+id = "generalist-predator-seed81"
+title = "Stage 8b: one predator trained against the whole prey history"
+dates = "2026-10-27"
+verdict = "partial"
+takeaway = "Trained against all 26 prey at once, with a floor share for each, PP7 became GA3. It forgot nothing (largest drop 0.03) and learned the seven archive prey (0.40 → 0.66) and PY8 (0.14 → 0.39). Its worst case of 0.393 misses the pre-registered bar of 0.40 by 0.007, so by the rule no gate reached it. From P1, the same training swapped the archive prey for the newer ones."
+metric = "worst case over the 26 prey: PP7 0.141 → GA3 0.393 (bar ≥ 0.40), P1 0.074 → GB3 0.162 · best predator mix: 0.374 → 0.440 (GA3 91 %, PP8 9 %) · seven held-out archive prey, worst case: PP7 0.51 → GA3 0.75"
+goal = "No mix of our 25 predators covered all 26 prey (0.374), and narrow training made the predators forget. Train one predator against all 26 prey at once: half of the games spread evenly, half toward the prey it fails against. Three blocks each from PP7 and from P1. Pre-registered bar: a gate with a worst case ≥ 0.40 over the 26 prey and drones lost ≤ 0.37 per game against each."
+result = """
+- Pre-registered verdict "no gate reaches the bar" (arm A: kept and grew; arm B: neither).
+- Arm A (PP7 → GA1-GA3): worst case 0.141 → 0.332 → 0.311 → 0.393 (always PY8); the seven 0.40 → 0.66; largest drop of any prey 0.03; drones lost at most 0.31 at GA3 (GA2 briefly lost 0.48 per game against XY3, by pillar crashes).
+- Arm B (P1 → GB1-GB3): the 19 newer prey 0.30 → 0.80, the seven 0.60 → 0.37 (c5 0.65 → 0.24); worst case 0.07 → 0.16 (PY8 never moved).
+- Seven held-out archive prey (never trained against): GA3 0.75-1.00 against PP7's 0.51-1.00. GB3 learned g8 (0.07 → 0.70) but lost g18 (0.70 → 0.44).
+- Re-solved table (31 × 26): lo 0.374 → 0.440; predator mix GA3 91 %, PP8 9 %; prey mix c5 57 %, PY8 43 %.
+"""
+why = """
+The predators' forgetting came from what they trained against, not from a lack of capacity: one network, GA3, now holds
+the consolidation counter and the counters to the newer prey at once. The floor share kept arm A's counters but not arm
+B's, which had to learn 18 counters at once (the cause is untested). So start from the most general predator. GA3's
+real test is still open: can a new prey escape it within one block, as PY8 escaped PP7?
+"""
+experiment = "2026-10-27_generalist_predator_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-27_generalist_predator_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1848,9 +1872,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: a generalist predator trained against the whole prey history (running)"
-why = "Pre-registered 2026-10-27, running since 16:58. The day chain found that the predators' bottleneck is forgetting, not capacity: no mix of our 25 predators covers all 26 prey (0.374). Two arms train three blocks each against all 26 prey at once: arm A from PP7, arm B from P1. Half of the games are spread evenly, half go to the prey the predator fails against, with 25 pool policies. Bar: a gate with worst case ≥ 0.40 over the 26 prey and drones lost ≤ 0.37 against each. Also reported: did each arm keep its counters (no prey more than 0.2 below the start), and did its worst case grow by 0.1? Arm A done (20:03): GA3's worst case is 0.393 (PY8, from 0.141), 0.007 short of the bar (one cell's noise is about ±0.02); drones lost at most 0.31; no prey more than 0.04 below the start; the seven archive prey 0.40 → 0.66 on average; the seven held-out archive prey it never trained against 0.75-1.00. GA2 briefly lost 0.48 drones per game against XY3, back to 0.28 at GA3. Arm B (from P1) runs until about 23:10."
-cost = "about 52 min per block (26 opponents slow training) and about 9 min per gate: about 6 h, ending around 23:10"
+title = "Stage 8b: a prey trained against GA3"
+why = "GA3 (2026-10-27) is the first predator that comes close to beating every prey version we have (worst case 0.393 over 26 prey). In the PSRO continuation, PY8 escaped the previous generalist, PP7, within one block. Train one block each from PY8 and from c5, the new prey mix, against GA3, and gate against GA3 and all 31 predators: is GA3 hard to beat, or only the newest target? If a prey escapes, continue with whole-history training on both sides (floor shares, more weight on the versions each side loses to)."
+cost = "proposal; about 2 h (two prey blocks and their gates)"
 
 [[next]]
 title = "Lagrangian crash constraint"

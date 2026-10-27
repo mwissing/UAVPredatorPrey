@@ -2395,3 +2395,40 @@ are those of the predator (higher = better predator, lower = better prey).
   - A 24-update GPU smoke block checked the 25-policy pool: memory and speed.
 - **Start:** after the smoke test; about 4-5 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-27_generalist_predator_seed81/`.
+- **Result** (16:58-22:59, six blocks and 170 evaluations; the held-out baseline 23:00-23:05): **"no gate reaches the
+  bar"** (arm A: kept and grew; arm B: neither).
+  - **Arm A (PP7 → GA1-GA3):**
+    - worst case 0.141 → 0.332 → 0.311 → 0.393, always against PY8. GA3 misses the bar by 0.007, within the ±0.02
+      noise of one cell, so by the rule it does not pass;
+    - the seven 0.40 → 0.61 → 0.59 → 0.66; the 19 newer prey 0.83 → 0.90;
+    - the largest drop of any prey from PP7 to GA3 is 0.03 (BY2), so nothing was forgotten;
+    - drones lost at most 0.31 at GA3. GA2 briefly lost 0.48 per game against XY3, a prey it already beat and that
+      got 3% of the training games: its pillar crashes there rose from 0.19 to 0.33 of games;
+    - PY8 (0.39) and c5 (0.48) are the only prey still below 0.5.
+  - **Arm B (P1 → GB1-GB3):**
+    - the 19 newer prey 0.30 → 0.80, about one family per block (GB2 the Y and XY prey, GB3 the PY lineage);
+    - the seven 0.60 → 0.37 (c5 0.65 → 0.24, c1 0.57 → 0.24), although each still got 2.8-4.9% of the games;
+    - the worst case 0.074 → 0.162 (PY8 never moved).
+  - **Seven held-out archive prey** (g0, g1, g2, g8, g14, g18, g20; never trained against). The starts' rows were added
+    after the plan (`held_out_baseline.py`, 14 cells):
+    - GA3 0.75-1.00 against PP7's 0.51-1.00: better against five, equal against two;
+    - GB3 learned g8 (0.07 → 0.70) but lost g18 (0.70 → 0.44);
+    - g2's numbers are mostly the prey's own crashes. Against g8, GA3 still loses 0.47 drones per game.
+  - **Re-solved table (31 × 26):** lo 0.374 → 0.440, hi 0.443.
+    - Predator mix: GA3 91, PP8 9 (PP8 beats PY8 0.92). Prey mix: c5 57, PY8 43.
+    - The mix's drones lost are at most 0.33 per game.
+  - **Changes from the plan:**
+    - the training curves start at the second tenth, because the synchronized reset inflates the first;
+    - the held-out baseline was added;
+    - the blocks took 48-52 min, not 40-45.
+  - **Meaning:**
+    - The predators' forgetting came from what they trained against, not from a lack of capacity: GA3 holds the
+      consolidation counter and the counters to the newer prey at once (the seven 0.66, the 19 newer prey 0.90).
+    - The start matters: from P1, the same training swapped the archive prey for the newer ones.
+    - GA3 is our best predator. The best single predator before won only 0.16 against its hardest prey.
+  - **Next (proposals):**
+    - a prey trained against GA3: one block each from PY8 and c5. Can a new prey escape it within one block, as PY8
+      escaped PP7?
+    - then whole-history training on both sides;
+    - or one more block for arm A (GA4).
+  - **Evidence:** `RESULTS.md`, `summary.txt`, `generalist/`, `held_out_baseline/`.
