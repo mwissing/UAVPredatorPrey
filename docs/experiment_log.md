@@ -2334,3 +2334,31 @@ are those of the predator (higher = better predator, lower = better prey).
   is left out), every reuse source, both spot-check paths, resuming and the decision.
 - **Start:** after step 3. `day_chain_2026-10-27_step4.sh` waits for "day chain done". About 55 min.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-27_extended_table_seed81/`.
+- **Result** (15:28-16:20, all 171 evaluations): **"the archive prey need a new counter"** (lo 0.521 → 0.374; bar
+  ≥ 0.471).
+  - **Reuse:** the spot check matched exactly (P1 against c1: 0.570 and 0.178 drones lost, as recorded), so league
+    v2's cells were reused.
+    - 650 cells (25 predators × 26 prey): 342 from the continuation, 90 from the two-families gates, 15 from the
+      archive check, 32 from league v2's gates and 171 new.
+  - **Restricted game:** predators PP8 48, A2 29, PP5 14, PP6 5, PP7 3, A3 1; lo 0.521. With A1-A3, B1-B3 and L3pred
+    the value rises from the continuation's 0.49.
+  - **Extended game:** predators P3 47, PP8 30, A3 19, P1 3, A2 1; prey c5 47, PY8 23, PY7 12, PY4 12, XY2 6; lo 0.374,
+    hi 0.376.
+  - **The predators split into two groups, each blind to the other's prey:**
+    - The old ones beat the seven but not the newer prey. P1 wins 0.42-0.71 against the seven and averages 0.30 over
+      the 19 population prey. P3 has 0.39-0.71 and 0.42, L3pred 0.75-0.82 against c2-c4 and 0.30.
+    - The new ones are the reverse: PP7 0.83 over the population but 0.40 against the seven (c5 0.20), A3 0.72 and
+      0.40.
+    - No single predator wins more than 0.16 against all 26 prey.
+  - **c5 is the hardest:** the restricted mix wins only 0.17 against it, and only P1 (0.65) and P3 (0.59) beat it
+    clearly.
+  - **PP7 does not crash against the seven** (0.14-0.29 drones lost per game); it does not catch them either.
+  - **Meaning:**
+    - The honest number for our predator side is 0.37, the most it can guarantee against every prey version we have.
+    - The counters exist, but in different networks. The forgetting runs through the whole lineage, as in the
+      continuation.
+  - **Next (proposals):**
+    - a generalist trained against all 26 prey from PP7, with a second arm from P1 to test the start, gated on the
+      worst case over all prey;
+    - or PSRO from the extended table with a history share.
+  - **Evidence:** `RESULTS.md`, `summary.txt`, `extended/`.

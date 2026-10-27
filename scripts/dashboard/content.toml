@@ -1310,6 +1310,29 @@ against two to four opponents, which is exactly the narrow training that makes t
 experiment = "2026-10-27_psro_continuation_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-27_psro_continuation_seed81/"]
 
+[[chapter.stage]]
+id = "extended-table-seed81"
+title = "Stage 8b: every predator we have against the whole prey history"
+dates = "2026-10-27"
+verdict = "failed"
+takeaway = "No mix of our 25 predators covers all 26 prey. Adding the seven archive prey drops the best guaranteed value from 0.52 to 0.37. The predators split into two groups. The old ones (P1, P3, L3pred) beat the consolidation and orbit prey but not the newer prey, and the new ones (PP7, A3) do the reverse. No single predator wins more than 0.16 against all 26."
+metric = "best mix's worst case: population prey 0.521 → with the seven 0.374 (bar ≥ 0.471) · against the seven: P1 0.60 / P3 0.56 / PP7 0.40 on average · c5: restricted mix 0.17, best P1 0.65"
+goal = "Seven archive prey (c1-c5, L1prey, L2prey) beat PSRO's final predator mix. Evaluate every predator we have (the PSRO population with PP1-PP8, A1-A3, B1-B3 and L3pred) against them and solve the table with and without them. Pre-registered: the predators cover them if the extended lo ≥ the restricted lo − 0.05."
+result = """
+- Pre-registered verdict "the archive prey need a new counter": lo 0.521 → 0.374. The extended mix: P3 47 %, PP8 30 %, A3 19 %, P1 3 %, A2 1 %, against c5 47 %, PY8 23 %, PY7 12 %, PY4 12 %, XY2 6 %.
+- The old predators beat the seven (P1 0.42-0.71, P3 0.39-0.71, L3pred 0.75-0.82 against c2-c4), but they average only 0.30-0.42 against the 19 population prey.
+- The new ones do the reverse: PP7 averages 0.83 over the population but 0.40 against the seven (c5 0.20, with only 0.14-0.29 drones lost per game, so it is not crashing).
+- The spot check matched league v2's record exactly (0.570, 0.178). 171 new evaluations; 479 cells reused.
+"""
+why = """
+The counters exist, but in different networks: the consolidation counter in P1 and P3, and the counter to the newer
+prey in PP7 and A3. A mix can only share its games between them, so its value falls. The PSRO population's value of
+0.49-0.52 held only because its table left out the oldest prey. This is the continuation's lesson at a larger scale: a
+predator trained against part of the history loses the rest, or never gets it.
+"""
+experiment = "2026-10-27_extended_table_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-27_extended_table_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1825,9 +1848,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b day chain: the extended table (running), then videos"
-why = "Steps 1-4 pre-registered (2026-10-27). 1) Done: one predator can catch both escape families. 2) Done: the archive beats PSRO's final predator mix (the consolidation and orbit prey). 3) Done: PSRO iterations 5-8, no narrowing. PP7 beat every prey in the table, then PY8 escaped it and PP8 forgot most of its counters. See the stage cards. 4) Running since 15:28, evaluations only: every predator we have (with T, P1, P3, A1-A3, PP5-PP8 and L3pred) against the seven archive prey, solved with and without them. Can the predator side re-mix to cover them, and does PP7 beat them too? 5) Added at 14:30, videos only: PP7 against PY8, PY4 and L3prey; PP6 against PY4 and PP8 against Y3 (the pillar crashes); PP8 against PY8."
-cost = "step 4 about 65 min from 15:28 (end around 16:35); step 5 about 12 min after that"
+title = "Stage 8b: a generalist predator trained against the whole prey history (proposal)"
+why = "The 2026-10-27 day chain (four stage cards) found that the predators' bottleneck is forgetting, not capacity. PP7 beat all but one of the 19 PSRO population prey, but no archive consolidation prey clearly. The old counters P1 and P3 beat those prey but not the newer ones. And PSRO's one-block learners, trained against two to four opponents, lost counters within one block by crashing into pillars. Proposal: train from PP7 (and from P1 as a second arm, to test the start) against all 26 prey, evenly or weighted toward the ones it loses to. Gate on the worst case over all prey and on drones lost against each. Alternative: PSRO from the extended table with a share of the whole history in each learner's training."
+cost = "a plan for review first; then about 1.5-2 h per arm (2-3 blocks)"
 
 [[next]]
 title = "Lagrangian crash constraint"
