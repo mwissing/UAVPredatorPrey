@@ -1849,8 +1849,8 @@ cost = "a design proposal for review first; then env + observation changes (inva
 
 [[next]]
 title = "Stage 8b: a generalist predator trained against the whole prey history (running)"
-why = "Pre-registered 2026-10-27, running since 16:58. The day chain found that the predators' bottleneck is forgetting, not capacity: no mix of our 25 predators covers all 26 prey (0.374). Two arms train three blocks each against all 26 prey at once: arm A from PP7, arm B from P1. Half of the games are spread evenly, half go to the prey the predator fails against, with 25 pool policies. Bar: a gate with worst case ≥ 0.40 over the 26 prey and drones lost ≤ 0.37 against each. Also reported: did each arm keep its counters (no prey more than 0.2 below the start), and did its worst case grow by 0.1?"
-cost = "about 40-45 min per block (26 opponents slow training) and about 8.5 min per gate: about 5 h, ending around 22:00-22:15"
+why = "Pre-registered 2026-10-27, running since 16:58. The day chain found that the predators' bottleneck is forgetting, not capacity: no mix of our 25 predators covers all 26 prey (0.374). Two arms train three blocks each against all 26 prey at once: arm A from PP7, arm B from P1. Half of the games are spread evenly, half go to the prey the predator fails against, with 25 pool policies. Bar: a gate with worst case ≥ 0.40 over the 26 prey and drones lost ≤ 0.37 against each. Also reported: did each arm keep its counters (no prey more than 0.2 below the start), and did its worst case grow by 0.1? First gate (GA1, 17:59): worst case 0.141 → 0.332 (against PY8), the seven archive prey 0.40 → 0.61 on average, no prey more than 0.04 below the start, drones lost at most 0.28."
+cost = "about 52 min per block (26 opponents slow training) and about 9 min per gate: about 6 h, ending around 23:10"
 
 [[next]]
 title = "Lagrangian crash constraint"
