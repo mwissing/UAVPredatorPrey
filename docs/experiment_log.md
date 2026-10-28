@@ -2489,3 +2489,38 @@ are those of the predator (higher = better predator, lower = better prey).
   - **Next (proposal, not run):** two rounds of whole-history training on both sides, about 4.5 h; or GA4 alone, about
     1.2 h.
   - **Evidence:** `RESULTS.md`, `summary.txt`, `escape/`, `videos_after_run/`.
+
+## 2026-10-28: Both sides trained against the whole history, in turn (pre-registered)
+
+- **User:** "go on with the training", the escape test's recommendation.
+- **Question:** every new version so far was beaten by the next one-block learner, most recently GA3 by a prey trained
+  against it alone. If both sides train against every version of the other side, in turn, does the cycle stop?
+- **Design:**
+  - **Two rounds of 1200-update blocks** (LR 1e-4, KL 0.05), the learner's Adam state kept:
+    - round 1: GA4, a predator block from GA3 against all 28 prey (seed 81651); then GY1, a prey block from EY5
+      against all 32 predators (81652);
+    - round 2: GA5 from GA4 against all 29 prey (81653); then GY2 from GY1 against all 33 predators (81654).
+  - **Shares as in the generalist test:** half of the games even, half in proportion to how often the learner fails
+    against each version at its start's last gate. The largest share is the frozen opponent in the start checkpoint,
+    the others form the per-env pool (27-32 policies).
+  - **A gate after each block:** the new version against every version of the other side (512 games, seed 42), the
+    newest first. The table stays complete: 33 predators × 30 prey at the end.
+- **Decision:** the gain of each block's learner against the other side's newest version. The newest version "holds"
+  if the gain is ≤ 0.10, "is beaten" if ≥ 0.20, and "is dented" in between.
+  - Round 2 decides: "the cycle stops" if GY1 holds through GA5's block and GA5 holds through GY2's block; "the cycle
+    continues" if both are beaten; otherwise "mixed".
+  - "Undecided" if any block made its version worse against the whole other side (mean prey lost more than 0.10
+    worse than its start's).
+  - Also reported: the shares, each new version's worst case, mean and forgetting, drones lost and own crashes, the
+    training curves, and the table re-solved after each round (start: 0.292 / 0.302).
+  - Prior: "mixed" or "stops", because the newest opponent gets only about 4-9% of each learner's games. "Stops" would
+    not show that the newest versions are hard to beat for a learner focused on them.
+- **Code:** driver `run_whole_history.py`, and `summarize.py`.
+  - The versions are rebuilt with the extended table's code plus the generalist and escape tests' records; the starting
+    table (31 × 28) is copied from those runs and re-solves to the escape test's numbers.
+  - A dry run against a fake backend checked the shares, starts, seeds, pool sizes, gate order, resuming and all four
+    outcomes.
+  - A 24-update GPU smoke block from EY5 passed: 30 predators in the pool at share 0.962, the frozen predator
+    verified, 15.2 GB of GPU memory, about 11 steps/s (about 45-55 min per block).
+- **Start:** about 16:40; about 4-4.5 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-28_whole_history_both_sides_seed81/`.

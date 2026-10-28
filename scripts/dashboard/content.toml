@@ -1381,6 +1381,26 @@ to 0.324, and the worst case is what moved the guarantee.
 experiment = "2026-10-28_prey_vs_ga3_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-28_prey_vs_ga3_seed81/"]
 
+[[chapter.stage]]
+id = "whole-history-both-sides-seed81"
+title = "Stage 8b: both sides trained against the whole history, in turn"
+dates = "2026-10-28"
+verdict = "running"
+takeaway = "Running: two rounds in which the predator and then the prey train one block each against every version of the other side (GA4, GY1, GA5, GY2). Question: does the cycle stop, or does each side's newest version still lose a lot to the other side's next block?"
+metric = "gain of each block's learner against the other side's newest version: holds ≤ 0.10, beaten ≥ 0.20 · round 2 decides · starting table: best predator mix 0.292, best prey mix 0.302"
+goal = "Every new version so far was beaten by the next one-block learner, most recently GA3 by a prey trained against it alone (EY5, which beats all 31 predators). Train both sides against the whole history of the other, in turn: GA4 from GA3 against all 28 prey, GY1 from EY5 against all 32 predators, then GA5 and GY2. Shares as in the generalist test: half even, half toward the versions the learner loses to. Pre-registered on round 2: the cycle stops if both newest versions hold (gain ≤ 0.10), continues if both are beaten (gain ≥ 0.20), otherwise mixed; undecided if a block made its version worse against the whole other side."
+result = """
+- Running since about 16:40; about 4-4.5 h (ends about 21:00).
+"""
+why = """
+Whole-history training fixed the predator's forgetting (the generalist test), but the prey that escaped GA3 trained
+against GA3 alone. If both sides train against everything the other side has, the next block may no longer beat the
+newest version. The newest opponent gets only about 4-9% of each learner's games, though, so "the cycle stops" would
+not mean the newest versions are hard to beat for a learner focused on them.
+"""
+experiment = "2026-10-28_whole_history_both_sides_seed81"
+evidence = ["artifacts/isaac/experiments/2026-10-28_whole_history_both_sides_seed81/"]
+
 # =========================================================================================== featured videos
 
 [[featured]]
@@ -1896,9 +1916,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: both sides trained against the whole history, in turn (proposal)"
-why = "The escape test (2026-10-28) showed that whole-history training fixes forgetting but not exploitability: one prey block escaped GA3, and EY5 escaped every predator we have (best 0.324). Proposal: two rounds, each a predator block from the newest predator (first GA3) against all prey, EY5 and EY8 included, then a prey block from the newest prey (first EY5) against all predators. Shares as in the generalist test: half even, half toward the versions each side loses to. Question: do the newest versions' worst cases settle, or does the cycle continue? A smaller first step: GA4 alone (can GA3 learn EY5 and EY8 without forgetting the 26?)."
-cost = "a plan for review first; about 2.2 h per round (blocks of about 50 min with a large pool, gates of 10-11 min), so about 4.5 h for two rounds; GA4 alone about 1.2 h"
+title = "Stage 8b: both sides trained against the whole history, in turn (running)"
+why = "Running since about 16:40 (card above): GA4 from GA3 against all 28 prey, GY1 from EY5 against all 32 predators, then GA5 and GY2. Pre-registered on round 2: the cycle stops if both newest versions hold through the other side's next block (gain ≤ 0.10), continues if both are beaten (gain ≥ 0.20), otherwise mixed. If it stops or is mixed, the next test is a focused attack on GA5 (one prey block against GA5 alone, the escape test's design)."
+cost = "running; about 4-4.5 h, ends about 21:00"
 
 [[next]]
 title = "Lagrangian crash constraint"
