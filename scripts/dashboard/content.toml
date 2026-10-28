@@ -1385,18 +1385,23 @@ evidence = ["artifacts/isaac/experiments/2026-10-28_prey_vs_ga3_seed81/"]
 id = "whole-history-both-sides-seed81"
 title = "Stage 8b: both sides trained against the whole history, in turn"
 dates = "2026-10-28"
-verdict = "running"
-takeaway = "Running: two rounds in which the predator and then the prey train one block each against every version of the other side (GA4, GY1, GA5, GY2). Question: does the cycle stop, or does each side's newest version still lose a lot to the other side's next block?"
-metric = "gain of each block's learner against the other side's newest version: holds ≤ 0.10, beaten ≥ 0.20 · round 2 decides · starting table: best predator mix 0.292, best prey mix 0.302"
+verdict = "worked"
+takeaway = "Yes, by the pre-registered rule: \"the cycle stops\". In all four blocks, the learner gained at most 0.10 against the other side's newest version (round 2: GA5 +0.092 against GY1, GY2 −0.018 against GA5). Both sides improved without forgetting: the prey GY1 got better against every predator (average 0.237 → 0.121), and the predator GA5 relearned the PY8 family (EY8 0.18 → 0.88). The table now has one best version per side, GA5 against GY1, at 0.211. Limits: GY1 held by a hair, and each learner gave the newest opponent only 3-8% of its games, so a focused attack is still the real test."
+metric = "gain against the other side's newest version (holds ≤ 0.10): EY5 −0.027, GA4 +0.061, GY1 +0.092, GA5 −0.018 · table value 0.30 → 0.19 → 0.21 · best mixes after round 2: GA5 100% against GY1 100%"
 goal = "Every new version so far was beaten by the next one-block learner, most recently GA3 by a prey trained against it alone (EY5, which beats all 31 predators). Train both sides against the whole history of the other, in turn: GA4 from GA3 against all 28 prey, GY1 from EY5 against all 32 predators, then GA5 and GY2. Shares as in the generalist test: half even, half toward the versions the learner loses to. Pre-registered on round 2: the cycle stops if both newest versions hold (gain ≤ 0.10), continues if both are beaten (gain ≥ 0.20), otherwise mixed; undecided if a block made its version worse against the whole other side."
 result = """
-- Running since 16:29; about 4-4.5 h (ends about 21:00).
+- Pre-registered verdict "the cycle stops" (run 16:29-20:37). Round 1: GA4 against EY5 0.207 → 0.180, GY1 against GA4 0.180 → 0.119. Round 2 (decides): GA5 against GY1 0.119 → 0.211 (+0.092, just under the 0.10 bar, noise ±0.03), GY2 against GA5 0.211 → 0.229.
+- Floor noted at 18:34, before round 2's data: a prey block cannot push the newest predator below zero, so "GA5 is beaten" would have needed GY2 below 0.011. GY2 did not even dent GA5.
+- GY1 is better against all 32 predators (worst case XP4 0.203; EY5's was 0.324). It is caught half as often (0.142 → 0.074) and crashes on its own half as often (0.088 → 0.045), without luring predators into crashes (drones lost 0.44 → 0.48).
+- GA5 relearned the PY8 family without forgetting (EY8 0.18 → 0.88, PY8 0.35 → 0.95; largest loss c5 0.50 → 0.38). In training, the counter grew over roughly updates 300-850. GA4's block, with nearly the same shares, never started it.
+- GY2 changed nothing beyond the noise (better than GY1 against only 8 of 33 predators).
+- Table: 0.292 / 0.302 at the start → 0.188 / 0.189 after round 1 (XP4 + GA3, losing up to 1.83 drones per game) → 0.211 / 0.211 after round 2, GA5 alone against GY1 alone. GA5 loses at most 0.20 drones per game.
 """
 why = """
-Whole-history training fixed the predator's forgetting (the generalist test), but the prey that escaped GA3 trained
-against GA3 alone. If both sides train against everything the other side has, the next block may no longer beat the
-newest version. The newest opponent gets only about 4-9% of each learner's games, though, so "the cycle stops" would
-not mean the newest versions are hard to beat for a learner focused on them.
+Training against the whole history, on both sides and in turn, ended the pattern in which every new version was
+beaten by the next one-block learner. The gains of both sides stuck. But each learner gave the other side's newest
+version only 3-8% of its games, and fictitious play approaches an equilibrium only on average. So the open question
+is exploitability: how much can a learner focused on GA5, or on GY1, gain against it?
 """
 experiment = "2026-10-28_whole_history_both_sides_seed81"
 evidence = ["artifacts/isaac/experiments/2026-10-28_whole_history_both_sides_seed81/"]
@@ -1916,9 +1921,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: both sides trained against the whole history, in turn (running)"
-why = "Running since 16:29 (card above): GA4 from GA3 against all 28 prey, GY1 from EY5 against all 32 predators, then GA5 and GY2. Pre-registered on round 2: the cycle stops if both newest versions hold through the other side's next block (gain ≤ 0.10), continues if both are beaten (gain ≥ 0.20), otherwise mixed. If it stops or is mixed, the next test is a focused attack on GA5 (one prey block against GA5 alone, the escape test's design)."
-cost = "running; about 4-4.5 h, ends about 21:00"
+title = "Stage 8b: focused attacks on GA5 and GY1 (proposal)"
+why = "The whole-history test (card above) left one best version per side, GA5 against GY1 at 0.211, but each learner there gave the newest opponent only 3-8% of its games. Train one prey block from GY1 against GA5 alone and one predator block from GA5 against GY1 alone (the escape test's design), each gated against the whole other side. If the prey takes GA5 down to x and the predator takes GY1 up to y, then y − x is how exploitable the pair is (zero for an exact equilibrium). The rule must be on x and y themselves, because a drop from 0.211 has a floor."
+cost = "about 1.2 h (two blocks of about 21 min without a pool, two gates of about 10 min); needs approval"
 
 [[next]]
 title = "Lagrangian crash constraint"

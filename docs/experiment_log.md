@@ -2532,3 +2532,34 @@ are those of the predator (higher = better predator, lower = better prey).
   - Added (exploratory): the newest predator's drop next to the mean drop over all predators.
   - The newest predator got 2.7% of GY1's games, not 4-9%.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-28_whole_history_both_sides_seed81/`.
+- **Result (2026-10-28, run 16:29-20:37; `RESULTS.md`):** **"the cycle stops".** No learner gained more than 0.10
+  against the other side's newest version:
+  - round 1: GA4 against EY5 0.207 → 0.180 (−0.027); GY1 against GA4 0.180 → 0.119 (+0.061);
+  - round 2 (decides): GA5 against GY1 0.119 → 0.211 (+0.092, just under the 0.10 bar); GY2 against GA5 0.211 → 0.229
+    (−0.018).
+  - No block broke: averages GA4 0.786 → 0.795, GY1 0.237 → 0.121, GA5 0.772 → 0.826, GY2 0.124 → 0.133.
+  - **Limits:** GY1 held by a hair (noise ±0.03). The floor noted at 18:34 meant that "GA5 is beaten" would have needed
+    GY2 to push GA5 below 0.011, but GY2 did not even dent it. The newest opponent got only 3-8% of each learner's
+    games, so the verdict does not say the newest versions are hard to beat.
+  - **GY1: one big, broad prey step.** It is better against all 32 predators (average 0.237 → 0.121, worst XP4
+    0.203). It is caught half as often (0.142 → 0.074) and crashes on its own half as often (0.088 → 0.045). The
+    predators lose no more drones than before (0.44 → 0.48), so it does not lure them into crashes.
+  - **GA5 relearned the PY8 family without forgetting:** EY8 0.18 → 0.88, PY8 0.35 → 0.95. Before GA5, only PP8
+    caught them, and PP8 forgot others. Its largest loss is c5 0.50 → 0.38. In training, the counter grew over
+    roughly updates 300-850. GA4's block, with nearly the same shares, never started it (one seed each).
+  - **GY2 changed nothing beyond the noise:** better than GY1 against only 8 of 33 predators. Its entropy rose all
+    through the block.
+  - **Tables:** start 0.292 / 0.302 → after round 1 0.188 / 0.189 (XP4 65 + GA3 35, losing up to 1.83 drones per
+    game) → after round 2 0.211 / 0.211 with a single version on each side: GA5 against GY1.
+    - GA5 loses at most 0.20 drones per game.
+    - GA5 wins ≥ 0.314 against the 28 prey of the start (the old best mix: 0.292).
+    - GY1 loses ≤ 0.203 against the 31 predators of the start (the old best prey mix: 0.302).
+  - **Changes from the plan:** none in the design or the rule. Added: the 18:34 note (floor, shares 2.7% and 4.1%
+    instead of "4-9%"), and exploratory per-tenth curves, the 33 × 29 interim table and the newest predator's drop vs
+    the average. The plan's "starts about 16:40" was an estimate.
+  - **Meaning:** whole-history training on both sides stopped the "beaten by the next block" pattern, and both sides'
+    gains stuck. The open question is exploitability: how much can a learner focused on GA5 or on GY1 gain?
+  - **Next (proposal, not run):** focused attacks on both members of the pair, about 1.2 h. A prey block from GY1
+    against GA5 alone, and a predator block from GA5 against GY1 alone. The rule is on where each takes the 0.211,
+    since the drop has a floor.
+  - **Evidence:** `RESULTS.md`, `summary.txt`, `decision.json`, `whole/`.
