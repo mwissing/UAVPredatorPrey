@@ -76,6 +76,13 @@ parser.add_argument(
     help="Color of the scene overlay's matte floor. A light floor makes the small drones easier to see.",
 )
 parser.add_argument(
+    "--render-every",
+    type=int,
+    default=1,
+    help="Render only every N policy steps; physics and policy still run every step. The window costs about 11 ms per"
+    " frame, so N=2 lets it keep up with real time.",
+)
+parser.add_argument(
     "--trail-seconds",
     type=float,
     default=0.0,
@@ -531,6 +538,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # In videos and in the window alike: temporal anti-aliasing and DLSS leave trails behind the small, fast drones.
     env_cfg.sim.render.antialiasing_mode = args_cli.video_antialiasing
     env_cfg.sim.render.enable_dlssg = False
+    env_cfg.sim.render_interval = env_cfg.decimation * args_cli.render_every
     if args_cli.video:
         env_cfg.viewer.resolution = (int(args_cli.video_width), int(args_cli.video_height))
         print(
@@ -635,6 +643,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # reset environment
     obs, _ = env.reset()
     timestep = 0
+    paced_steps, paced_busy, paced_since = 0, 0.0, time.time()
+    next_tick = time.time()
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -666,10 +676,24 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             if timestep == args_cli.video_length:
                 break
 
-        # time delay for real-time evaluation
-        sleep_time = dt - (time.time() - start_time)
+        # time delay for real-time evaluation, on a running clock: cheap steps make up for slow ones (the steps that
+        # render), but after a long stall the game does not race to catch up
+        busy = time.time() - start_time
+        next_tick = max(next_tick + dt, time.time() - 0.1)
+        sleep_time = next_tick - time.time()
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
+        if args_cli.real_time:  # report how close the window gets to real time
+            paced_steps += 1
+            paced_busy += busy
+            if paced_steps * dt >= 5.0:
+                simulated, wall = paced_steps * dt, time.time() - paced_since
+                print(
+                    f"[INFO] Real time: {simulated:.1f} s simulated in {wall:.1f} s ({simulated / wall:.2f}x); one step"
+                    f" takes {1e3 * paced_busy / paced_steps:.1f} ms, real time allows {1e3 * dt:.1f} ms",
+                    flush=True,
+                )
+                paced_steps, paced_busy, paced_since = 0, 0.0, time.time()
 
     # close the simulator
     env.close()
