@@ -2522,5 +2522,5 @@ are those of the predator (higher = better predator, lower = better prey).
     outcomes.
   - A 24-update GPU smoke block from EY5 passed: 30 predators in the pool at share 0.962, the frozen predator
     verified, 15.2 GB of GPU memory, about 11 steps/s (about 45-55 min per block).
-- **Start:** about 16:40; about 4-4.5 h.
+- **Start:** 16:29:26; about 4-4.5 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-28_whole_history_both_sides_seed81/`.
