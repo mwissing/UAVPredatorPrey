@@ -76,10 +76,10 @@ parser.add_argument(
     help="Color of the scene overlay's matte floor. A light floor makes the small drones easier to see.",
 )
 parser.add_argument(
-    "--obstacle-opacity",
+    "--trail-seconds",
     type=float,
-    default=1.0,
-    help="Opacity of the pillars in videos and the window (1 = solid). Below 1, drones behind a pillar stay visible.",
+    default=0.0,
+    help="Draw each drone's last seconds as a fading line of fixed pixel width, as in the dashboard replay (0 = off).",
 )
 parser.add_argument(
     "--camera-eye",
@@ -285,6 +285,7 @@ class _VideoSceneOverlay:
         ((1.0, 0.38, 0.02), (0.8, 0.18, 0.0)),
         ((1.0, 0.04, 0.42), (0.8, 0.0, 0.2)),
     )
+    _PREY_COLOR = ((0.02, 0.82, 1.0), (0.0, 0.55, 0.9))
 
     def __init__(
         self,
@@ -296,7 +297,7 @@ class _VideoSceneOverlay:
         add_markers: bool,
         add_scene_overlay: bool,
         floor_color: tuple[float, float, float],
-        obstacle_opacity: float,
+        trail_seconds: float,
     ) -> None:
         self._unwrapped = env.unwrapped
         self._marker_height = float(marker_height)
@@ -316,31 +317,19 @@ class _VideoSceneOverlay:
 
         if add_scene_overlay:
             self._create_scene_overlay()
-        if obstacle_opacity < 1.0:
-            self._set_obstacle_opacity(float(obstacle_opacity))
         if add_markers and marker_radius > 0.0 and prey is not None and predators:
             self._create_drone_markers(float(marker_radius), len(predators))
         elif add_markers:
             print("[WARNING] Video drone markers are only available for environments exposing _predators and _prey.")
+        self._trails = None
+        if trail_seconds > 0.0 and prey is not None and predators:
+            from collections import deque
 
-    def _set_obstacle_opacity(self, opacity: float) -> None:
-        import carb
-        import omni.usd
+            from isaacsim.util.debug_draw import _debug_draw
 
-        # Tinted thin-walled glass. A fractional surface opacity renders grainy without temporal anti-aliasing, and
-        # that leaves trails behind the drones; refraction through smooth glass needs no such smoothing. Glass needs
-        # the translucency pass, which Isaac Lab turns off by default.
-        carb.settings.get_settings().set_bool("/rtx/translucency/enabled", True)
-        transmission = 1.0 - opacity
-        glass_cfg = sim_utils.GlassMdlCfg(glass_color=(transmission, transmission, transmission), thin_walled=True)
-        glass_cfg.func("/Visuals/Video/PillarGlass", glass_cfg)
-        stage = omni.usd.get_context().get_stage()
-        count = 0
-        for prim in stage.GetPrimAtPath(f"/World/envs/env_{self._env_index}").GetChildren():
-            if prim.GetName().startswith("Obstacle_"):
-                sim_utils.bind_visual_material(f"{prim.GetPath()}/geometry", "/Visuals/Video/PillarGlass")
-                count += 1
-        print(f"[INFO] Pillar glass (opacity {opacity}) on {count} obstacles of env {self._env_index}")
+            self._draw = _debug_draw.acquire_debug_draw_interface()
+            length = max(2, round(trail_seconds / self._unwrapped.step_dt))
+            self._trails = [deque(maxlen=length) for _ in range(len(predators) + 1)]
 
     def _create_scene_overlay(self) -> None:
         import omni.usd
@@ -417,8 +406,8 @@ class _VideoSceneOverlay:
                     "prey": sim_utils.SphereCfg(
                         radius=radius,
                         visual_material=sim_utils.PreviewSurfaceCfg(
-                            diffuse_color=(0.02, 0.82, 1.0),
-                            emissive_color=(0.0, 0.55, 0.9),
+                            diffuse_color=self._PREY_COLOR[0],
+                            emissive_color=self._PREY_COLOR[1],
                             roughness=0.75,
                         ),
                     )
@@ -426,7 +415,29 @@ class _VideoSceneOverlay:
             )
         )
 
+    def _update_trails(self) -> None:
+        drones = [*self._unwrapped._predators, self._unwrapped._prey]
+        colors = [self._PREDATOR_COLORS[i % len(self._PREDATOR_COLORS)][0] for i in range(len(drones) - 1)]
+        colors.append(self._PREY_COLOR[0])
+        starts, ends, line_colors = [], [], []
+        for drone, trail, color in zip(drones, self._trails, colors):
+            position = tuple(drone.data.root_pos_w[self._env_index].tolist())
+            # More than 1 m within one step is a reset or a downed drone moved away: start a new trail.
+            if trail and sum((a - b) ** 2 for a, b in zip(trail[-1], position)) > 1.0:
+                trail.clear()
+            trail.append(position)
+            for j in range(1, len(trail)):
+                s = j / (len(trail) - 1)  # from the floor color at the tail into the drone's color at its head
+                starts.append(trail[j - 1])
+                ends.append(trail[j])
+                line_colors.append((*(f + (c - f) * s for f, c in zip(self._floor_color, color)), 1.0))
+        self._draw.clear_lines()
+        if starts:
+            self._draw.draw_lines(starts, ends, line_colors, [3.5] * len(starts))
+
     def update(self) -> None:
+        if self._trails is not None:
+            self._update_trails()
         if self._predator_markers is None or self._prey_markers is None:
             return
         predators = self._unwrapped._predators
@@ -569,7 +580,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         _set_video_resolution()
 
     overlay = None
-    scene_aids = args_cli.video_markers or args_cli.video_scene_overlay or args_cli.obstacle_opacity < 1.0
+    scene_aids = args_cli.video_markers or args_cli.video_scene_overlay or args_cli.trail_seconds > 0.0
     if (args_cli.video or not args_cli.headless) and scene_aids:
         overlay = _VideoSceneOverlay(
             env,
@@ -579,7 +590,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             add_markers=args_cli.video_markers,
             add_scene_overlay=args_cli.video_scene_overlay,
             floor_color=args_cli.floor_color,
-            obstacle_opacity=args_cli.obstacle_opacity,
+            trail_seconds=args_cli.trail_seconds,
         )
 
     # convert to single-agent instance if required by the RL algorithm
