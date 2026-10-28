@@ -41,7 +41,7 @@ parser.add_argument(
     "--video-antialiasing",
     choices=("Off", "FXAA", "DLSS", "TAA", "DLAA"),
     default="FXAA",
-    help="Video anti-aliasing mode. FXAA avoids temporal trails around small fast objects.",
+    help="Anti-aliasing mode of videos and the window. FXAA avoids temporal trails around small fast objects.",
 )
 parser.add_argument(
     "--video-markers",
@@ -66,6 +66,20 @@ parser.add_argument(
     action=argparse.BooleanOptionalAction,
     default=True,
     help="Cover the dense ground grid with a matte floor and sparse reference lines.",
+)
+parser.add_argument(
+    "--floor-color",
+    type=float,
+    nargs=3,
+    default=(0.055, 0.065, 0.075),
+    metavar=("R", "G", "B"),
+    help="Color of the scene overlay's matte floor. A light floor makes the small drones easier to see.",
+)
+parser.add_argument(
+    "--obstacle-opacity",
+    type=float,
+    default=1.0,
+    help="Opacity of the pillars in videos and the window (1 = solid). Below 1, drones behind a pillar stay visible.",
 )
 parser.add_argument(
     "--camera-eye",
@@ -264,7 +278,7 @@ def _set_video_resolution() -> None:
 
 
 class _VideoSceneOverlay:
-    """Video-only scene aids that never participate in physics or observations."""
+    """Scene aids for videos and the window that never participate in physics or observations."""
 
     _PREDATOR_COLORS = (
         ((1.0, 0.05, 0.02), (0.8, 0.01, 0.0)),
@@ -281,9 +295,12 @@ class _VideoSceneOverlay:
         marker_height: float,
         add_markers: bool,
         add_scene_overlay: bool,
+        floor_color: tuple[float, float, float],
+        obstacle_opacity: float,
     ) -> None:
         self._unwrapped = env.unwrapped
         self._marker_height = float(marker_height)
+        self._floor_color = tuple(float(value) for value in floor_color)
         self._predator_markers = None
         self._prey_markers = None
 
@@ -299,10 +316,31 @@ class _VideoSceneOverlay:
 
         if add_scene_overlay:
             self._create_scene_overlay()
+        if obstacle_opacity < 1.0:
+            self._set_obstacle_opacity(float(obstacle_opacity))
         if add_markers and marker_radius > 0.0 and prey is not None and predators:
             self._create_drone_markers(float(marker_radius), len(predators))
         elif add_markers:
             print("[WARNING] Video drone markers are only available for environments exposing _predators and _prey.")
+
+    def _set_obstacle_opacity(self, opacity: float) -> None:
+        import carb
+        import omni.usd
+
+        # Tinted thin-walled glass. A fractional surface opacity renders grainy without temporal anti-aliasing, and
+        # that leaves trails behind the drones; refraction through smooth glass needs no such smoothing. Glass needs
+        # the translucency pass, which Isaac Lab turns off by default.
+        carb.settings.get_settings().set_bool("/rtx/translucency/enabled", True)
+        transmission = 1.0 - opacity
+        glass_cfg = sim_utils.GlassMdlCfg(glass_color=(transmission, transmission, transmission), thin_walled=True)
+        glass_cfg.func("/Visuals/Video/PillarGlass", glass_cfg)
+        stage = omni.usd.get_context().get_stage()
+        count = 0
+        for prim in stage.GetPrimAtPath(f"/World/envs/env_{self._env_index}").GetChildren():
+            if prim.GetName().startswith("Obstacle_"):
+                sim_utils.bind_visual_material(f"{prim.GetPath()}/geometry", "/Visuals/Video/PillarGlass")
+                count += 1
+        print(f"[INFO] Pillar glass (opacity {opacity}) on {count} obstacles of env {self._env_index}")
 
     def _create_scene_overlay(self) -> None:
         import omni.usd
@@ -317,7 +355,7 @@ class _VideoSceneOverlay:
         floor_cfg = sim_utils.CuboidCfg(
             size=(1000.0, 1000.0, 0.02),
             visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.055, 0.065, 0.075),
+                diffuse_color=self._floor_color,
                 roughness=0.95,
             ),
         )
@@ -479,10 +517,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # override configurations with non-hydra CLI arguments
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
+    # In videos and in the window alike: temporal anti-aliasing and DLSS leave trails behind the small, fast drones.
+    env_cfg.sim.render.antialiasing_mode = args_cli.video_antialiasing
+    env_cfg.sim.render.enable_dlssg = False
     if args_cli.video:
         env_cfg.viewer.resolution = (int(args_cli.video_width), int(args_cli.video_height))
-        env_cfg.sim.render.antialiasing_mode = args_cli.video_antialiasing
-        env_cfg.sim.render.enable_dlssg = False
         print(
             "[INFO] Video clarity preset: "
             f"{args_cli.video_width}x{args_cli.video_height}, "
@@ -530,7 +569,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         _set_video_resolution()
 
     overlay = None
-    if args_cli.video and (args_cli.video_markers or args_cli.video_scene_overlay):
+    scene_aids = args_cli.video_markers or args_cli.video_scene_overlay or args_cli.obstacle_opacity < 1.0
+    if (args_cli.video or not args_cli.headless) and scene_aids:
         overlay = _VideoSceneOverlay(
             env,
             env_index=args_cli.camera_env_index,
@@ -538,6 +578,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             marker_height=args_cli.video_marker_height,
             add_markers=args_cli.video_markers,
             add_scene_overlay=args_cli.video_scene_overlay,
+            floor_color=args_cli.floor_color,
+            obstacle_opacity=args_cli.obstacle_opacity,
         )
 
     # convert to single-agent instance if required by the RL algorithm
