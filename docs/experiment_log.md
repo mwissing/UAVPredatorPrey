@@ -2523,4 +2523,12 @@ are those of the predator (higher = better predator, lower = better prey).
   - A 24-update GPU smoke block from EY5 passed: 30 predators in the pool at share 0.962, the frozen predator
     verified, 15.2 GB of GPU memory, about 11 steps/s (about 45-55 min per block).
 - **Start:** 16:29:26; about 4-4.5 h.
+- **Note after round 1 (18:34, before any data of round 2; the rule is unchanged):**
+  - A prey block's gain (the newest predator's drop) cannot exceed the newest predator's value at the prey's start.
+    GA4 had only 0.180 against EY5, so "beaten" was impossible in GY1's block. In GY2's block it is impossible if GA5
+    has less than 0.20 against GY1 (GA4: 0.119).
+  - "The cycle stops" would then mean that the predator learner no longer catches up while the prey is ahead of every
+    predator, not a balance.
+  - Added (exploratory): the newest predator's drop next to the mean drop over all predators.
+  - The newest predator got 2.7% of GY1's games, not 4-9%.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-28_whole_history_both_sides_seed81/`.
