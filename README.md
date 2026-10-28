@@ -102,6 +102,17 @@ env -u DISPLAY -u XAUTHORITY \
 This avoids the verified Kit `XOpenDisplay` startup crash without changing the
 interactive shell or disabling later GUI sessions.
 
+To watch a checkpoint live in Isaac Sim's window, run on the host (the
+checkpoint holds both roles; compose a pair with `scripts/compose_checkpoint.py`):
+
+```bash
+scripts/watch_in_isaac.sh /home/marc/RL/artifacts/isaac/experiments/<run>/<pair>.pt
+```
+
+The X11 cookie a container is started with dies with the desktop session that
+issued it, and `container.py enter` does not replace it once the file is gone.
+The script hands the running container the current cookie each time.
+
 ## Verify The Runtime
 
 Inside the container:
