@@ -2460,3 +2460,32 @@ are those of the predator (higher = better predator, lower = better prey).
   - A 24-update GPU smoke block from c5 passed: its optimizer state loads, the predator stays frozen, 23 steps/s.
 - **Start:** about 07:10; about 1.1 h.
 - **Evidence:** `artifacts/isaac/experiments/2026-10-28_prey_vs_ga3_seed81/`.
+- **Result (2026-10-28, run 07:00-08:01; `RESULTS.md`):** **"GA3 is escaped".**
+  - **GA3 against the new prey:**
+    - PY8 0.393 → EY8 **0.166**;
+    - c5 0.477 → EY5 **0.207**, just above 0.20 but far below the 0.377 that "holds" needed.
+    - Both are evasion: GA3's catch rate fell from 0.355 to 0.117 and from 0.451 to 0.131. The prey's own crashes rose
+      a little (0.031 → 0.045, 0.016 → 0.074) and count against them.
+  - **EY8's escape is narrow.**
+    - GA1-GA3 are each 0.11-0.23 lower against it.
+    - Its average over the 31 predators is unchanged (0.222 → 0.217).
+    - PP8 still wins 0.861 against it (0.14 drones lost per game).
+  - **EY5 escaped every predator.**
+    - The predators that had caught c5 lost most: P1 0.645 → 0.270, P3 0.588 → 0.287, GB1 0.559 → 0.283.
+    - It got worse against those that never had (XP2 0.06 → 0.32), so its average is flat (0.247 → 0.239).
+    - The best predator against it is XP2 at 0.324, losing 1.50 drones per game; within the drone limit, B3 at 0.307.
+  - **Re-solved table (31 × 28):** the predator guarantee falls from 0.440 to 0.292, and the prey mix is 83% EY5.
+    - The new predator mix leans on XP2 and XP4, which lose up to 2-2.75 drones per game against some prey.
+    - With only the 10 predators within the drone limit (exploratory): 0.413 → 0.268.
+  - **Training (noisy actions):** most of the escape came in the first ~200 updates. EY5's block swung between being
+    caught and crashing. Both prey flew slower by the end (EY8 4.2 → 3.8 m/s, EY5 5.8 → 5.2 m/s).
+  - **Changes from the plan:**
+    - none in the design or the decision;
+    - the plan's header time (07:05) was a planned time; the file was finished at 07:00:20, before the launch;
+    - added afterwards: the drone-limited re-solve, the noisy-action reference, the speed numbers, and five videos
+      (not analyzed).
+  - **Meaning:** whole-history training fixes forgetting but not exploitability. A frozen predator is still beaten by
+    the next one-block prey. Both sides need whole-history training, in turn.
+  - **Next (proposal, not run):** two rounds of whole-history training on both sides, about 4.5 h; or GA4 alone, about
+    1.2 h.
+  - **Evidence:** `RESULTS.md`, `summary.txt`, `escape/`, `videos_after_run/`.
