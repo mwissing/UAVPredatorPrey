@@ -158,6 +158,24 @@ S021_jul18 = "scratch, July 18 (S021)"
 # episodes by outcome (typical catch, longest chase, crashes, escape, near miss) and caches them as JSON.
 
 [[replay]]
+id = "whole-history-ga5-gy1"
+title = "Whole-history test: GA5 against GY1, the pair the table settled on"
+note = "After two rounds in which each side trained against every version of the other. GA5 wins at least 0.211 against every one of our 30 prey, and GY1 loses at most 0.211 against every one of our 33 predators: this game is where both worst cases meet. Prey lost 0.211 (caught 0.139, crashed 0.072, nearly always with no predator nearby), 0.11 drones lost per episode, 8.8 s per game on average (10 s is the limit). The gate's own 512 games, seed 42."
+path = "isaac/experiments/2026-10-28_whole_history_both_sides_seed81/replays_after_run/evals/GA5_vs_GY1.npz"
+
+[[replay]]
+id = "whole-history-ga4-ey8"
+title = "GA4 against EY8: before the counter"
+note = "EY8 escaped GA3 in the escape test. GA4, one block later against all 28 prey, still loses to it: caught 0.141, crashed 0.037, and most games run the full 10 s (9.0 s on average). Compare with GA5 against EY8, one block later again. The gate's own 512 games, seed 42."
+path = "isaac/experiments/2026-10-28_whole_history_both_sides_seed81/replays_after_run/evals/GA4_vs_EY8.npz"
+
+[[replay]]
+id = "whole-history-ga5-ey8"
+title = "GA5 against EY8: the counter relearned"
+note = "One more block against the whole prey history, with EY8 in about 8% of the games: GA5 catches EY8 in 0.855 of the games (prey lost 0.879, against GA4's 0.178), in 4.7 s on average, with 0.17 drones lost per episode. In training, the counter grew over roughly updates 300-850 of the block. The gate's own 512 games, seed 42."
+path = "isaac/experiments/2026-10-28_whole_history_both_sides_seed81/replays_after_run/evals/GA5_vs_EY8.npz"
+
+[[replay]]
 id = "league-v2-final"
 title = "League v2, final pair: the last predator against the last prey (own matchup)"
 note = "After 4 cycles of prioritized pools and exploiters. The predators trained last, against this prey, and catch it in 2.4 s on average: one-sided approaches convert at 0.55 within 1 s, pincers at 0.34. Catch 0.966, no time-outs, 0.03 drones lost per episode. The same predators catch the cycle-3 prey at 0.02. Both crashed-drone masks on."
