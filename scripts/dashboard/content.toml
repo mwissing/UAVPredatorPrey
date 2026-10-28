@@ -1872,9 +1872,9 @@ why = "Observations are full-state today, so pillars cannot hide anyone. In the 
 cost = "a design proposal for review first; then env + observation changes (invalidates obstacle checkpoints)"
 
 [[next]]
-title = "Stage 8b: a prey trained against GA3"
-why = "GA3 (2026-10-27) is the first predator that comes close to beating every prey version we have (worst case 0.393 over 26 prey). In the PSRO continuation, PY8 escaped the previous generalist, PP7, within one block. Train one block each from PY8 and from c5, the new prey mix, against GA3, and gate against GA3 and all 31 predators: is GA3 hard to beat, or only the newest target? If a prey escapes, continue with whole-history training on both sides (floor shares, more weight on the versions each side loses to)."
-cost = "proposal; about 2 h (two prey blocks and their gates)"
+title = "Stage 8b: a prey trained against GA3 (running)"
+why = "Pre-registered 2026-10-28, running since about 07:10. GA3 (2026-10-27) is the first predator that comes close to beating every prey version we have (worst case 0.393 over 26 prey), but PY8 escaped the previous generalist, PP7, within one block. Two prey blocks against GA3 alone: EY8 from PY8 and EY5 from c5, each gated against all 31 predators. GA3 is escaped if it wins 0.20 or less against either new prey; it holds if it stays within 0.10 of its result against both starts (PY8 0.393, c5 0.477). Also reported: does escaping GA3 open the prey to another predator, and the table re-solved with the two new prey."
+cost = "about 21-25 min per block and 11 min per gate: about 1.1 h, ending around 08:15"
 
 [[next]]
 title = "Lagrangian crash constraint"

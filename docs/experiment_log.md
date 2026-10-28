@@ -2432,3 +2432,31 @@ are those of the predator (higher = better predator, lower = better prey).
     - then whole-history training on both sides;
     - or one more block for arm A (GA4).
   - **Evidence:** `RESULTS.md`, `summary.txt`, `generalist/`, `held_out_baseline/`.
+
+## 2026-10-28: Can a prey escape GA3 within one block? (pre-registered)
+
+- **User:** "ok do as recommended", the generalist test's recommendation.
+- **Question:** GA3 wins at least 0.393 against each of the 26 prey we have. But PY8 escaped the previous generalist,
+  PP7, within one block (0.662 → 0.141), and three of league v2's four one-block prey exploiters beat their predator
+  clearly. Can a prey also escape GA3 within one block, or is GA3 hard to beat?
+- **Design:**
+  - **Two prey blocks** of 1200 updates (LR 1e-4, KL 0.05) against GA3 alone (frozen, no pool), with the Adam state
+    kept:
+    - EY8 from PY8 (seed 81641);
+    - EY5 from c5 (seed 81642).
+    - They are the two prey GA3 does worst against, and the two prey of the best prey mix.
+  - **A gate after each block:** the new prey against all 31 predators (the extended table's 25 and GA1-GB3), 512
+    games, seed 42, GA3 first. The starts' rows are reused from the extended table and the generalist test.
+- **Decision** (GA3's prey lost against each new prey):
+  - "GA3 is escaped" if it is ≤ 0.20 against either;
+  - "GA3 holds" if it is at most 0.10 below its result against the start for both (PY8 0.393, c5 0.477);
+  - otherwise "GA3 is weakened, not escaped".
+  - Also reported: each new prey against the 31 predators next to its start, the training curves, and the table
+    re-solved with the two new prey (31 × 28; the predator side's guarantee is 0.440 without them).
+- **Code:** driver `run_prey_vs_ga3.py`, and `summarize.py`.
+  - The 31 predators are rebuilt with the extended table's own code.
+  - A dry run against a fake backend checked the versions, starts, seeds, pool settings, gate order, resuming and all
+    three outcomes.
+  - A 24-update GPU smoke block from c5 passed: its optimizer state loads, the predator stays frozen, 23 steps/s.
+- **Start:** about 07:10; about 1.1 h.
+- **Evidence:** `artifacts/isaac/experiments/2026-10-28_prey_vs_ga3_seed81/`.
